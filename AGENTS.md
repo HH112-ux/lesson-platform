@@ -181,10 +181,17 @@ chore(deps): 升级 wechatpay-java 至 0.2.12
 | `apps/miniapp` | `pnpm lint` + 开发者工具真机预览（登录、下单、支付、播放各一次） | 失败不得提交 |
 | 支付 / 鉴权相关 | 上述 + 对应单测与回调验签用例（含伪造回调负例） | 失败不得提交 |
 | Flyway 迁移 | `mvn flyway:validate` | 失败不得提交 |
-| 文档 / 配置 | `markdownlint` / `yamllint`；无校验则跳过并在报告说明 | — |
+| 文档 / 配置 | `bash scripts/check-docs.sh`（链接、HTML、文件名、旧命名）；无校验则跳过并在报告说明 | 失败不得提交 |
 
-- 钩子（husky / gitleaks / commitlint）拦截时必须读输出、修根因、重新提交；**禁止绕过**。
+- 钩子（husky / gitleaks / commitlint / `.githooks`）拦截时必须读输出、修根因、重新提交；**禁止绕过**。
 - 报告中必须区分"已运行并通过""已运行但失败""未运行"，禁止模糊表述。
+
+### 7.1 本地钩子启用与 bootstrap 例外
+
+- **启用（每台机器执行一次）**：`git config core.hooksPath .githooks`。启用后 `pre-commit` 跑 `scripts/check-docs.sh`，`commit-msg` 跑 `scripts/check-commit-msg.sh`；两者均为纯 shell，不依赖 Node。
+- **验证**：`bash scripts/check-docs.sh && echo "ci: 冒烟提交" > /tmp/msg && bash scripts/check-commit-msg.sh /tmp/msg`。
+- **bootstrap 例外**：仓库初始化阶段允许直接在 `develop` 上提交并推送（此时分支保护尚未开启）；保护开启后一律按第二节从 `origin/develop` 切分支、经 PR 合入，例外自动失效，无需另行审批。
+- CI 端同等校验见 `.github/workflows/docs-ci.yml`；本地钩子未启用不得作为跳过 CI 的理由。
 
 ---
 

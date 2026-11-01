@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# pre-commit：文档规范校验
+exec "$(git rev-parse --show-toplevel)/scripts/check-docs.sh"
