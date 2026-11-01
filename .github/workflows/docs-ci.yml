@@ -1,0 +1,38 @@
+name: docs-ci
+
+on:
+  pull_request:
+    branches:
+      - develop
+      - main
+  push:
+    branches:
+      - develop
+
+jobs:
+  docs-check:
+    name: docs-check
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 文档规范校验
+        run: bash scripts/check-docs.sh
+
+      - name: 提交信息校验
+        run: |
+          set -e
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="${{ github.event.pull_request.base.sha }}"
+            head="${{ github.event.pull_request.head.sha }}"
+            for sha in $(git rev-list "$base".."$head"); do
+              git log -1 --pretty=%B "$sha" > /tmp/commit-msg.txt
+              bash scripts/check-commit-msg.sh /tmp/commit-msg.txt
+            done
+          else
+            git log -1 --pretty=%B > /tmp/commit-msg.txt
+            bash scripts/check-commit-msg.sh /tmp/commit-msg.txt
+          fi
