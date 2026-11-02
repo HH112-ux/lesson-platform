@@ -1,0 +1,5 @@
+<view class="page">
+  <text class="title">{{ title }}</text>
+  <text class="hint">小程序骨架已就绪，业务页面待后续批次实现。</text>
+  <text class="meta">API base: {{ apiBaseUrl }}</text>
+</view>

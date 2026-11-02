@@ -1,0 +1,6 @@
+/* Global styles shared by all pages. */
+page {
+  background: #f7f8fa;
+  color: #1f2329;
+  font-family: -apple-system, 'PingFang SC', 'Helvetica Neue', sans-serif;
+}
