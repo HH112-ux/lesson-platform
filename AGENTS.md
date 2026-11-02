@@ -115,8 +115,8 @@ git remote -v
 
 | 分支 | 用途 | 保护策略 | 部署目标 | 来源 |
 |---|---|---|---|---|
-| `main` | 生产基线 | 保护：禁止直推；1 人 approve + CI 全绿 + 双人评审（高风险改动） | `prod`（打 tag 后人工发布） | 只接受 PR |
-| `develop` | 集成 | 保护：禁止直推；CI 全绿 | `staging`（自动） | 只接受 PR |
+| `main` | 生产基线 | 保护：必须经 PR 且 `docs-check` 通过；禁强推、禁删除；管理员同样受约束 | `prod`（打 tag 后人工发布） | 只接受 PR |
+| `develop` | 集成 | 保护：必须经 PR 且 `docs-check` 通过；禁强推、禁删除；管理员同样受约束 | `staging`（自动） | 只接受 PR |
 | `feature/*` | 功能 | 无保护，仅本人推送 | 无 | `origin/develop` |
 | `fix/*` | 缺陷（非线上） | 无保护 | 无 | `origin/develop` |
 | `hotfix/*` | 线上紧急修复 | 无保护 | 先 `prod` 后回合 `develop` | `origin/main` |
@@ -193,6 +193,12 @@ chore(deps): 升级 wechatpay-java 至 0.2.12
 - **bootstrap 例外**：仓库初始化阶段允许直接在 `develop` 上提交并推送（此时分支保护尚未开启）；保护开启后一律按第二节从 `origin/develop` 切分支、经 PR 合入，例外自动失效，无需另行审批。
 - CI 端同等校验见 `.github/workflows/docs-ci.yml`；本地钩子未启用不得作为跳过 CI 的理由。
 
+### 7.2 分支保护实际口径（GitHub 已启用）
+
+- 适用分支：`main` 与 `develop`。规则：必须经 PR 合入；required status check `docs-check` 必过；`enforce_admins=true`，**管理员同样受约束**；`required_approving_review_count=0`（单人仓库无法自批，合并不等待 approve）；禁止 force push、禁止删除分支；合并后自动删除源分支。
+- 合并方式：`gh pr merge --squash`；approve 为 0，不需要也不得使用 `--admin` 绕过评审。若常规合并被拦，说明保护配置与本节不符，**停止并报告负责人**，不得绕过。
+- 7.1 的 bootstrap 例外自保护开启起失效；直推 `develop` 须改走 PR 合入。
+
 ---
 
 ## 八、PR 评审、合并与发布版本
@@ -206,8 +212,8 @@ chore(deps): 升级 wechatpay-java 至 0.2.12
 | 项 | 规则 |
 |---|---|
 | 单 PR 变更量 | ≤ 400 行；超出需拆分并说明拆分理由 |
-| 常规 PR | 1 人 approve + CI 全绿 |
-| 高风险 PR（支付、鉴权、教师归属、退款、对账） | **2 人 approve**，其一为对应模块 owner，PR 需附"越权/验签/金额一致性"用例结果 |
+| 常规 PR | CI 全绿（`docs-check` 必过）；approve 数量为 0（单人仓库无法自批，合并不等待 approve） |
+| 高风险 PR（支付、鉴权、教师归属、退款、对账） | 单人仓库阶段 approve 为 0；成员加入后升级为 **2 人 approve**（其一为对应模块 owner），PR 需附"越权/验签/金额一致性"用例结果 |
 | 合并方式 | 合入 `develop`：squash；`hotfix/*` 合 `main`：merge commit 保留追溯 |
 | 合并执行者 | **人类**；Agent 不合并、不转 ready |
 | 禁止 | PR 中混入无关重构；限制 CI 覆盖范围来"变绿" |
