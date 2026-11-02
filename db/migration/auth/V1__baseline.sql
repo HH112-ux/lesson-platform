@@ -1,0 +1,3 @@
+-- lp_ums 库 Flyway 基线（V1）
+-- 范围：仅建立迁移基线，不创建业务表；业务表自 V2 起按里程碑引入（docs/06-engineering-plan.md 13.6）。
+-- 命名遵循 AGENTS.md 11.3：表名 snake_case 单数、外键 {表}_id、时间字段 *_at、布尔 is_/has_、枚举 TINYINT。
