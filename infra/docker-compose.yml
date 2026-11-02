@@ -1,0 +1,141 @@
+# 本地开发环境五件套：MySQL / Redis / RocketMQ / MinIO / Nacos
+# 用法：cp infra/.env.example infra/.env && docker compose -f infra/docker-compose.yml up -d
+# 说明：所有变量 LP_ 前缀；口令均为本地开发占位值，生产凭据仅经 K8s Secret 与 Nacos 加密配置下发。
+name: lp-dev
+
+services:
+  mysql:
+    image: mysql:8.0.40
+    container_name: lp-mysql
+    restart: unless-stopped
+    ports:
+      - "${LP_MYSQL_PORT:-3306}:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${LP_MYSQL_ROOT_PASSWORD:-lp_root_dev}
+      TZ: ${LP_TIMEZONE:-Asia/Shanghai}
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+    volumes:
+      - lp-mysql-data:/var/lib/mysql
+      - ./mysql/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h127.0.0.1 -uroot -p\"${LP_MYSQL_ROOT_PASSWORD:-lp_root_dev}\" --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  redis:
+    image: redis:7.4-alpine
+    container_name: lp-redis
+    restart: unless-stopped
+    ports:
+      - "${LP_REDIS_PORT:-6379}:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - lp-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  rocketmq-namesrv:
+    image: apache/rocketmq:5.3.1
+    container_name: lp-rocketmq-namesrv
+    restart: unless-stopped
+    command: ["sh", "mqnamesrv"]
+    ports:
+      - "${LP_ROCKETMQ_NAMESRV_PORT:-9876}:9876"
+    environment:
+      TZ: ${LP_TIMEZONE:-Asia/Shanghai}
+      JAVA_OPT_EXT: "-Xms256m -Xmx256m"
+    volumes:
+      - lp-rocketmq-namesrv-logs:/home/rocketmq/logs
+    healthcheck:
+      test: ["CMD-SHELL", "mqadmin clusterList -n localhost:9876 >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 30s
+
+  rocketmq-broker:
+    image: apache/rocketmq:5.3.1
+    container_name: lp-rocketmq-broker
+    restart: unless-stopped
+    command: ["sh", "mqbroker", "-n", "rocketmq-namesrv:9876", "-c", "/home/rocketmq/conf/broker.conf"]
+    depends_on:
+      rocketmq-namesrv:
+        condition: service_healthy
+    ports:
+      - "10909:10909"
+      - "10911:10911"
+    environment:
+      TZ: ${LP_TIMEZONE:-Asia/Shanghai}
+      JAVA_OPT_EXT: "-Xms512m -Xmx512m -Xmn128m"
+    volumes:
+      - lp-rocketmq-broker-logs:/home/rocketmq/logs
+      - lp-rocketmq-broker-store:/home/rocketmq/store
+      - ./rocketmq/broker.conf:/home/rocketmq/conf/broker.conf:ro
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/127.0.0.1/10911' || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 40s
+
+  minio:
+    image: minio/minio:RELEASE.2024-06-13T22-53-53Z
+    container_name: lp-minio
+    restart: unless-stopped
+    command: ["server", "/data", "--console-address", ":9001"]
+    ports:
+      - "${LP_MINIO_API_PORT:-9000}:9000"
+      - "${LP_MINIO_CONSOLE_PORT:-9001}:9001"
+    environment:
+      MINIO_ROOT_USER: ${LP_MINIO_ROOT_USER:-lpminio}
+      MINIO_ROOT_PASSWORD: ${LP_MINIO_ROOT_PASSWORD:-lp_minio_dev}
+      TZ: ${LP_TIMEZONE:-Asia/Shanghai}
+    volumes:
+      - lp-minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+
+  nacos:
+    image: nacos/nacos-server:v2.3.2
+    container_name: lp-nacos
+    restart: unless-stopped
+    ports:
+      - "${LP_NACOS_PORT:-8848}:8848"
+      - "9848:9848"
+    environment:
+      MODE: standalone
+      NACOS_AUTH_ENABLE: "false"
+      TZ: ${LP_TIMEZONE:-Asia/Shanghai}
+      JVM_XMS: "256m"
+      JVM_XMX: "512m"
+    volumes:
+      - lp-nacos-data:/home/nacos/data
+      - lp-nacos-logs:/home/nacos/logs
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:8848/nacos/v1/console/health/readiness || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+volumes:
+  lp-mysql-data:
+  lp-redis-data:
+  lp-rocketmq-namesrv-logs:
+  lp-rocketmq-broker-logs:
+  lp-rocketmq-broker-store:
+  lp-minio-data:
+  lp-nacos-data:
+  lp-nacos-logs:
