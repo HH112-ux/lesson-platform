@@ -1,0 +1,8 @@
+{
+  "name": "lp-miniapp",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "check": "node scripts/check.mjs"
+  }
+}
