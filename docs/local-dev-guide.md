@@ -83,7 +83,13 @@ apps/web/              C 端 Web 骨架（已存在）
 apps/miniapp/          微信小程序骨架（已存在）
 apps/admin/            运营与教师后台（规划中）
 packages/shared/       Web 与 admin 共用类型与请求封装（规划中）
-*-service/             七个域服务（规划中）
+lp-auth-service/       认证域服务骨架（已存在，端口 8101）
+lp-course-service/     课程域服务骨架（已存在，端口 8102）
+lp-trade-service/      交易域服务骨架（已存在，端口 8103）
+lp-learn-service/      学习域服务骨架（已存在，端口 8104）
+lp-ugc-service/        互动域服务骨架（已存在，端口 8105）
+lp-admin-service/      管理域服务骨架（已存在，端口 8106）
+lp-ai-service/         AI 域服务骨架（已存在，端口 8107）
 ```
 
 ## 3. 启动本地依赖（infra 五件套）
@@ -140,7 +146,7 @@ curl http://localhost:8080/actuator/health
 说明：
 
 - 网关监听 8080，`/actuator/health` 返回 `UP` 即代表骨架可用。
-- `lp-gateway/src/main/resources/routes.yaml` 里的七个下游服务尚未创建，访问对应路由返回 5xx 属预期，不影响本地起停验证。
+- 七个下游服务已在 8101–8107 提供 `/actuator/health`，但业务接口尚未实现；访问对应业务路由返回 404 属预期，不影响本地起停验证。
 - 端口被占用时用 `lsof -i :8080` 定位后释放。
 
 ## 5. Web 前端
@@ -198,11 +204,11 @@ node apps/miniapp/scripts/check.mjs
 - `docker: command not found`：安装 Docker Desktop 并启动；未安装时第 3 节跳过，后端仍可单独构建。
 - `ERR_PNPM_IGNORED_BUILDS`：执行 `pnpm approve-builds --all` 放行 `esbuild` 的构建脚本，再 `pnpm install`。
 - `git fetch` 提示权限失败 / `Connection closed by 127.0.0.1 port 7897`：见 §0「Git 远端与 SSH 配置」，最终方案是 `ssh.github.com:443` 的 SSH over HTTPS，不需要切 HTTPS remote。
-- 前端启动后接口 502：确认网关已在 8080 启动，或 `routes.yaml` 指向的下游服务未创建（预期）。
+- 前端启动后接口 502：确认网关已在 8080 启动，或 `application.yml` 指向的下游服务未启动（预期）。
 - 小程序编译报域名不合法：开发者工具中关闭"校验合法域名"，仅限本地调试。
 
 ## 9. 尚未落地的部分
 
-- 七个域服务（`auth-service` 等）与 `apps/admin`、`packages/shared` 仍为规划中，目录尚不存在。
+- 七个域服务已有 M0 骨架（端口 8101–8107，仅健康检查，无业务接口）；`apps/admin`、`packages/shared` 仍为规划中，目录尚不存在。
 - `scripts/install-hooks.sh`、`scripts/flyway.sh`、`scripts/smoke/*` 等 M0 脚本未创建。
 - `docs/local-dev-guide.md`（本文件）随 M0 骨架产出，后续新增脚本时同步更新对应命令。

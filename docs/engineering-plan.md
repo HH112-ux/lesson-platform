@@ -326,9 +326,9 @@ flowchart TB
 
 ## 3.5 目录与工程约定
 
-- 后端 Maven 多模块聚合，父工程统一 `dependencyManagement`；各服务模块名为 `{域}-service`（**规划中**，仓库尚未创建）。
-- 包结构固定：`controller / dto / vo / entity / mapper / service / service.impl / feign / mq / config / util`；命名规则见 `AGENTS.md` 第 11.5 节。
-- 前端：`apps/web`（C 端 Web）、`apps/admin`（运营后台 + **教师工作台**）、`apps/miniapp`（微信小程序）、`packages/shared`（类型与请求封装，Web 与 admin 共用；小程序单独维护轻量 `api/` 层）——`apps/web`、`apps/miniapp` 已存在（M0 最小骨架，可构建、可静态校验）；`apps/admin`、`packages/shared` 仍为规划中。当前仓库已存在 `db/`（Flyway 迁移）、`infra/`（本地依赖编排）、`lp-common/`、`lp-gateway/`、`scripts/`、`package.json`（pnpm workspace）与父 `pom.xml`。
+- 后端 Maven 多模块聚合，父工程统一 `dependencyManagement`；各服务 Maven 模块名为 `lp-{域}-service`，服务名（`spring.application.name`、网关路由 id）为 `{域}-service`（**已存在** M0 骨架，仅健康检查，无业务逻辑）。
+- 包结构固定：`controller / dto / vo / entity / mapper / service / service.impl / feign / mq / config / util`（M0 骨架先落地 `controller / service / service.impl / mapper`）；命名规则见 `AGENTS.md` 第 11.5 节。
+- 前端：`apps/web`（C 端 Web）、`apps/admin`（运营后台 + **教师工作台**）、`apps/miniapp`（微信小程序）、`packages/shared`（类型与请求封装，Web 与 admin 共用；小程序单独维护轻量 `api/` 层）——`apps/web`、`apps/miniapp` 已存在（M0 最小骨架，可构建、可静态校验）；`apps/admin`、`packages/shared` 仍为规划中。当前仓库已存在 `db/`（Flyway 迁移）、`infra/`（本地依赖编排）、`lp-common/`、`lp-auth-service/` 等七个域服务骨架、`lp-gateway/`、`scripts/`、`package.json`（pnpm workspace）与父 `pom.xml`。
 - 单仓库（monorepo），按模块独立构建镜像；`apps/miniapp` 构建产物为微信小程序包，由 CI 调 `miniprogram-ci` 上传。
 - 文件/目录/表/接口/配置/分支/tag/CI job 的命名一律按 `AGENTS.md` 第十一节执行，本节不重复条文。
 
@@ -1855,7 +1855,7 @@ DoD：学伴无法回答率 ≤ 30%、找课点击率 +10%、售后 FAQ 命中�
 | M0-24 | 中间件 | MQ 收发冒烟 | `scripts/smoke/mq-smoke.sh` | M0-09、M0-23 | 0.5 | 发送 1 条后消费日志命中 1 次，无重复消费 | 后端·B |
 | M0-25 | 中间件 | 对象存储封装 | `lp-common/.../storage/ObjectStorage.java` | M0-02、M0-06、M0-09 | 1 | 预签名 URL 15min 内 GET 200、过期 403；匿名访问 `lp-media` 返回 AccessDenied | 后端·A |
 | M0-26 | 网关 | gateway 骨架与健康检查 | `lp-gateway/pom.xml`、`GatewayApp.java`、`application-local.yml` | M0-04、M0-15 | 0.5 | `curl :8080/actuator/health` 返回 UP | 后端·A |
-| M0-27 | 网关 | 路由表与白名单 | `lp-gateway/src/main/resources/routes.yaml` | M0-26 | 1 | 含 7 条服务路由、`/mp/**` 段、登录与支付回调白名单；`curl :8080/api/v1/auth/ping` 非 502 | 后端·B |
+| M0-27 | 网关 | 路由表与白名单 | `lp-gateway/src/main/resources/application.yml` | M0-26 | 1 | 含 7 条服务路由、`/mp/**` 段、登录与支付回调白名单；`curl :8080/api/v1/auth/ping` 非 502 | 后端·B |
 | M0-28 | 网关 | 七服务骨架落地 | `auth-service/`、`course-service/`、`trade-service/`、`learn-service/`、`ugc-service/`、`admin-service/`、`ai-service/` | M0-04、M0-09、M0-18 | 0.5 | 8101–8107 各 `curl /api/v1/*/ping` 返回 200 | 后端·A |
 | M0-29 | 网关 | 统一返回与异常 | `lp-common/.../web/Result.java`、`ErrorCode.java`、`GlobalExceptionHandler.java` | M0-02 | 1 | `BizException(40001)` 返回 `code=40001`；未捕获异常返回 50001；响应体含 `traceId` | 后端·B |
 | M0-30 | 网关 | 分页与参数校验统一 | `lp-common/.../web/PageResult.java`、校验切面 | M0-29 | 0.5 | `pageSize=1000` 被夹到 100；缺必填参数返回 40001 | 后端·B |
