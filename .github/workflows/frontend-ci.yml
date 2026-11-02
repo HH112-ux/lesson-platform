@@ -1,0 +1,59 @@
+name: frontend-ci
+
+on:
+  pull_request:
+    branches:
+      - develop
+      - main
+  push:
+    branches:
+      - develop
+
+jobs:
+  web-build:
+    name: web-build
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: 安装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 代码规范
+        run: pnpm -C apps/web lint
+
+      - name: 类型检查
+        run: pnpm -C apps/web typecheck
+
+      - name: 单元测试
+        run: pnpm -C apps/web test
+
+      - name: 构建
+        run: pnpm -C apps/web build
+
+  miniapp-check:
+    name: miniapp-check
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: 小程序静态校验
+        run: node apps/miniapp/scripts/check.mjs
