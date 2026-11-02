@@ -8,7 +8,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  *
  * <p>Owns routing, identity header stripping and injection, rate limiting and CORS. It must
  * not contain business logic; every business call is forwarded to a domain service through
- * the route table in {@code routes.yaml}.</p>
+ * the route table in {@code application.yml}.</p>
  *
  * @author Caspian
  * @since 0.1.0
