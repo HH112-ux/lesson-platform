@@ -328,7 +328,7 @@ flowchart TB
 
 - 后端 Maven 多模块聚合，父工程统一 `dependencyManagement`；各服务模块名为 `{域}-service`（**规划中**，仓库尚未创建）。
 - 包结构固定：`controller / dto / vo / entity / mapper / service / service.impl / feign / mq / config / util`；命名规则见 `AGENTS.md` 第 11.5 节。
-- 前端：`apps/web`（C 端 Web）、`apps/admin`（运营后台 + **教师工作台**）、`apps/miniapp`（微信小程序）、`packages/shared`（类型与请求封装，Web 与 admin 共用；小程序单独维护轻量 `api/` 层）——**以上目录均为规划中**（`apps/`、`packages/` 尚未创建）；当前仓库已存在 `db/`（Flyway 迁移）、`infra/`（本地依赖编排）、`lp-common/`、`lp-gateway/`、`scripts/` 与父 `pom.xml`。
+- 前端：`apps/web`（C 端 Web）、`apps/admin`（运营后台 + **教师工作台**）、`apps/miniapp`（微信小程序）、`packages/shared`（类型与请求封装，Web 与 admin 共用；小程序单独维护轻量 `api/` 层）——`apps/web`、`apps/miniapp` 已存在（M0 最小骨架，可构建、可静态校验）；`apps/admin`、`packages/shared` 仍为规划中。当前仓库已存在 `db/`（Flyway 迁移）、`infra/`（本地依赖编排）、`lp-common/`、`lp-gateway/`、`scripts/`、`package.json`（pnpm workspace）与父 `pom.xml`。
 - 单仓库（monorepo），按模块独立构建镜像；`apps/miniapp` 构建产物为微信小程序包，由 CI 调 `miniprogram-ci` 上传。
 - 文件/目录/表/接口/配置/分支/tag/CI job 的命名一律按 `AGENTS.md` 第十一节执行，本节不重复条文。
 
