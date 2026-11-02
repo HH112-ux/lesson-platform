@@ -1,11 +1,11 @@
 # 课程平台工程规划与上线方案
 
-> 版本：1.0（可执行评审稿）｜ 日期：2026-10-29 ｜ 适用范围：从 0 起盘的新项目
+> 版本：1.1（按产品事实源对齐）｜ 日期：2026-11-02 ｜ 适用范围：从 0 起盘的新项目
 >
-> **输入说明**：本方案以现有 `01`–`05` 文档描述的业务范围为输入参考（课程/交易/学习/互动），但按**新项目重新设计**：旧实现的缺陷、表结构、接口形态不作为约束继承。本文自包含，不要求读者翻阅其他文档。
+> **输入说明**：本文是首版工程承接文档：产品范围、角色权限、业务规则、验收口径与产品指标以 [product-lifecycle](./product-lifecycle.md)（产品事实源）为准，本文只承接技术实现（架构、数据模型、接口与部署），须与 07 配合阅读；两者冲突时以 07 为准（已于 2026-11-02 完成逐项对齐）。旧项目文档已移除，旧实现的缺陷、表结构、接口形态不作为约束继承。
 >
 > **依据标注**：
-> - `【文档事实】`：来自现有 01–05 文档的业务范围、字段语义或既有约束。
+> - `【文档事实】`：来自旧项目既有实现的业务范围、字段语义或既有约束（对应历史文档已移除，仅存于 git 历史）。
 > - `【行业惯例】`：通用工程实践或主流选型推断。
 > - `【需业务确认】`：必须由业务/产品拍板，本文给出默认结论。
 >
@@ -45,6 +45,8 @@
 【文档事实】现有平台为 Spring Cloud Alibaba 微服务 + Vue 3 的知识付费课程站，覆盖注册登录、课程浏览、营销、下单支付、视频学习、评论收藏举报。
 【已决策】教师端纳入首版（D1）；支付双通道，Web 用支付宝、小程序用微信支付 JSAPI（D2）；不做 iOS App 与 IAP（D3）。
 
+> **产品事实源**：产品范围、角色权限、业务规则、验收口径与产品指标以 [product-lifecycle](./product-lifecycle.md) 为准；本文已于 2026-11-02 按其完成逐项对齐，后续不一致时以 07 为准并发起文档变更评审。旧项目历史资料已移除，不作为首版需求与技术依据。
+
 ## 1.2 首版范围（MVP，必须交付）
 
 | 模块 | 首版内容 |
@@ -52,11 +54,11 @@
 | 账号 | 注册、登录、JWT 续期、**小程序 `code` 登录**、个人资料、头像 |
 | 内容 | 两级分类、课程、章节、课时（视频）、上下架与审核 |
 | **教师端** | 教师工作台（`apps/admin` 内的受限菜单，不单独部署前端）：建课草稿、章节课时与视频上传、提交审核、本人课程上架/下架、课程数据看板；数据范围**仅本人课程** |
-| 交易 | 购物车、优惠券、下单、**双通道支付**（Web 支付宝 / 小程序微信 JSAPI）、两套回调、取消、退款申请与审核、**分渠道对账** |
+| 交易 | 购物车（**仅 Web**）、优惠券、下单（小程序按单课程购买）、**双通道支付**（Web 支付宝 / 小程序微信 JSAPI）、两套回调、取消、退款申请与审核（**仅全额退款、人工审核**，准入规则见 15.2 D6）、**分渠道对账** |
 | 学习 | 购买权益、签名播放地址、学习进度、我的课程 |
-| 互动 | 评论（含审核状态）、收藏、举报 |
+| 互动 | 评论（含审核状态，双端）、收藏与举报（**仅 Web**，小程序首版不承诺，07 §4.3） |
 | 运营后台 | 课程/课时/用户/订单/退款/评论/举报管理、**教师与课程审核**、基础看板 |
-| **小程序端** | 微信小程序（`apps/miniapp`）：登录、浏览、下单、微信支付、学习、评论；与 Web 共用同一套后端接口与鉴权体系 |
+| **小程序端** | 微信小程序（`apps/miniapp`）：登录、浏览、下单、微信支付、学习、评论；与 Web 共用同一套后端接口与鉴权体系；**不含购物车、收藏、举报与 AI 学伴**（07 §4.3） |
 | AI | 课程摘要与大纲、评论与举报审核、运营文案助手；学伴**灰度**（不作为 GA 承诺） |
 
 ## 1.3 首版明确不做（写进范围基线，防止蔓延）
@@ -92,6 +94,8 @@
 | 审核覆盖 | 100% UGC 与教师上传内容进审核链路 | 评论/举报/课程提交逐条落审核记录 |
 | 数据合规 | 0 起 PII 出域事件 | 出域 payload 审计 + 红队抽检 |
 
+产品事件、漏斗与跨端属性按 07 第 10 章统一：事件名与必要属性见 07 §10.2，`source` 取值仅 `web/miniapp`（15.2 D10）；学习会话按 15 分钟切分统计。本章成功率与性能类技术指标口径不变。
+
 ---
 
 # 2. 角色与核心业务流程
@@ -105,7 +109,7 @@
 | 教师/内容方 TEACHER | 课程供给方，**首版正式角色** | 建课草稿、章节课时与视频上传、提交审核、本人课程上架/下架、查看本人课程销售与学习数据；**数据范围仅本人课程**（按 `course.owner_teacher_id` + `course_instructor` 双重校验）；**不能改他人课程、不能定价、不能处置评论** | 【已决策 D1】 |
 | 运营 OPS | 平台运营 | 课程审核/上架、定价、优惠券、内容审核、订单/退款处理、教师资质审核、AI 文案与画像 | — |
 | 管理员 ADMIN | 系统管理 | 用户与角色、菜单权限、全局配置、审计日志 | — |
-| 小程序用户 | 微信侧学员（同一 STUDENT 角色） | 与学员同权；登录来源记为 `X-User-Source=miniapp`，支付仅可走微信支付 | 【已决策 D2】 |
+| 小程序用户 | 微信侧学员（同一 STUDENT 角色） | 账号与权益跨端一致；能力范围按 07 §4.3 分端执行：小程序首版提供登录、浏览、下单（单课程）、微信支付、学习、评论，**不提供购物车、收藏、举报与 AI 学伴**；登录来源记为 `X-User-Source=miniapp`，支付仅可走微信支付 | 【已决策 D2】 |
 
 > 教师与学员可以并存（同一账号可同时持有 `STUDENT` 与 `TEACHER`）；教师数据范围由**归属校验**保证，不由前端菜单保证。教师端前端复用 `apps/admin`，通过 `sys_menu.permission_code`（`teacher:*`）限定可见菜单。
 
@@ -115,9 +119,9 @@
 flowchart TB
     subgraph 内容供给
         T1["教师登录（TEACHER）"] --> T2["建课草稿 + 章节/课时 + 上传视频"]
-        T2 --> T3["提交审核（status=1）"]
+        T2 --> T3["提交审核（status=1，期间只读）"]
         T3 --> T4["运营审核（AI 初审 + 人工）"]
-        T4 -->|通过| T5["教师/运营上架（status=2，定价由运营）"]
+        T4 -->|"通过：定价并上架（同一动作）"| T5["课程已上架（status=2）"]
         T4 -->|驳回| T2
         T5 --> T6["教师数据看板（销售/学习/评论）"]
     end
@@ -126,7 +130,7 @@ flowchart TB
         A["注册 / 登录（Web 或小程序 code）"] --> B["浏览 / 搜索课程"]
         B --> C["课程详情 / 试看"]
         C --> D["加购物车 / 领券"]
-        D --> E["提交订单（幂等，记录可选渠道）"]
+        D --> E["提交订单（幂等，渠道由来源端固定）"]
         E --> P{"来源端？"}
         P -->|Web| P1["支付宝支付"]
         P -->|小程序| P2["微信支付 JSAPI"]
@@ -146,24 +150,24 @@ flowchart TB
     T4 --> L["AI 审核 / 摘要 / 文案"]
 ```
 
-> 支付渠道由**来源端**决定，不由用户选择：Web 端仅展示支付宝，小程序端仅展示微信支付。服务端校验 `X-User-Source` 与请求 `channel` 一致，不一致返回 `62005`。
+> 支付渠道由**来源端**决定，不由用户选择：Web 端仅展示支付宝，小程序端仅展示微信支付。服务端校验 `X-User-Source` 与请求 `channel` 一致，不一致返回 `62005`；重新支付仅可在原渠道发起（先关闭原支付单），**不提供跨渠道切换**（07 §6.6）。
 
 ## 2.3 关键流程的状态机
 
-**课程状态**：`0 草稿 → 1 待审核 → 2 已上架 → 3 已下架`；审核驳回回到 `0` 并记录 `review_remark`。教师只能对自己 `owner_teacher_id` 的课程发起 `0→1`、`2→3`、`3→2`；`1→2` 只能由运营执行（审核通过）。
+**课程状态**：`0 草稿 → 1 待审核 → 2 已上架 → 3 已下架`；审核驳回回到 `0` 并记录 `review_remark`。规则（07 §6.4/7.1）：**待审核只读**，不可编辑、不可撤回、不可重复提交；运营**审核通过与定价、首次上架为同一动作**（`1→2`），不设置「审核通过待上架」的中间状态；已下架课程**未发生内容变更**可直接再上架（`3→2`），一旦编辑内容即回草稿（`3→0`）并必须重新审核。教师只能对自己 `owner_teacher_id` 的课程发起 `0→1`、`2→3`、`3→2`；`1→2` 只能由运营执行。
 
 **订单状态**（两个渠道共用一套订单状态，渠道差异只体现在 `payment_record.channel`）：
 
 ```mermaid
 stateDiagram-v2
-    [*] --> 待支付: 创建订单（channel 由来源端决定）
+    [*] --> 待支付: 创建订单（channel 由来源端固定）
     待支付 --> 已支付: 支付宝异步通知 / 微信支付回调，验签通过且金额一致
     待支付 --> 已取消: 用户取消（关闭原支付单）
-    待支付 --> 已关闭: 超时未支付（定时任务关单）
+    待支付 --> 已关闭: 超过支付截止（30 分钟，15.2 D11）定时关单
     已支付 --> 退款中: 用户申请 → 运营审核通过
     退款中 --> 已退款: 原渠道退款成功（alipay.refund / wxpay.refund）
     退款中 --> 已支付: 审核驳回 或 渠道退款失败（人工介入）
-    已退款 --> [*]: 权益失效、券按规则退回
+    已退款 --> [*]: 权益失效；优惠券不退回（15.2 D6）
 ```
 
 **支付单状态**（`payment_record.status`）：`0 待支付 / 1 成功 / 2 已关闭 / 3 已退款 / 4 退款中 / 5 退款失败`。
@@ -171,7 +175,7 @@ stateDiagram-v2
 **退款单状态**（`refund_request.status`）：`0 待审核 / 1 审核通过（调渠道中）/ 2 已退款 / 3 驳回 / 4 退款失败`。
 
 **权益**：任一渠道支付成功后写入 `user_entitlement`（唯一约束 `user_id + course_id`）；退款成功后置为失效。重复购买由唯一约束拦截。
-**渠道互斥**：同一订单同一时刻只允许一个 `status IN (0,1)` 的支付单；切换渠道前必须先关闭原支付单（`payment_record.status=2`），否则返回 `62006`。
+**渠道固定**：订单渠道由来源端唯一决定（Web→支付宝、小程序→微信），创建订单时写入且不可变更；重新发起支付前必须先关闭原支付单（`payment_record.status=2`），未关闭时返回 `62006`；**重新支付仅可在原渠道进行，不提供跨渠道切换**（07 §6.6）。
 
 ---
 
@@ -411,7 +415,7 @@ erDiagram
 | email | VARCHAR(128) | NULL, UNIQUE `uk_email` | 可空；唯一 |
 | phone | VARCHAR(20) | NULL, UNIQUE `uk_phone` | 可空；**不采集身份证** |
 | gender | TINYINT | NOT NULL DEFAULT 0 | 0 未知/1 男/2 女 |
-| status | TINYINT | NOT NULL DEFAULT 1 | 1 正常/0 禁用 |
+| status | TINYINT | NOT NULL DEFAULT 1 | 1 正常/0 禁用/2 注销冷静期（7 天）/3 已注销（15.2 D8） |
 | last_login_at | DATETIME(3) | NULL | — |
 | version/deleted/created_at/updated_at | — | 公共字段 | — |
 
@@ -476,6 +480,8 @@ erDiagram
 
 唯一 `uk_app_openid(app_id, openid)`、`uk_user_app(user_id, app_id)`；索引 `idx_user(user_id)`。`openid` 仅用于发起 JSAPI 支付与登录关联，禁止出现在任何日志、提示词与 API 响应中。
 
+> **绑定冲突（15.2 D8）**：小程序 `getPhoneNumber` 授权手机号与既有账号冲突时**不自动合并账号**，提示「该手机号已绑定其他账号」，要求用户登录原账号后再完成绑定；微信侧身份与平台账号的映射保持一对一。
+
 ### 4.3.2 课程内容（`lp_cms`）
 
 **course_category 分类**
@@ -502,17 +508,16 @@ erDiagram
 | subtitle | VARCHAR(200) | NULL | 副标题/卖点 |
 | cover_url | VARCHAR(255) | NOT NULL | 封面 |
 | description | TEXT | NULL | 详情正文 |
-| price | DECIMAL(10,2) | NOT NULL DEFAULT 0 | 售价（运营定价，教师不可改） |
+| price | DECIMAL(10,2) | NOT NULL DEFAULT 0 | 售价（运营定价，教师不可改）；首版约束 `price>0`，0 元课程不支持下单，免费内容由运营直接发放权益（15.2 D9） |
 | original_price | DECIMAL(10,2) | NULL | 划线价 |
 | instructor_id | BIGINT UNSIGNED | NOT NULL | 主讲 `teacher_profile.id`（通常 = owner_teacher_id） |
 | level | TINYINT | NOT NULL DEFAULT 1 | 1 入门/2 进阶/3 高级 |
-| status | TINYINT | NOT NULL DEFAULT 0 | 0 草稿/1 待审核/2 已上架/3 已下架 |
+| status | TINYINT | NOT NULL DEFAULT 0 | 0 草稿/1 待审核/2 已上架/3 已下架；无「审核通过待上架」中间态（`1→2` 同一动作）；已下架编辑即回草稿须复审（07 §6.4/7.1） |
 | review_remark | VARCHAR(300) | NULL | 审核意见（驳回原因） |
 | submitted_at | DATETIME(3) | NULL | 提交审核时间 |
 | reviewed_by | BIGINT UNSIGNED | NULL | 审核人（运营） |
 | reviewed_at | DATETIME(3) | NULL | 审核时间 |
 | sales_count | INT | NOT NULL DEFAULT 0 | 冗余计数（支付成功后 +1） |
-| rating | DECIMAL(3,2) | NOT NULL DEFAULT 0 | 冗余评分（评论审核通过后重算） |
 | published_at | DATETIME(3) | NULL | — |
 | version/deleted/created_at/updated_at | — | 公共字段 | — |
 
@@ -626,7 +631,7 @@ erDiagram
 
 **user_coupon 用户券**
 
-`id, user_id, coupon_id, status TINYINT(0 未使用/1 已使用/2 过期), order_id BIGINT NULL, received_at, used_at` + 公共字段；唯一 `uk_user_coupon(user_id, coupon_id)`；索引 `idx_user_status(user_id, status)`、`idx_order(order_id)`。
+`id, user_id, coupon_id, status TINYINT(0 未使用/1 已使用/2 过期), order_id BIGINT NULL, received_at, used_at` + 公共字段；唯一 `uk_user_coupon(user_id, coupon_id)`；索引 `idx_user_status(user_id, status)`、`idx_order(order_id)`。订单退款时**不退回优惠券**（视为已使用，15.2 D6）。
 
 **trade_order 订单**
 
@@ -640,8 +645,8 @@ erDiagram
 | pay_amount | DECIMAL(10,2) | NOT NULL | 应付 |
 | status | TINYINT | NOT NULL DEFAULT 0 | 0 待支付/1 已支付/2 已取消/3 已关闭/4 退款中/5 已退款 |
 | coupon_id | BIGINT UNSIGNED | NULL | 使用的券 |
-| channel | TINYINT | NULL | 订单首个支付单的渠道快照：1 支付宝/2 微信（下单时未确定则为空） |
-| pay_expire_at | DATETIME(3) | NOT NULL | 支付截止 |
+| channel | TINYINT | NOT NULL | 渠道由来源端固定：1 支付宝（Web）/2 微信（小程序），下单时写入且不可变更（07 §6.6） |
+| pay_expire_at | DATETIME(3) | NOT NULL | 支付截止（下单后 30 分钟，15.2 D11），超时由 job-worker 定时关单 |
 | paid_at | DATETIME(3) | NULL | — |
 | cancel_reason | VARCHAR(200) | NULL | — |
 | 公共字段 | — | — | — |
@@ -683,7 +688,7 @@ erDiagram
 | payment_id | BIGINT UNSIGNED | NOT NULL | 对应 `payment_record.id`（确定渠道） |
 | user_id | BIGINT UNSIGNED | NOT NULL | — |
 | channel | TINYINT | NOT NULL | 1 支付宝/2 微信（由 `payment_id` 决定，不信任前端） |
-| amount | DECIMAL(10,2) | NOT NULL | 不得超过实付 |
+| amount | DECIMAL(10,2) | NOT NULL | 首版仅全额退款，固定 = 实付金额（15.2 D6） |
 | reason | VARCHAR(300) | NOT NULL | — |
 | status | TINYINT | NOT NULL DEFAULT 0 | 0 待审核/1 审核通过（调渠道中）/2 已退款/3 驳回/4 退款失败 |
 | channel_refund_no | VARCHAR(64) | NULL | **渠道退款单号**：微信 `out_refund_no` 回执 / 支付宝 `refund_no` |
@@ -727,7 +732,7 @@ erDiagram
 | id | BIGINT UNSIGNED | PK | — |
 | user_id | BIGINT UNSIGNED | NOT NULL | — |
 | course_id | BIGINT UNSIGNED | NOT NULL | — |
-| source_type | TINYINT | NOT NULL | 1 购买/2 赠送/3 兑换 |
+| source_type | TINYINT | NOT NULL | 1 购买/2 运营发放/3 兑换（运营发放用于免费课开通与客诉补偿，不产生订单，15.2 D9） |
 | source_order_id | BIGINT UNSIGNED | NULL | — |
 | start_at | DATETIME(3) | NOT NULL | — |
 | expire_at | DATETIME(3) | NULL | 空=永久 |
@@ -745,8 +750,9 @@ erDiagram
 | course_id | BIGINT UNSIGNED | NOT NULL | 冗余 |
 | lesson_id | BIGINT UNSIGNED | NOT NULL | — |
 | last_position_sec | INT | NOT NULL DEFAULT 0 | 断点 |
-| watched_sec | INT | NOT NULL DEFAULT 0 | 累计观看（单调递增） |
-| completed | TINYINT | NOT NULL DEFAULT 0 | 1 完成 |
+| max_position_sec | INT | NOT NULL DEFAULT 0 | 历史最大播放位置，用于识别拖动跳过 |
+| watched_sec | INT | NOT NULL DEFAULT 0 | 累计有效观看时长（单调递增；拖动跳过的时段不计入，15.2 D7） |
+| completed | TINYINT | NOT NULL DEFAULT 0 | 1 完成；由服务端判定（播放进度 ≥ 90% 且有效观看时长 ≥ 课时时长 90%），客户端不可直接提交完成态（15.2 D7） |
 | last_learned_at | DATETIME(3) | NOT NULL | — |
 | 公共字段 | — | — | — |
 
@@ -896,12 +902,12 @@ erDiagram
 | 下单 | 单库事务：校验券 → 建 trade_order + trade_order_item（含 `owner_teacher_id` 冗余）→ 锁券（`user_coupon` 条件更新）→ 删购物车 |
 | 支付回调 | 以 `uk_pay_no` + `uk_channel_trade(channel, channel_trade_no)` 双唯一约束保证幂等；事务内更新 `payment_record` → `trade_order` → 写权益 → 发 MQ（事务消息或本地消息表）；重复回调直接返回渠道要求的成功应答 |
 | 发放权益 | 消费 MQ 幂等：`uk_user_course` 唯一约束 + 重复消费直接忽略 |
-| 退款 | 审核通过 → 按 `payment_record.channel` 调对应渠道退款 → 成功后置订单 `已退款` + `payment_record.status=3` + 权益失效 + 券退回（有效期未过）；渠道失败置 `refund_request.status=4` 并告警人工介入 |
+| 退款 | 准入校验（付款后 7 天内且学习进度 ≤ 20%，15.2 D6）→ 审核通过 → 按 `payment_record.channel` 调对应渠道退款（仅全额）→ 成功后置订单 `已退款` + `payment_record.status=3` + 权益失效（优惠券不退回，视为已使用）；渠道失败置 `refund_request.status=4` 并告警人工介入 |
 | 分渠道对账 | `job-worker` 每日拉取两渠道账单 → 写 `payment_reconcile`（`uk_channel_date_type` 覆盖更新）→ `diff_count>0` 置 `status=2` 并告警 |
 | 教师数据范围 | 所有 `/api/v1/teacher/**` 在 service 层按 `owner_teacher_id = 当前教师ID` 过滤，不接受前端传教师 ID；看板只读 `course_daily_stat` |
 | 模型配置变更 | 单条事务更新 `ai_model_config` + 写 `audit_log`；提交后清空 `ai-service` 本地缓存（Nacos 配置刷新），失败不改旧配置 |
 | 学习进度 | `uk_user_lesson` + 条件更新（`watched_sec = GREATEST(watched_sec, ?)`），乐观锁兜底 |
-| 评论计数 | 审核通过后异步重算 `course.rating`，避免热点行更新 |
+| 评论计数 | 审核通过后异步重算课程评论计数（不产出评分，07 §2.5），避免热点行更新 |
 
 ---
 
@@ -925,6 +931,8 @@ erDiagram
 | 时间 | 统一 UTC 存储，响应带时区偏移 |
 
 **埋点端点**：`POST /api/v1/metrics/events`，请求 `{events:[{name,props:{path?,code?,cost?}}]}`，响应 `{accepted:n}`；登录态可选（未登录按匿名计数）；服务端只做指标聚合，**不落明细、不收 PII**，超出 20 条/次或含敏感字段直接丢弃（返回 `40001`）。该端点由小程序与 Web 共用。
+
+> **跨端接口范围（07 §4.3）**：小程序首版不接入 5.7 收藏、5.8 AI 学伴与购物车接口（`/api/v1/cart/**` 仅 Web）；登录、课程浏览、下单支付、评论、退款、学习进度双端一致。越范围调用按 `X-User-Source=miniapp` 拦截（`40301`）。
 
 ## 5.2 错误码体系
 
@@ -961,7 +969,9 @@ erDiagram
 | 62003 | 优惠券不可用 | 门槛/有效期/已用 |
 | 62004 | 退款金额超限 | 超过实付 |
 | 62005 | 支付渠道与来源端不匹配 | 小程序请求支付宝 / Web 请求微信 JSAPI |
-| 62006 | 订单已有进行中的支付单 | 切换渠道前未关闭原支付单 |
+| 62006 | 订单已有进行中的支付单 | 重新发起支付前未关闭原支付单（关闭后仅限原渠道重付，15.2 D11 不涉及跨渠道） |
+| 62007 | 退款准入不满足 | 超过付款后 7 天或学习进度 > 20%（15.2 D6） |
+| 62008 | 0 元课程不支持下单 | 课程 `price=0`，免费内容由运营发放权益（15.2 D9） |
 | 63001 | 学习进度越界 | 超出视频时长 |
 | 64001 | 内容含违规信息 | 本地关键词兜底 |
 | 64002 | 举报目标不存在 | — |
@@ -979,12 +989,14 @@ erDiagram
 | POST | `/api/v1/auth/login` | 登录签发 Token | `{account,password}` | `{accessToken,refreshToken,expiresIn,user:{id,nickname,avatarUrl,roles[]}}` | 40101,40301(禁用) |
 | POST | `/api/v1/auth/refresh` | 刷新 access token | `{refreshToken}` | `{accessToken,expiresIn}` | 40102,40101 |
 | POST | `/api/v1/auth/miniapp-login` | 小程序登录（`wx.login` 的 code 换会话） | `{code}` | `{accessToken,refreshToken,expiresIn,isNewUser,user:{id,nickname,avatarUrl,roles[]}}` | 40001,66001 |
-| POST | `/api/v1/auth/miniapp/bind-phone` | 小程序授权手机号并绑定（需登录态） | `{code}`（`getPhoneNumber` 返回的动态令牌） | `{phoneMasked:"138****0000"}` | 40101,66002,40901 |
+| POST | `/api/v1/auth/miniapp/bind-phone` | 小程序授权手机号并绑定（需登录态；手机号与既有账号冲突时返回 `40901` 并提示登录原账号，**不自动合并账号**，15.2 D8） | `{code}`（`getPhoneNumber` 返回的动态令牌） | `{phoneMasked:"138****0000"}` | 40101,66002,40901 |
 | POST | `/api/v1/auth/logout` | 注销并吊销 refresh | 空 | `{}` | 40101 |
 | GET | `/api/v1/auth/me` | 当前用户与角色 | — | `{id,username,nickname,avatarUrl,email,phone,roles[]}` | 40101 |
 | PUT | `/api/v1/user/profile` | 改昵称/头像 | `{nickname?,avatarUrl?}` | `{updated:true}` | 40001 |
 | PUT | `/api/v1/user/password` | 改密码 | `{oldPassword,newPassword}` | `{updated:true}` | 40001,40101 |
 | POST | `/api/v1/user/avatar` | 上传头像（multipart `file`） | form-data | `{avatarUrl}` | 40002,50001 |
+| POST | `/api/v1/user/deactivation` | 申请账号注销（进入 7 天冷静期，15.2 D8；有进行中订单/退款时拒绝） | `{confirm:bool}` | `{status:2,effectiveAt}` | 40101,40901 |
+| POST | `/api/v1/user/deactivation/cancel` | 撤销注销（冷静期内可撤） | `{}` | `{status:1}` | 40101,40901 |
 
 ## 5.4 课程与内容域（course-service）
 
@@ -992,7 +1004,7 @@ erDiagram
 |---|---|---|---|---|---|
 | GET | `/api/v1/categories/tree` | 分类树 | — | `[{id,name,children[]}]` | — |
 | GET | `/api/v1/courses` | 课程列表/搜索 | query:`keyword,categoryId,level,sort(hot/new),pageNum,pageSize` | 分页 `{records:[CourseCard]}` | 40001 |
-| GET | `/api/v1/courses/{courseId}` | 详情 | — | `{id,title,subtitle,coverUrl,description,price,originalPrice,instructor:{id,displayName},level,salesCount,rating,chapters:[{id,title,lessons:[{id,title,durationSec,isFree,locked}]}],entitled:bool}` | 40401,61001 |
+| GET | `/api/v1/courses/{courseId}` | 详情 | — | `{id,title,subtitle,coverUrl,description,price,originalPrice,instructor:{id,displayName},level,salesCount,chapters:[{id,title,lessons:[{id,title,durationSec,isFree,locked}]}],entitled:bool}` | 40401,61001 |
 | GET | `/api/v1/courses/{courseId}/chapters` | 章节目录 | — | `{chapters:[...]}`（未购仅返回免费课时可播） | 40401 |
 | GET | `/api/v1/courses/{courseId}/comments` | 评论分页 | query:`pageNum,pageSize` | 分页 `{records:[{id,nickname,avatarUrl,content,likeCount,createdAt,replies[]}]}` | 40401 |
 | POST | `/api/v1/courses/{courseId}/favorite` | 收藏课程 | `{}` | `{favorited:true}` | 40101,40401 |
@@ -1001,7 +1013,7 @@ erDiagram
 | DELETE | `/api/v1/comments/{commentId}` | 删本人评论（逻辑删） | — | `{deleted:true}` | 40301,40401 |
 | POST | `/api/v1/reports` | 举报 | `{targetType,targetId,reasonType,content}` | `{id}` | 40001,64002 |
 
-**CourseCard**：`{id,title,subtitle,coverUrl,price,originalPrice,instructorName,level,salesCount,rating}`。
+**CourseCard**：`{id,title,subtitle,coverUrl,price,originalPrice,instructorName,level,salesCount}`。
 
 ## 5.5 交易域（trade-service）
 
@@ -1013,14 +1025,14 @@ erDiagram
 | GET | `/api/v1/coupons/available` | 可用券 | query:`amount` | `[{id,name,type,threshold,value}]` | — |
 | POST | `/api/v1/coupons/{couponId}/receive` | 领券 | `{}` | `{received:true}` | 40901(重复领),62003 |
 | GET | `/api/v1/coupons/mine` | 我的券 | query:`status` | `[{id,couponId,name,status,expireAt}]` | 40101 |
-| POST | `/api/v1/orders` | 创建订单（幂等） | `{courseIds[],couponId?,channel?}` + `Idempotency-Key`；`channel` 省略时按 `X-User-Source` 推定（web→alipay，miniapp→wxpay） | `{orderId,orderNo,payAmount,payExpireAt,channel}` | 40001,61001,61002,62003,62005 |
+| POST | `/api/v1/orders` | 创建订单（幂等） | `{courseIds[],couponId?}` + `Idempotency-Key`；`channel` 由服务端按 `X-User-Source` 固定（web→alipay，miniapp→wxpay），不接受前端传参 | `{orderId,orderNo,payAmount,payExpireAt,channel}` | 40001,61001,61002,62003,62005,62008 |
 | GET | `/api/v1/orders` | 我的订单 | query:`status,pageNum,pageSize` | 分页 `{records:[{orderId,orderNo,payAmount,channel,status,createdAt,items[]}]}` | 40101 |
 | GET | `/api/v1/orders/{orderId}` | 订单详情 | — | `{orderId,orderNo,totalAmount,discountAmount,payAmount,channel,status,payExpireAt,items:[{courseId,title,price}]}` | 40301,40401 |
 | POST | `/api/v1/orders/{orderId}/cancel` | 取消（同时关闭进行中的支付单） | `{reason?}` | `{status:2}` | 40301,62001 |
-| POST | `/api/v1/orders/{orderId}/pay` | 发起支付（幂等） | `{channel:1\|2,payScene:1\|2,openid?}` + `Idempotency-Key`；微信 JSAPI 必须带 `openid`（服务端按 `X-User-Id` 查 `sys_user_wechat`，不接受前端随意传） | 支付宝：`{payNo,channel:1,payUrl,expireAt}`；微信：`{payNo,channel:2,jsapi:{appId,timeStamp,nonceStr,package,paySign}}` | 62001,62002,62005,62006,50202,50203 |
+| POST | `/api/v1/orders/{orderId}/pay` | 发起支付（幂等；渠道由订单固定，请求不传 `channel`） | `{payScene:1\|2,openid?}` + `Idempotency-Key`；微信 JSAPI 必须带 `openid`（服务端按 `X-User-Id` 查 `sys_user_wechat`，不接受前端随意传） | 支付宝：`{payNo,channel:1,payUrl,expireAt}`；微信：`{payNo,channel:2,jsapi:{appId,timeStamp,nonceStr,package,paySign}}` | 62001,62002,62005,62006,50202,50203 |
 | POST | `/api/v1/payments/callback/alipay` | 支付宝异步通知（公开，RSA2 验签） | `application/x-www-form-urlencoded` 原文 | 纯文本 `success`/`failure` | 50202 |
 | POST | `/api/v1/payments/callback/wxpay` | 微信支付回调（公开，APIv3 验签 + AES-GCM 解密） | JSON：`{id,event_type,resource:{ciphertext,nonce,associated_data}}` + 头 `Wechatpay-Signature/-Serial/-Timestamp/-Nonce` | JSON `{"code":"SUCCESS","message":"成功"}`；失败返回 4xx + `{code:"FAIL"}` | 50203 |
-| POST | `/api/v1/orders/{orderId}/refund` | 申请退款 | `{reason}` + `Idempotency-Key` | `{refundId,refundNo,channel,status:0}` | 40301,62001,62004 |
+| POST | `/api/v1/orders/{orderId}/refund` | 申请全额退款（付款后 7 天内且学习进度 ≤ 20%，15.2 D6） | `{reason}` + `Idempotency-Key` | `{refundId,refundNo,channel,status:0}` | 40301,62001,62004,62007 |
 | GET | `/api/v1/refunds/{refundId}` | 退款进度（用户自查） | — | `{refundNo,channel,amount,status,refundedAt,failReason?}` | 40301,40401 |
 | GET | `/api/v1/reconcile/daily` | 分渠道对账查询（运营/管理员） | query:`channel(1\|2),date,pageNum` | 分页 `{records:[{id,channel,billDate,billType,channelCount,channelAmount,localCount,localAmount,diffCount,diffAmount,status}]}` | 40101,40301 |
 | POST | `/api/v1/reconcile/{reconcileId}/recheck` | 重跑对账（运营/管理员） | `{}` | `{status,diffCount,diffAmount}` | 40301,40401,50204 |
@@ -1033,7 +1045,7 @@ erDiagram
 |---|---|---|---|---|---|
 | GET | `/api/v1/learning/my-courses` | 我的课程 | query:`pageNum,pageSize` | 分页 `{records:[{courseId,title,coverUrl,progressPercent,lastLessonId}]}` | 40101 |
 | GET | `/api/v1/lessons/{lessonId}/play-token` | 获取签名播放地址 | — | `{playUrl,expiresAt}` | 40302,40401,61001 |
-| POST | `/api/v1/learning/progress` | 上报进度 | `{lessonId,positionSec,watchedSec,completed}` | `{saved:true}` | 40302,63001 |
+| POST | `/api/v1/learning/progress` | 上报进度（完成态由服务端按播放进度 ≥ 90% 且有效观看 ≥ 课时时长 90% 重算，请求不可直接置完成，15.2 D7） | `{lessonId,positionSec,watchedSec}` | `{saved:true,completed}` | 40302,63001 |
 | GET | `/api/v1/learning/progress` | 课程进度 | query:`courseId` | `{courseId,lessons:[{lessonId,positionSec,watchedSec,completed,lastLearnedAt}]}` | 40101,40401 |
 
 ## 5.7 互动域（ugc-service）
@@ -1052,7 +1064,7 @@ erDiagram
 | GET | `/api/v1/ai/conversations` | 我的会话 | query:`scene,pageNum` | 分页 `{records:[{id,title,scene,lastMessageAt}]}` | 40101 |
 | GET | `/api/v1/ai/conversations/{id}/messages` | 会话消息 | query:`pageNum,pageSize` | 分页 `{records:[{id,role,content,citations,createdAt}]}` | 40301,65001 |
 | POST | `/api/v1/ai/messages/{messageId}/feedback` | 反馈 | `{rating,comment?}` | `{saved:true}` | 40301,65001 |
-| GET | `/api/v1/ai/courses/{courseId}/profile` | 课程画像 | — | `{summary,audience,objectives[],outline,difficulty}` | 40401 |
+| GET | `/api/v1/ai/courses/{courseId}/profile` | 课程画像（**仅运营确认后公开**，未确认对学员返回 40401，C06-09） | — | `{summary,audience,objectives[],outline,difficulty}` | 40401 |
 | GET | `/api/v1/ai/courses/{courseId}/faqs` | 课程 FAQ | — | `[{id,question}]`（答案随学伴返回） | 40401 |
 | GET | `/api/v1/ai/status` | **AI 能力可用状态**（前端据此显示/隐藏入口） | — | `{enabled:bool,reason?:"NOT_CONFIGURED"/"KEY_INVALID"/"QUOTA_EXHAUSTED"/"DISABLED"}` | — |
 
@@ -1065,9 +1077,10 @@ erDiagram
 | POST | `/api/v1/admin/courses` | 建课（草稿） | `{categoryId,title,subtitle,coverUrl,description,price,instructorId,level}` | `{courseId,status:0}` | 40001,40301 |
 | PUT | `/api/v1/admin/courses/{courseId}` | 编辑 | 同建课字段（可部分） | `{updated:true}` | 40301,40901 |
 | POST | `/api/v1/admin/courses/{courseId}/submit` | 提交审核（运营代提交） | `{}` | `{status:1}` | 40901 |
-| POST | `/api/v1/admin/courses/{courseId}/review` | **审核课程**（通过→待上架；驳回→草稿） | `{approved:bool,remark?}` | `{status:0\|2,reviewRemark}` | 40301,40901,40401 |
-| POST | `/api/v1/admin/courses/{courseId}/publish` | 上架并定价（运营） | `{price?,categoryId?}` | `{status:2}` | 40301,40901 |
+| POST | `/api/v1/admin/courses/{courseId}/review` | **审核课程**（通过：定价并上架同一动作 `1→2`，无「待上架」中间态；驳回→草稿） | `{approved:bool,remark?,price?}` | `{status:0\|2,reviewRemark}` | 40301,40901,40401 |
+| POST | `/api/v1/admin/courses/{courseId}/publish` | 上架并定价（运营；已下架未变更可直接再上架 `3→2`，内容变更过须回草稿复审） | `{price?,categoryId?}` | `{status:2}` | 40301,40901 |
 | POST | `/api/v1/admin/courses/{courseId}/unpublish` | 下架 | `{reason}` | `{status:3}` | 40301 |
+| POST | `/api/v1/admin/entitlements/grant` | 运营发放课程权益（免费课开通/客诉补偿，不产生订单，15.2 D9） | `{userId,courseId,reason}` | `{entitlementId}` | 40001,40301,40901(已有权益) |
 | GET | `/api/v1/admin/teachers` | 教师列表/入驻审核队列 | query:`auditStatus,keyword,pageNum` | 分页 `{records:[{teacherId,userId,displayName,title,auditStatus,courseCount,createdAt}]}` | 40301 |
 | POST | `/api/v1/admin/teachers/{teacherId}/review` | 教师入驻审核 | `{approved:bool,remark?}` | `{auditStatus}` | 40301,40401 |
 | POST | `/api/v1/admin/courses/{courseId}/chapters` | 建章节 | `{title,sort}` | `{chapterId}` | 40301 |
@@ -1086,6 +1099,7 @@ erDiagram
 | GET | `/api/v1/admin/ai/moderation` | AI 审核队列 | query:`riskLevel,action,pageNum` | 分页 `{records:[{id,bizType,bizId,snapshot,riskLevel,category,reason,action}]}` | 40301 |
 | PUT | `/api/v1/admin/ai/moderation/{id}/handle` | 人工处置 | `{action:1/2/3}` | `{updated:true}` | 40301,40401 |
 | POST | `/api/v1/admin/ai/course-profile/{courseId}/generate` | 重建课程画像 | `{force?:bool}` | `{taskId}` | 40301,50301 |
+| POST | `/api/v1/admin/ai/course-profile/{courseId}/confirm` | 确认课程画像（确认后才对学员公开；可先编辑再确认，C06-09） | `{summary?,audience?,objectives?,outline?,difficulty?}` | `{status:3}` | 40301,40401 |
 | POST | `/api/v1/admin/ai/copy` | 文案生成 | `{scene:COURSE_DETAIL/NOTICE/BANNER/COUPON,fields:{},style?,length?}` | `{candidates:[{text,length}]}` | 40301,42901,50301 |
 | GET | `/api/v1/admin/metrics/overview` | 看板 | query:`dateFrom,dateTo` | `{gmv,orderCount,paidRate,newUsers,courseSalesTop5}` | 40301 |
 | GET | `/api/v1/admin/ai/model-config` | **读取模型接入配置**（密钥仅尾号） | — | `{scope,tenantId,baseUrl,modelName,apiKeyMasked:"****{tail}",keyVersion,timeoutMs,maxRetries,dailyTokenLimit,monthlyTokenLimit,enabled,lastCheckAt,lastCheckStatus,lastError}` | 40301,40401(未配置) |
@@ -1099,13 +1113,13 @@ erDiagram
 
 | 方法 | 路径 | 用途 | 请求 | 响应 | 主要错误码 |
 |---|---|---|---|---|---|
-| GET | `/api/v1/teacher/overview` | 教师总览 | — | `{courseCount,publishedCount,pendingReviewCount,totalRevenue30d,learnerCount30d,avgRating}` | 40101,40301,40303 |
-| GET | `/api/v1/teacher/courses` | 我的课程列表 | query:`status,keyword,pageNum,pageSize` | 分页 `{records:[{courseId,title,coverUrl,status,price,salesCount,rating,updatedAt,reviewRemark?}]}` | 40101,40301 |
+| GET | `/api/v1/teacher/overview` | 教师总览 | — | `{courseCount,publishedCount,pendingReviewCount,totalRevenue30d,learnerCount30d}` | 40101,40301,40303 |
+| GET | `/api/v1/teacher/courses` | 我的课程列表 | query:`status,keyword,pageNum,pageSize` | 分页 `{records:[{courseId,title,coverUrl,status,price,salesCount,updatedAt,reviewRemark?}]}` | 40101,40301 |
 | GET | `/api/v1/teacher/courses/{courseId}` | 我的课程详情（含章节/课时） | — | `{courseId,title,subtitle,description,coverUrl,price,level,status,reviewRemark,chapters:[{id,title,lessons:[{id,title,isFree,durationSec,status}]}]}` | 40303,40401 |
 | POST | `/api/v1/teacher/courses` | 建课草稿 | `{categoryId,title,subtitle?,coverUrl,description,level}` | `{courseId,status:0}` | 40001,40301,40901 |
-| PUT | `/api/v1/teacher/courses/{courseId}` | 编辑本人课程（草稿/驳回/已下架可改；**不含 price**） | `{title?,subtitle?,coverUrl?,description?,categoryId?,level?}` | `{updated:true}` | 40303,40901,40401 |
-| POST | `/api/v1/teacher/courses/{courseId}/submit` | 提交审核（`0→1`） | `{}` | `{status:1,submittedAt}` | 40303,40901 |
-| POST | `/api/v1/teacher/courses/{courseId}/publish` | 本人课程上架（`3→2`，须已审核通过） | `{}` | `{status:2}` | 40303,40901 |
+| PUT | `/api/v1/teacher/courses/{courseId}` | 编辑本人课程（草稿/驳回/已下架可改，**不含 price**；已下架课程编辑后回草稿 `3→0` 须重新审核） | `{title?,subtitle?,coverUrl?,description?,categoryId?,level?}` | `{updated:true}` | 40303,40901,40401 |
+| POST | `/api/v1/teacher/courses/{courseId}/submit` | 提交审核（`0→1`；待审核期间只读，不可撤回、不可重复提交） | `{}` | `{status:1,submittedAt}` | 40303,40901 |
+| POST | `/api/v1/teacher/courses/{courseId}/publish` | 本人课程再上架（`3→2`；仅内容未变更可直接上架，编辑过须回草稿复审） | `{}` | `{status:2}` | 40303,40901 |
 | POST | `/api/v1/teacher/courses/{courseId}/unpublish` | 本人课程下架（`2→3`） | `{reason}` | `{status:3}` | 40303,40901 |
 | POST | `/api/v1/teacher/courses/{courseId}/chapters` | 建章节 | `{title,sort}` | `{chapterId}` | 40303,40001 |
 | PUT | `/api/v1/teacher/chapters/{chapterId}` | 改章节 | `{title?,sort?,status?}` | `{updated:true}` | 40303,40401 |
@@ -1114,7 +1128,7 @@ erDiagram
 | PUT | `/api/v1/teacher/lessons/{lessonId}` | 改课时 | `{title?,isFree?,sort?,coverUrl?,status?}` | `{updated:true}` | 40303,40401 |
 | DELETE | `/api/v1/teacher/lessons/{lessonId}` | 删课时（逻辑删） | — | `{deleted:true}` | 40303,40401 |
 | POST | `/api/v1/teacher/lessons/{lessonId}/video` | 上传视频（multipart，同步校验） | form-data `file` | `{videoUrl,durationSec,codec,width,height,sizeBytes}` | 40303,40002,50001,61003 |
-| GET | `/api/v1/teacher/courses/{courseId}/dashboard` | **课程数据看板** | query:`dateFrom,dateTo`（≤90 天） | `{summary:{salesCount,revenue,refundAmount,newLearnerCount,avgProgressPercent,rating,commentCount},trend:[{date,paidOrderCount,revenue,newLearnerCount}]}` | 40303,40401 |
+| GET | `/api/v1/teacher/courses/{courseId}/dashboard` | **课程数据看板** | query:`dateFrom,dateTo`（≤90 天） | `{summary:{salesCount,revenue,refundAmount,newLearnerCount,avgProgressPercent,commentCount},trend:[{date,paidOrderCount,revenue,newLearnerCount}]}` | 40303,40401 |
 | GET | `/api/v1/teacher/courses/{courseId}/comments` | 本人课程评论查看（只读，不能处置） | query:`status,pageNum` | 分页 `{records:[{id,content,status,createdAt}]}` | 40303,40401 |
 
 > 教师接口的归属校验统一走 `CourseOwnerChecker.check(courseId, teacherId)`，`chapter/lesson` 通过 `course_id` 反查；删除有已售订单的课时需先下架（`40901`）。
@@ -1161,7 +1175,7 @@ erDiagram
 |---|---|---|---|
 | `X-User-Id` | 是（登录态） | 数字字符串 | 唯一身份依据 |
 | `X-User-Roles` | 是 | 角色 code 逗号分隔，如 `STUDENT,OPS` | 用 code 不用中文；服务端二次校验 |
-| `X-User-Source` | 是 | `web/admin/miniapp/internal` | 来源端；`miniapp` 由网关按路由段 `/mp/**` 判定，下游据此拒绝 `channel=1`（支付宝） |
+| `X-User-Source` | 是 | `web/admin/miniapp/internal` | 来源端；`miniapp` 由网关按路由段 `/mp/**` 判定，下游据此拒绝 `channel=1`（支付宝）；**支付渠道由来源端固定**（Web→支付宝、小程序→微信），不提供跨渠道切换（07 §6.6） |
 | `X-Request-Id` | 是 | UUID | 全链路追踪 |
 | `X-Tenant-Id` | 预留 | 固定 `default` | 首版单租户 |
 | `X-Auth-Timestamp` / `X-Auth-Signature` | 可选 | 时间戳 / HMAC-SHA256 | 内网加固开关 |
@@ -1232,6 +1246,8 @@ erDiagram
 
 硬性约束：`ai_pii_mapping` 不参与任何提示词、不写日志、不出现在 API 响应；L0 场景代码层白名单只允许本地处理器，禁止注入模型客户端。
 
+> **账号注销（15.2 D8）**：注销走 7 天冷静期 + 人工确认后执行；`trade_order`、`payment_record`、`refund_request`、`payment_reconcile` 等法定交易记录**保留且不可删**（用户标识匿名化），仅清理头像、昵称、会话等个人信息。
+
 ---
 
 # 7. AI 能力设计
@@ -1240,8 +1256,8 @@ erDiagram
 
 | 编号 | 功能 | 角色 | 数据等级 | 上线形态 |
 |---|---|---|---|---|
-| AI-01 | 课程问答学伴 | 学员 | L1 | **灰度**（单课程白名单 + 10% 用户） |
-| AI-02 | 课程摘要与大纲 | 运营/学员 | L1 | 全量（异步生成） |
+| AI-01 | 课程问答学伴 | 学员（**仅 Web**，小程序首版不承诺，07 §4.3） | L1 | **灰度**（单课程白名单 + 10% 用户） |
+| AI-02 | 课程摘要与大纲 | 运营/学员 | L1 | 全量（异步生成；**运营确认后才对学员公开**，失败可人工填写，C06-09） |
 | AI-04 | 评论与举报审核 | 运营 | L1（先去 PII） | 全量（异步） |
 | AI-05 | 运营文案助手 | 运营 | L1 | 全量（后台） |
 
@@ -1282,7 +1298,7 @@ flowchart LR
 
 | 场景 | 系统约束 | 上下文块 | 输出约束 |
 |---|---|---|---|
-| 课程画像 | 只基于给定课程结构；禁止编造时长、价格、收益、就业承诺 | 课程 + 分类 + 章节/课时标题与简介 + 讲师公开名 | JSON：`{summary,audience,objectives[3-5],outline,difficulty}` |
+| 课程画像 | 只基于给定课程结构；禁止编造时长、价格、收益、就业承诺 | 课程 + 分类 + 章节/课时标题与简介 + 讲师公开名 | JSON：`{summary,audience,objectives[3-5],outline,difficulty}`；生成结果**运营确认后才对学员公开**（C06-09） |
 | 学伴 | 只答本课程范围内；无依据必须拒答；不报价、不承诺退款 | 当前课时 + 相邻课时标题 + 课程简介 + FAQ Top5 + 近 6 轮对话摘要 | 自然语言 + `citations[lessonId/faqId]`；拒答固定话术 |
 | 审核 | 只做风险分类，不做处罚决定 | 正文（脱敏）+ 所属课时标题 | JSON：`{riskLevel,category,reason,suggestedAction}` |
 | 文案 | 遵守长度与平台禁用词；不做绝对化承诺 | 场景字段 + 风格 + 字数 | JSON：`{candidates[3]}` |
@@ -1297,7 +1313,7 @@ flowchart LR
 |---|---|
 | 黄金集 | 每场景 40 条（共 160）；覆盖正常/边界/拒答/对抗/含 PII |
 | 离线评测 | 提示词或模型变更前跑全量；指标：事实一致率、引用准确率、拒答正确率、PII 泄露数（必须为 0） |
-| 回归门禁 | 事实一致率下降 > 5% 或出现 PII 泄露 → 阻断发布 |
+| 回归门禁 | 事实一致率下降 > 5% 或出现 PII 泄露 → 阻断发布；未确认画像对学员越权可见的用例必须返回 `40401`（C06-09） |
 | 在线指标 | 点赞率、无法回答率、追问率、人工复核一致率、TTFT/P95 |
 | 抽检 | 每周每场景抽 50 条人工复核，记录到评测库 |
 
@@ -1308,7 +1324,7 @@ flowchart LR
 | 学伴 | 拒答话术 + "转人工/去看相关课时"；未命中问题进入运营周报，转 FAQ |
 | 审核 | 高风险一律进队列；低风险自动通过，中风险抽检；运营可改判并回写 |
 | 文案 | 只回填表单，人工确认后保存；不直接写库 |
-| 摘要 | 生成失败/不合格 → 不展示，运营手动填写；可一键重试 |
+| 摘要 | 生成失败/不合格 → 不展示（运营确认后才公开，C06-09）；运营可手动填写或人工编辑后确认；可一键重试 |
 | 整体 | 客户模型不可用（未配置/密钥失效/超时/配额用尽）→ 缓存/模板降级，页面不报错；AI 入口按 `enabled` 关闭 |
 
 ## 7.6 成本控制
@@ -1329,6 +1345,7 @@ flowchart LR
 - 不采集身份证、银行卡；不强制采集手机号（仅登录/通知需要时采集）。
 - 邮箱/手机号仅用于账号与通知，禁止进入模型上下文。
 - 日志禁止打印密码、Token、支付原文、完整手机号/邮箱（保留掩码，如 `138****0000`）。
+- 账号注销：7 天冷静期 + 人工确认后执行（15.2 D8）；法定交易记录保留不可删，个人信息匿名化。
 
 ## 8.2 内容审核
 
@@ -1347,7 +1364,8 @@ flowchart LR
 - 回调必须验签 + 校验商户/应用归属 + 校验金额与订单号；验签失败一律丢弃并记 `raw_digest` 与来源 IP。
 - 回调幂等：`uk_pay_no` + `uk_channel_trade(channel, channel_trade_no)` 双唯一约束；重复回调返回渠道要求的成功应答。
 - 订单金额以服务端计算为准，绝不信任客户端金额；发起支付时如发现 `amount` 与订单不符直接拒绝。
-- 退款必须走审核 + 渠道退款接口，禁止只改数据库状态；退款金额 ≤ 实付金额（`62004`）。
+- 渠道由来源端固定（Web→支付宝、小程序→微信），重新支付仅限原渠道，**不提供跨渠道切换**（07 §6.6）。
+- 退款必须走审核 + 渠道退款接口，禁止只改数据库状态；首版仅全额退款（= 实付金额），准入为付款后 7 天内且学习进度 ≤ 20%（15.2 D6）；金额超限 `62004`、准入不满足 `62007`。
 - 对账：每日 T+1 拉取两渠道账单（支付 + 退款），写入 `payment_reconcile`；差异 `status=2` 并进入运营工单，**未处理差异不影响用户侧，但阻断结算**。
 
 **支付宝（Web 端）**：
@@ -1414,7 +1432,7 @@ flowchart LR
 | 隐私协议 | 必须配置《小程序用户隐私保护指引》，逐项声明收集的信息（手机号、头像昵称、学习记录）；调用 `getPhoneNumber` 前必须已声明「手机号」用途 | 【行业惯例】 |
 | 权限声明 | 首版只申请必要权限：不请求位置、通讯录、相册（除非教师上传封面走 Web 端）；视频播放用官方 `video` 组件，不申请额外权限 | 【行业惯例】 |
 | 内容合规 | 课程内容不得含题库售卖、学历承诺、就业承诺；未成年人相关需额外审核 | 【行业惯例】 |
-| 账号注销 | 小程序内提供账号注销入口，与 Web 一致，注销后 `sys_user_wechat` 同步解绑 | 【行业惯例】 |
+| 账号注销 | 小程序内提供账号注销入口，与 Web 一致；7 天冷静期 + 人工确认后生效（15.2 D8），生效后 `sys_user_wechat` 同步解绑 | 【行业惯例】 |
 | 支付合规 | 微信支付商户号与小程序 AppID 绑定；小程序内不得引导用户到站外支付（这是审核红线） | 【已决策 D2】 |
 
 ## 8.7 上线前合规检查清单
@@ -1432,6 +1450,7 @@ flowchart LR
 - [ ] 教师协议、内容审核责任条款、教师资质核验流程已生效
 - [ ] 内容审核规则与人工处置 SLA 明确
 - [ ] 数据备份与删除机制（账号注销、映射表过期清理）
+- [ ] 账号注销冷静期与撤销演练；小程序绑定手机号冲突用例验证（不自动合并账号，15.2 D8）
 - [ ] 生产 Knife4j/调试端点关闭，管理后台仅内网/VPN
 
 ---
@@ -1441,6 +1460,8 @@ flowchart LR
 ## 9.1 分支模型与 Git 协作（引用 AGENTS.md）
 
 > **Git 与协作全部规则以仓库根目录 [AGENTS.md](../AGENTS.md) 为准**（AGENTS.md 是 Agent 启动即加载的仓库级工作规则）：分支命名、提交信息格式与粒度、PR 六段与合并方式、tag 与版本对应、回滚流程、密钥禁止入库、AI Agent 约束、例外审批与违规处理，均不在本章重复。人与 AI Agent 同等适用，开工前须先读完 AGENTS.md。
+>
+> **产品口径（C06-01）**：产品范围、业务规则、验收口径以 [product-lifecycle](./product-lifecycle.md) 为准；本章只约束工程流程，不改变产品结论。
 
 本章只保留与**本项目工程流程**相关的差异要点：
 
@@ -1572,19 +1593,11 @@ flowchart LR
 | `teacher_api_403_total` | 教师端 | 5min 内 > 20 次告警（疑似越权探测） |
 | `miniapp_api_p95{path}` | 小程序接口 | 关键接口 P95 > 800ms 告警（弱网场景放宽） |
 
-**小程序端埋点**（由小程序自身上报，走 `POST /api/v1/metrics/events`，采样 10%，只报事件名与耗时，不报 PII）：
-
-| 事件 | 用途 |
-|---|---|
-| `mp_launch` / `mp_page_view` | 启动与页面 PV/UV |
-| `mp_login_result{success,cost}` | 登录成功率与耗时 |
-| `mp_pay_invoke` / `mp_pay_result{result}` | 调起支付成功率、取消率（区分用户取消 vs 渠道失败） |
-| `mp_play_start{lessonId}` | 视频播放起始（对齐 Web 的首帧指标） |
-| `mp_api_fail{path,code}` | 前端侧失败率，与后端 5xx 交叉验证 |
+**前端埋点（Web 与小程序统一，C06-13）**：事件名、必要属性与产品漏斗以 [product-lifecycle](./product-lifecycle.md) 第 10 章为准；跨端属性统一携带 `source`（仅 `web/miniapp`，15.2 D10），技术类事件（启动、登录、支付、播放、接口失败）双端同名，小程序不再单列 `mp_*` 前缀；学习会话按 15 分钟切分统计（15.2 D10）。上报走 `POST /api/v1/metrics/events`，采样 10%，只报事件名与耗时，不报 PII。
 
 ## 10.3 容量与性能目标
 
-> **规模基线为 TBD**：首发课程规模尚未确定（第 15.2 节 Q3）。下表按建议基线 **20 门课 / 约 200 课时 / 视频 100–200GB** 推导，确定后需同步调整**本章容量与带宽目标、第 14 章成本、第 11.1 节性能测试场景**三处。
+> **规模基线（15.2 D12，暂定，M1 前可复议）**：首发按基线 **20 门课 / 约 200 课时 / 视频 100–200GB** 推进（标注 TBD，上线后按真实数据校准）；若调整需同步**本章容量与带宽目标、第 14 章成本、第 11.1 节性能测试场景**三处。
 
 | 项 | 目标 | 说明 |
 |---|---|---|
@@ -1618,17 +1631,17 @@ flowchart LR
 
 | 域 | 必测内容 |
 |---|---|
-| 认证 | 注册/登录/刷新/注销、Token 过期、越权、**小程序 code 登录与 code 重放** |
-| 课程 | 列表/搜索/详情/目录、未购不可播、上下架 |
-| **教师端** | 建课→提交→审核→上架全流程；**用教师 A 访问教师 B 的课程/章节/课时/看板必须全部 40303**；教师不能改 price；未通过入驻审核不能建课 |
-| 交易 | 购物车、优惠券、下单幂等、超时关单、**支付宝回调与微信回调各一套**、退款、**渠道与来源端不匹配（小程序传 alipay）必须拒绝** |
+| 认证 | 注册/登录/刷新/退出、Token 过期、越权、**小程序 code 登录与 code 重放**、**绑定手机号冲突（不自动合并账号，15.2 D8）**、注销冷静期申请与撤销 |
+| 课程 | 列表/搜索/详情/目录、未购不可播、上下架；**待审核只读/不可撤回/不可重复提交、已下架编辑回草稿复审**（C06-03/C06-04）；**无评分展示**（07 §2.5） |
+| **教师端** | 建课→提交→审核→上架全流程；**用教师 A 访问教师 B 的课程/章节/课时/看板必须全部 40303**；教师不能改 price；未通过入驻审核不能建课；**审核通过与定价上架同一动作（无「待上架」态，C06-02）** |
+| 交易 | 购物车（仅 Web）、优惠券、下单幂等、超时关单（30 分钟，15.2 D11）、**支付宝回调与微信回调各一套**、退款（**7 天/进度 ≤ 20% 准入与全额退款，15.2 D6**）、**渠道与来源端不匹配（小程序传 alipay）必须拒绝**、**重付仅限原渠道（C06-05）**、**0 元课程下单被拒（`62008`，D9）** |
 | **对账** | 两渠道账单比对、差异识别（长款/短款）、重跑幂等、`uk_channel_date_type` 覆盖更新 |
-| 学习 | 播放签名有效期、进度幂等、完课判定、小程序内播放 |
-| 互动 | 评论待审不可见、举报流转、收藏 |
-| AI | 学伴引用/拒答、审核分级、文案长度、PII 不泄露；**未配置模型 / 密钥无效 / 配额用尽三类降级与 `50303`–`50306` 返回** |
+| 学习 | 播放签名有效期、进度幂等、**完课判定（进度 ≥ 90% 且有效观看 ≥ 90%，拖动不计入，15.2 D7）**、小程序内播放 |
+| 互动 | 评论待审不可见、举报流转、收藏（**收藏与举报仅 Web**，小程序首版不承诺，07 §4.3） |
+| AI | 学伴引用/拒答（**仅 Web**）、审核分级、文案长度、PII 不泄露、**画像未确认对学员不可见（C06-09）**；**未配置模型 / 密钥无效 / 配额用尽三类降级与 `50303`–`50306` 返回** |
 | **视频** | 上传校验（容器/编码/分辨率/时长/大小/完整性 → `61003`）、签名 URL 时效、并发播放限制（`61004`） |
 | 安全 | 伪造身份头、跨用户访问、两渠道回调验签、教师越权、限流 |
-| 性能 | 课程详情、下单、两个渠道的回调、AI 首字、小程序关键接口；**压测数据量按 Q3 基线准备（20 门课 / 200 课时 / 视频 100–200GB），规模确定后重跑** |
+| 性能 | 课程详情、下单、两个渠道的回调、AI 首字、小程序关键接口；**压测数据量按 15.2 D12 基线准备（20 门课 / 200 课时 / 视频 100–200GB），规模调整后重跑** |
 
 ## 11.2 验收标准
 
@@ -1643,8 +1656,9 @@ flowchart LR
 | 视频上传 | 非法视频（非 MP4 / 非 H.264 / >1080p / 时长越界 / 超大）100% 被 `61003` 拦截 |
 | 性能 | 关键接口 P95 达标（第 10 章） |
 | 稳定性 | 连续 72h 压测无内存泄漏，错误率 < 0.5% |
-| 小程序 | 体验版全链路通过；审核通过并成功发布；隐私声明与实际权限一致 |
+| 小程序 | 体验版全链路通过（**范围不含购物车/收藏/举报/AI 学伴**，07 §4.3）；审核通过并成功发布；隐私声明与实际权限一致 |
 | 合规 | 第 8.7 清单全绿 |
+| 产品指标 | 上线后 90 天按 07 第 10 章口径观察：`source` 仅 `web/miniapp`、学习会话 15 分钟切分（15.2 D10） |
 
 ## 11.3 上线 Gate 清单（可勾选）
 
@@ -1664,6 +1678,9 @@ flowchart LR
 - [ ] **模型密钥掩码与审计可用：后台仅显示尾号、`audit_log` 有配置与轮换记录、轮换演练通过**
 - [ ] **上传校验可拦截非法视频（非 MP4、非 H.264、>1080p、时长越界、超大文件）并返回 `61003`**
 - [ ] 运营审核队列与处置 SLA 就绪
+- [ ] **画像确认门禁：未确认画像学员端不可见（C06-09）**
+- [ ] **完课判定与退款准入用例通过（15.2 D6/D7）**
+- [ ] **小程序能力范围核对：购物车/收藏/举报/AI 学伴不可达（07 §4.3）**
 - [ ] 隐私政策/用户协议上线
 - [ ] 压测报告与容量评估签字
 
@@ -1686,8 +1703,8 @@ flowchart LR
 
 | 步骤 | 范围 | 观察 | 通过条件 |
 |---|---|---|---|
-| 5 体验版 | 微信体验成员（≤15 人） | 2 天 | 登录、下单、微信支付、播放、退款申请全通 |
-| 6 审核发布 | 正式版全量（小程序无法按比例灰度，只能整体发布） | 3 天 | 微信支付成功率 ≥ 97%，`mp_pay_result` 取消率 < 20% |
+| 5 体验版 | 微信体验成员（≤15 人） | 2 天 | 登录、下单、微信支付、播放、退款申请全通（验收范围仅含 07 §4.3 小程序首版能力，不含购物车、收藏、举报与 AI 学伴，C06-08） |
+| 6 审核发布 | 正式版全量（小程序无法按比例灰度，只能整体发布） | 3 天 | 微信支付成功率 ≥ 97%，`payment_result`（result=cancel）取消率 < 20%（事件口径见 07 第 10 章，C06-13） |
 | 7 观察期 | 7 天 | — | 双通道对账连续一致，小程序客诉 < 5 单/日 |
 
 > 小程序**没有按用户比例灰度**的可靠手段（分阶段发布需满足微信条件），因此采用「体验版充分验证 + 整体发布 + 快速回退」策略；Web 与小程序的上线时间至少错开 7 天，避免双端同时出问题。
@@ -1721,13 +1738,15 @@ AI 功能单独灰度：先单课程白名单 + 10% 用户，观察无法回答�
 | 数据库主库故障 | 切从库；只读降级；恢复后补数据 |
 | AI 模型不可用（客户未配置/密钥失效/配额用尽/上游超时） | 熔断 → 缓存/模板降级；AI 入口按 `enabled` 关闭并提示维护，主链路不受影响 |
 | 出现 PII 出域告警 | 立即关闭所有出域功能，仅保留 L0 本地能力 |
-| **教师上传违规内容** | 一键下架课程（`status=3`）+ 冻结教师建课权限 + 通知整改；已售订单用户可申请退款 |
+| **教师上传违规内容** | 一键下架课程（`status=3`）+ 冻结教师建课权限 + 通知整改；已售订单用户可申请退款（按 15.2 D6 准入与仅全额退款口径，C06-06） |
 | **小程序被驳回/下架** | 按驳回原因整改（多为类目资质或内容问题）；期间 Web 不受影响，小程序内展示维护页 |
 | 恶意刷接口 | 网关封禁 IP/用户，降级非核心功能 |
 
 ## 12.4 上线后观察指标（72h）
 
 Web 下单成功率、支付宝回调成功率、权益发放时延、5xx、P95、退款积压、评论审核积压、AI 无法回答率、日成本、客诉量；小程序上线后追加：小程序登录成功率、微信支付成功率与取消率、`jscode2session` 失败数、小程序接口 P95、两渠道对账差异数。
+
+> 产品侧指标（漏斗、留存、北极星）按 07 第 10 章统一口径采集：事件名与属性以 07 §10.2 为准，`source` 仅 `web/miniapp`，学习会话按 15 分钟切分（15.2 D10，C06-13）；本节所列为技术质量与渠道健康观察项。
 
 ---
 
@@ -1748,7 +1767,7 @@ Web 下单成功率、支付宝回调成功率、权益发放时延、5xx、P95�
 
 | 阶段 | 周次 | 主要任务 | 依赖 | DoD |
 |---|---|---|---|---|
-| M0 基建 | W1–W2（2 周） | 仓库/CI（含小程序 job）/环境、Nacos、MySQL/Redis/MQ/MinIO、网关骨架、统一返回与异常、身份头规范、**渠道适配接口定义** | 决策 D4（BYO）、Q3 基线假设 | dev 环境一键起；CI 跑通（含 `miniprogram-ci` 空跑）；网关可路由 |
+| M0 基建 | W1–W2（2 周） | 仓库/CI（含小程序 job）/环境、Nacos、MySQL/Redis/MQ/MinIO、网关骨架、统一返回与异常、身份头规范、**渠道适配接口定义** | 决策 D4（BYO）、D12 规模基线 | dev 环境一键起；CI 跑通（含 `miniprogram-ci` 空跑）；网关可路由 |
 | M1 账号与内容（含教师端） | W3–W6（4 周） | 注册登录/JWT、**小程序 code 登录**、RBAC、分类/课程/章节/课时、**教师工作台（建课/提交审核/上下架/看板框架）**、教师入驻审核、运营课程审核、全文搜索 | M0 | 教师可自助建课→运营审核→上架；C 端可浏览；越权用例通过 |
 | M2 交易与学习 | W6–W9（4 周） | 购物车、优惠券、下单幂等、**支付宝支付/回调/退款**、权益、播放签名、进度、**微信支付适配（仅后端，先不接小程序 UI）** | M1、支付宝商户号、微信商户号 | 支付宝沙箱端到端成功并发放权益；微信支付在 Postman/单测层可完成 JSAPI 下单与回调 |
 | M3 互动与后台 | W9–W10（2 周） | 评论/收藏/举报、审核状态、后台管理、退款、看板、**分渠道对账任务与查询** | M2 | 运营可完成一次退款与评论处置；对账可跑出两渠道账单 |
@@ -1804,7 +1823,7 @@ DoD：学伴无法回答率 ≤ 30%、找课点击率 +10%、售后 FAQ 命中�
 ## 13.6 M0 可执行任务清单
 
 > 口径：全部任务拆到 0.5–1 人日；编号自 M0-01 起；前置依赖只引用本表内更早的 ID；责任人为占位，按 13.1 的 6.5 FTE 分配（后端 A/B、前端、小程序、测试、运维、产品）。合计 53 项 / 34 人日，主投入约 3.5 FTE（后端 2 人、运维 0.5 人、测试 0.5 人，前端与小程序各 0.5 人并行做骨架），产品 1 人专注推进 13.6.3 的外部依赖，余量用于 M1 需求澄清与缓冲。
-> 文档落点：按 `AGENTS.md` 11.1「根目录常驻文件只允许 AGENTS.md」，不新建 README，本地启动文档落 `docs/07-local-dev-guide.md`（M0-52）。
+> 文档落点：按 `AGENTS.md` 11.1「根目录常驻文件只允许 AGENTS.md」，不新建 README，本地启动文档落 `docs/local-dev-guide.md`（M0-52）。
 
 ### 13.6.1 主清单（M0-01 → M0-53）
 
@@ -1861,7 +1880,7 @@ DoD：学伴无法回答率 ≤ 30%、找课点击率 +10%、售后 FAQ 命中�
 | M0-49 | CI | 小程序 CI 空跑 | `.github/workflows/miniapp-ci.yml` | M0-46、M0-48 | 0.5 | 无 `MP_PRIVATE_KEY` 时输出 SKIP 且 job 绿；有密钥时 `miniprogram-ci` 上传体验版成功 | 小程序 |
 | M0-50 | CI | 后端 CI job | `.github/workflows/backend-ci.yml` | M0-01、M0-19、M0-28 | 0.5 | PR 触发 `backend-build` 绿（compile + 迁移校验 + `flyway:validate`）；故意破坏迁移时转红 | 后端·A |
 | M0-51 | CI | 冒烟汇总与调度 | `scripts/smoke/smoke-dev.sh` | M0-10、M0-24、M0-38、M0-42 | 1 | 12 项断言退出码 0；停掉任一依赖后退出码非 0 | 测试 |
-| M0-52 | 交付 | 本地开发与启动文档 | `docs/07-local-dev-guide.md` | M0-09、M0-43、M0-46 | 0.5 | `bash scripts/check-docs.sh` 通过；文中命令逐条实测可执行 | 运维 |
+| M0-52 | 交付 | 本地开发与启动文档 | `docs/local-dev-guide.md` | M0-09、M0-43、M0-46 | 0.5 | `bash scripts/check-docs.sh` 通过；文中命令逐条实测可执行 | 运维 |
 | M0-53 | 交付 | M0 DoD 核对表 | 13.6.4 勾选记录 | M0-51、M0-52 | 0.5 | 13.2 M0 行四项 DoD 均有对应断言与执行记录 | 测试 |
 
 ### 13.6.2 第一周可立即开工（无外部依赖）
@@ -1921,7 +1940,7 @@ DoD：学伴无法回答率 ≤ 30%、找课点击率 +10%、售后 FAQ 命中�
 
 # 14. 成本估算
 
-> 全部为**估算**，实际以云厂商报价与真实流量复算。**平台不承担模型调用费用**（模型由客户自配，第 15.2 节 D4），模型相关成本仅作客户侧参考口径列出。课程规模为 TBD（第 15.2 节 Q3），本章按基线 **20 门课 / 约 200 课时 / 视频 100–200GB** 测算，规模确定后需复算本章。
+> 全部为**估算**，实际以云厂商报价与真实流量复算。**平台不承担模型调用费用**（模型由客户自配，第 15.2 节 D4），模型相关成本仅作客户侧参考口径列出。课程规模按 15.2 D12 基线（20 门课 / 约 200 课时 / 视频 100–200GB，标 TBD）测算，规模调整后需复算本章。
 
 ## 14.1 基础设施（月度）
 
@@ -1950,7 +1969,7 @@ DoD：学伴无法回答率 ≤ 30%、找课点击率 +10%、售后 FAQ 命中�
 | 学伴 | 入 3k / 出 0.6k | 灰度期 5k 轮/月 | 中 |
 | **合计 token** | — | 约 25–35M token/月 | 单价由客户与供应商约定，平台不代为估算 |
 
-> 平台责任边界：只保证「计量准确、配额生效、异常可观测」。单价、预算与涨价风险由客户承担；课程规模（Q3）确定后，上述频次假设需同步复算。
+> 平台责任边界：只保证「计量准确、配额生效、异常可观测」。单价、预算与涨价风险由客户承担；课程规模（D12）调整后，上述频次假设需同步复算。
 
 ## 14.3 人力
 
@@ -2019,12 +2038,15 @@ DoD：学伴无法回答率 ≤ 30%、找课点击率 +10%、售后 FAQ 命中�
 | D3 | 是否做 iOS App 与 IAP | **不做**，首版以 Web + 微信小程序覆盖移动端 | 第 1.3 节不做清单；节省独立端开发与 IAP 合规成本 |
 | **D4** | **模型接入方式与预算** | **客户自配（BYO key）**：后台配置 `base_url`（OpenAI 兼容）/`api_key`/模型名/超时重试/日与月 token 上限/启用开关；平台不采购、无默认平台密钥、不承担模型费用，仅做适配、计量与告警 | 第 3.1、3.2.1、4.3.6、5.2、5.8、5.9、6.3、7 章；第 14 章成本口径改为「平台 ¥0，仅计量」；M4 增加约 0.5 周 |
 | **D5** | **视频交付形态** | **自建**：对象存储（MinIO 私有桶）+ 短时效签名 URL + CDN 防盗链 + 并发播放限制；**不接云点播、首版不做转码**；上传前须为标准 MP4/H.264，并由服务端强制校验（不合格拒收 `61003`） | 第 1.3、4.3.2、5.2、5.10、11 章；M1 增加约 0.5 周；盗链风险与容量口径见 10.3、15.1 R5/R15 |
+| **D6** | **退款政策** | **已决策（暂定，M1 前可复议）**：首版仅全额退款、人工审核；付款后 7 天内可申请；学习进度 > 20% 不予受理；优惠券不退（视为已使用） | 2.3、4.3.3、4.4、5.5（`62007`）、8.3、12.3、附录 A/C |
+| **D7** | **学习完成判定** | **已决策（暂定，M1 前可复议）**：播放进度 ≥ 90% 且有效观看时长 ≥ 课时时长 90% 才记完成；拖动跳过时段不计入有效时长；完成态由服务端重算，客户端不可直接提交 | 4.3.4、5.6、10.2、11.1、13.4–13.5 |
+| **D8** | **账号合并与注销** | **已决策（暂定，M1 前可复议）**：不做自动合并；小程序绑定手机号冲突时提示登录原账号；注销走 7 天冷静期 + 人工确认；法定交易记录保留不可删 | 4.3.1、5.3、6.5、8.1、8.6、8.7、附录 C |
+| **D9** | **0 元课程** | **已决策（暂定，M1 前可复议）**：首版不支持 0 元下单（`price>0`）；免费内容由运营直接发放权益（`source_type=2`），不产生订单（`62008`） | 4.3.2、4.3.4、5.4、5.5、5.9 |
+| **D10** | **指标口径** | **已决策（暂定，M1 前可复议）**：学习会话按 15 分钟切分统计；跨端属性 `source` 仅 `web/miniapp`；事件名与漏斗按 07 第 10 章 | 1.4、10.2、11.2、12.4 |
+| **D11** | **支付截止** | **已决策（暂定，M1 前可复议）**：下单后 30 分钟未支付自动关单；重付前先关原支付单，仅限原渠道 | 2.3、4.3.3、5.2（`62006`）、5.5 |
+| **D12** | **首发课程规模** | **已决策（暂定，M1 前可复议）**：保持基线 20 门课 / 约 200 课时 / 视频 100–200GB，标注 TBD，上线后按真实数据校准；调整时同步第 10.3、11.1、14 章三处 | 10.3、11.1、13.2、14 |
 
-**剩余待决策（唯一 1 条）**：
-
-| # | 问题 | 选项 | 建议默认 | 不决策的后果 | 确定后需同步调整 |
-|---|---|---|---|---|---|
-| Q3 | 首发课程规模 | A ≤ 20 门 / 约 200 课时 / 视频 100–200GB（基线）<br/>B 100–1000 门 | **先按 A 推进并标 TBD** | 容量与带宽目标、成本测算、压测场景都会偏离实际；AI 语料量与审核人力也无法定档 | ① 第 10.3 节容量与带宽目标；② 第 14 章成本（存储/CDN/人力）；③ 第 11.1 节性能测试场景与数据量 |
+**剩余待决策（0 条）**：原 Q3 首发课程规模已按确认结果落地为 D12（暂定，M1 前可复议）；D6–D12 均为暂定决策，M1 前可复议。后续新增待决策项在此登记。
 
 ---
 
@@ -2041,7 +2063,7 @@ DoD：学伴无法回答率 ≤ 30%、找课点击率 +10%、售后 FAQ 命中�
 | 限流 | 42901 | — |
 | 服务端 | 50001、50201–50306 | 50001 系统异常、50201 下游失败、**50202 支付宝渠道失败**、**50203 微信支付渠道失败**、**50204 对账存在未处理差异**、50301/50302 AI 不可用、**50303 模型未配置**、**50304 密钥无效**、**50305 配额用尽**、**50306 上游超时/限流** |
 | 业务-课程 | 61001–61004 | 61001 未上架、61002 已购、**61003 视频上传校验未通过**、**61004 播放并发超限** |
-| 业务-订单 | 62001–62006 | 62001 状态不允许、62002 已过期、62003 券不可用、62004 退款不可申请、**62005 渠道与来源端不匹配**、**62006 订单已有进行中的支付单** |
+| 业务-订单 | 62001–62008 | 62001 状态不允许、62002 已过期、62003 券不可用、62004 退款不可申请、**62005 渠道与来源端不匹配**、**62006 订单已有进行中的支付单**、**62007 退款准入不满足（15.2 D6）**、**62008 0 元课程不支持下单（15.2 D9）** |
 | 业务-学习 | 63001 | 进度越界 |
 | 业务-内容 | 64001–64002 | 违规/举报目标 |
 | 业务-AI | 65001 | 会话不存在 |
@@ -2071,6 +2093,9 @@ DoD：学伴无法回答率 ≤ 30%、找课点击率 +10%、售后 FAQ 命中�
 - [ ] 微信支付商户号联调通过，JSAPI 下单可拉起支付面板
 - [ ] 两渠道退款各完成一次真实退款并回查渠道状态
 - [ ] 退款审核流程演练
+- [ ] 退款准入用例通过（付款超 7 天或进度 > 20% 返回 `62007`；仅全额退款，15.2 D6）
+- [ ] 小程序越范围接口（购物车/收藏/举报/AI 学伴）全部返回 `40301`（07 §4.3）
+- [ ] 账号注销冷静期与绑定冲突用例通过（15.2 D8）
 - [ ] 课程上下架与试看规则验证
 - [ ] 教师端全流程演练：入驻审核 → 建课 → 提交 → 运营审核 → 上架 → 看板
 

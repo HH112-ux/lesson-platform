@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 提交信息校验：type(scope): 中文摘要，首行 ≤ 72 字符
+# 提交信息校验：type(scope): subject（英文祈使句、全小写），首行 ≤ 50 字符
 set -uo pipefail
 
 msg_file="${1:-}"
@@ -14,16 +14,16 @@ case "$subject" in
   Merge\ *|Revert\ *) exit 0 ;;
 esac
 
-types='feat|fix|docs|style|refactor|perf|test|chore|ci|build|revert'
+types='feat|fix|docs|style|refactor|perf|test|chore|revert'
 if ! printf '%s' "$subject" | grep -qE "^($types)(\([a-z0-9_-]+\))?: [^ ]"; then
-  echo "FAIL 提交信息格式应为 'type(scope): 中文摘要'，type 限：${types//|/ }"
+  echo "FAIL 提交信息格式应为 'type(scope): subject'，type 限：${types//|/ }"
   echo "     实际：$subject"
   exit 1
 fi
 
 len="$(printf '%s' "$subject" | wc -m | tr -d ' ')"
-if [ "$len" -gt 72 ]; then
-  echo "FAIL 提交信息首行 ${len} 字符，超过 72 字符上限"
+if [ "$len" -gt 50 ]; then
+  echo "FAIL 提交信息首行 ${len} 字符，超过 50 字符上限"
   echo "     实际：$subject"
   exit 1
 fi

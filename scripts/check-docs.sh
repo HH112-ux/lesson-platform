@@ -8,11 +8,11 @@ cd "$ROOT"
 fail=0
 fail_msg() { printf 'FAIL %s\n' "$1"; fail=1; }
 
-# 1. 文件名必须为 NN-英文短语-kebab-case.md
+# 1. 文件名必须为英文短语 kebab-case.md（无数字前缀，正则本身排除大写与中文）
 while IFS= read -r f; do
   base="$(basename "$f")"
-  if ! printf '%s' "$base" | grep -qE '^[0-9]{2}-[a-z0-9]+(-[a-z0-9]+)*\.md$'; then
-    fail_msg "文件名不符合 NN-英文短语-kebab-case.md：$f"
+  if ! printf '%s' "$base" | grep -qE '^[a-z0-9]+(-[a-z0-9]+)*\.md$'; then
+    fail_msg "文件名不符合英文 kebab-case 命名（无数字前缀）：$f"
   fi
 done < <(find docs -type f -name '*.md' | sort)
 
