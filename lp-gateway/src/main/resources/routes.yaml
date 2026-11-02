@@ -1,0 +1,40 @@
+# Route table skeleton: one route per domain service plus the miniapp prefix segment.
+# Downstream URIs are overridden per environment through LP_*_SERVICE_URI variables.
+# Authentication and the payment callback whitelist are attached in M0-27/M0-33.
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: auth-service
+          uri: ${LP_AUTH_SERVICE_URI:http://localhost:8101}
+          predicates:
+            - Path=/api/v1/auth/**,/api/v1/users/**
+        - id: course-service
+          uri: ${LP_COURSE_SERVICE_URI:http://localhost:8102}
+          predicates:
+            - Path=/api/v1/categories/**,/api/v1/courses/**,/api/v1/teacher/**
+        - id: trade-service
+          uri: ${LP_TRADE_SERVICE_URI:http://localhost:8103}
+          predicates:
+            - Path=/api/v1/cart/**,/api/v1/coupons/**,/api/v1/orders/**,/api/v1/payments/**,/api/v1/refunds/**
+        - id: learn-service
+          uri: ${LP_LEARN_SERVICE_URI:http://localhost:8104}
+          predicates:
+            - Path=/api/v1/entitlements/**,/api/v1/progress/**,/api/v1/play/**
+        - id: ugc-service
+          uri: ${LP_UGC_SERVICE_URI:http://localhost:8105}
+          predicates:
+            - Path=/api/v1/comments/**,/api/v1/favorites/**,/api/v1/reports/**
+        - id: admin-service
+          uri: ${LP_ADMIN_SERVICE_URI:http://localhost:8106}
+          predicates:
+            - Path=/api/v1/admin/**
+        - id: ai-service
+          uri: ${LP_AI_SERVICE_URI:http://localhost:8107}
+          predicates:
+            - Path=/api/v1/ai/**
+        # Miniapp segment: every request under /mp is marked as miniapp source by the gateway.
+        - id: miniapp-segment
+          uri: ${LP_GATEWAY_MINIAPP_URI:http://localhost:8080}
+          predicates:
+            - Path=/mp/**

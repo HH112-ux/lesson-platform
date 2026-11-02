@@ -1,0 +1,23 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: lp-gateway
+  config:
+    import: classpath:routes.yaml
+  cloud:
+    gateway:
+      metrics:
+        enabled: true
+
+# Health is exposed for the M0-26 acceptance check: curl :8080/actuator/health returns UP.
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
