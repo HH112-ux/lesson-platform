@@ -45,9 +45,9 @@ docker compose -f infra/docker-compose.yml ps
 
 | 组件 | 端口 | 控制台或入口 |
 |---|---|---|
-| MySQL | 3306 | `mysql -h127.0.0.1 -P3306 -uroot -p` |
-| Redis | 6379 | `redis-cli -h127.0.0.1 -p6379 ping` |
-| RocketMQ NameServer | 9876 | `mqadmin clusterList -n 127.0.0.1:9876` |
+| MySQL | 3306（默认） / 3307（本机覆盖） | `mysql -h127.0.0.1 -P{port} -uroot -p` |
+| Redis | 6379 | 容器内 `redis-cli ping` |
+| RocketMQ NameServer | 9876 | 宿主 `mqadmin clusterList -n 127.0.0.1:9876` |
 | RocketMQ Broker | 10909 / 10911 | 无 |
 | MinIO | 9000 / 9001 | `http://localhost:9001` |
 | Nacos | 8848 / 9848 | `http://localhost:8848/nacos` |
@@ -60,6 +60,15 @@ docker compose -f infra/docker-compose.yml down -v
 ```
 
 当前 `infra/` 只有编排文件；`infra/up.sh`、`infra/down.sh`、`infra/reset.sh`、`infra/init/*` 仍为 M0 规划项（见工程规划 13.6），未创建前以上面的 compose 命令为准。
+
+### 3.1 本机已知端口占用与验证路径
+
+这些是当前开发机的实测结论，其他机器可能不同；遇到"容器起来了但连不上"先检查这几条：
+
+- **MySQL 端口冲突**：宿主机原生 `/usr/local/mysql/bin/mysqld` 占用 `3306`，`infra/.env` 已覆盖 `LP_MYSQL_PORT=3307`；连接串一律用 `3307`，不要硬写 `3306`。本机重建 MySQL 容器时务必 `docker compose -f infra/docker-compose.yml down -v mysql` 后再 `up -d mysql`，让 compose 重新读取 `.env`。
+- **Redis 端口冲突**：宿主机原生 `redis-server` 占用 `6379`，compose 无法抢占；宿主机直连 `redis-cli ping` 命中的是原生实例而非容器。容器内验证：`docker exec lp-redis redis-cli ping` 应返回 `PONG`。
+- **RocketMQ `brokerIP1` 副作用**：compose 的 broker.conf 写了 `brokerIP1=127.0.0.1`，这是让**宿主**客户端能连上的必要设置。但容器内执行 `mqadmin clusterList -n 127.0.0.1:9876` 会看到 `RemotingConnectException`（broker 注册地址在容器内指向自身），属预期；mqadmin 验证统一从宿主发起。
+
 
 ## 4. 后端
 
