@@ -13,6 +13,13 @@
 
   <modules>
     <module>lp-common</module>
+    <module>lp-auth-service</module>
+    <module>lp-course-service</module>
+    <module>lp-trade-service</module>
+    <module>lp-learn-service</module>
+    <module>lp-ugc-service</module>
+    <module>lp-admin-service</module>
+    <module>lp-ai-service</module>
     <module>lp-gateway</module>
   </modules>
 
