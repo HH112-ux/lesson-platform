@@ -30,9 +30,10 @@ jobs:
             head="${{ github.event.pull_request.head.sha }}"
             for sha in $(git rev-list "$base".."$head"); do
               git log -1 --pretty=%B "$sha" > /tmp/commit-msg.txt
-              bash scripts/check-commit-msg.sh /tmp/commit-msg.txt
+              bash scripts/check-commit-msg.sh /tmp/commit-msg.txt "$sha"
             done
           else
-            git log -1 --pretty=%B > /tmp/commit-msg.txt
-            bash scripts/check-commit-msg.sh /tmp/commit-msg.txt
+            head="$(git rev-parse HEAD)"
+            git log -1 --pretty=%B "$head" > /tmp/commit-msg.txt
+            bash scripts/check-commit-msg.sh /tmp/commit-msg.txt "$head"
           fi
