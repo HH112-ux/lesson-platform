@@ -1,0 +1,7 @@
+packages:
+  - apps/web
+  - apps/miniapp
+allowBuilds:
+  esbuild: true
+onlyBuiltDependencies:
+  - esbuild
