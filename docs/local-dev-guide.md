@@ -3,6 +3,59 @@
 > 适用范围：在本地启动依赖中间件、后端网关、Web 前端与微信小程序。命令与代码用英文，说明用中文。
 > 目录、分支、提交与命名的强制规则见 `AGENTS.md`；本指南只描述"怎么跑起来"。
 
+## 0. Git 远端与 SSH 配置
+
+本机存在指向 `127.0.0.1:7897` 的系统级代理（TUN 模式），会劫持部分场景下的 `git push/pull`。经过实测，稳定方案如下。
+
+### 0.1 最终方案：SSH over HTTPS（ssh.github.com:443）
+
+在 `~/.ssh/config` 中加一段（已生效）：
+
+```sshconfig
+Host github.com
+    HostName ssh.github.com
+    Port 443
+    User git
+    IdentityFile ~/.ssh/id_ed25519
+    IdentitiesOnly yes
+    AddKeysToAgent yes
+    UseKeychain yes
+```
+
+仓库 remote 设置为 SSH：
+
+```bash
+git remote set-url origin git@github.com:HH112-ux/lesson-platform.git
+git ls-remote origin          # 应正常列出 refs，无 Connection closed
+git push -u origin <branch>   # 应直接 push，无需密码
+```
+
+### 0.2 判定方法
+
+检查 22 直连是否被代理劫持：
+
+```bash
+nc -vz -G 5 github.com 22     # 若 succeeded 但 git ls-remote 仍报 Connection closed，
+                                # 说明 shell 直连能过但 git 子进程被 TUN 劫持
+```
+
+两个端口都通时，优先用 `ssh.github.com:443` —— 它走 HTTPS 协议通道，系统层 TUN 不会拦截，git 子进程也能稳定通过。
+
+### 0.3 备选：HTTPS + gh 凭据助手
+
+若 SSH 通道彻底不通，可切换为 HTTPS + `gh auth setup-git`：
+
+```bash
+git remote set-url origin https://github.com/HH112-ux/lesson-platform.git
+gh auth setup-git            # 注册 gh auth git-credential 作为凭据助手
+```
+
+实测 `git fetch / ls-remote / push` 均通过；比 SSH 稍慢、且 remote URL 更长，仅作备选。
+
+### 0.4 ~/.ssh/config 备份与恢复
+
+`~/.ssh/config.bak-<时间戳>` 保留每次改动前的备份，便于回滚；不要动与 GitHub 无关的 Host 段（如 `colima`）。
+
 ## 1. 前置条件
 
 | 工具 | 版本要求 | 用途 | 校验命令 |
@@ -144,7 +197,7 @@ node apps/miniapp/scripts/check.mjs
 
 - `docker: command not found`：安装 Docker Desktop 并启动；未安装时第 3 节跳过，后端仍可单独构建。
 - `ERR_PNPM_IGNORED_BUILDS`：执行 `pnpm approve-builds --all` 放行 `esbuild` 的构建脚本，再 `pnpm install`。
-- `git fetch` 提示权限失败：本机代理可能占用 22 端口，改用 `GIT_SSH_COMMAND="ssh -o Hostname=ssh.github.com -p 443 -o StrictHostKeyChecking=accept-new" git fetch origin`。
+- `git fetch` 提示权限失败 / `Connection closed by 127.0.0.1 port 7897`：见 §0「Git 远端与 SSH 配置」，最终方案是 `ssh.github.com:443` 的 SSH over HTTPS，不需要切 HTTPS remote。
 - 前端启动后接口 502：确认网关已在 8080 启动，或 `routes.yaml` 指向的下游服务未创建（预期）。
 - 小程序编译报域名不合法：开发者工具中关闭"校验合法域名"，仅限本地调试。
 
