@@ -9,7 +9,7 @@
 |---|---|---|---|
 | JDK | 17 及以上 | 后端编译与运行 | `java -version` |
 | Maven | 使用仓库内 `./mvnw` | 后端构建 | `./mvnw -v` |
-| Node.js | 20 及以上 | 前端构建、小程序静态校验 | `node -v` |
+| Node.js | 22.13 及以上 | 前端构建、小程序静态校验 | `node -v` |
 | pnpm | 11 及以上 | 前端依赖管理 | `pnpm -v` |
 | Docker Desktop | 最新稳定版 | `infra/` 五件套 | `docker --version` |
 | 微信开发者工具 | 最新稳定版 | 小程序预览与真机调试 | 应用内版本号 |
