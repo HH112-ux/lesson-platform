@@ -328,7 +328,7 @@ flowchart TB
 
 - 后端 Maven 多模块聚合，父工程统一 `dependencyManagement`；各服务模块名为 `{域}-service`（**规划中**，仓库尚未创建）。
 - 包结构固定：`controller / dto / vo / entity / mapper / service / service.impl / feign / mq / config / util`；命名规则见 `AGENTS.md` 第 11.5 节。
-- 前端：`apps/web`（C 端 Web）、`apps/admin`（运营后台 + **教师工作台**）、`apps/miniapp`（微信小程序）、`packages/shared`（类型与请求封装，Web 与 admin 共用；小程序单独维护轻量 `api/` 层）——**以上目录均为规划中**，当前仓库仅有 `AGENTS.md` 与 `docs/`。
+- 前端：`apps/web`（C 端 Web）、`apps/admin`（运营后台 + **教师工作台**）、`apps/miniapp`（微信小程序）、`packages/shared`（类型与请求封装，Web 与 admin 共用；小程序单独维护轻量 `api/` 层）——**以上目录均为规划中**（`apps/`、`packages/` 尚未创建）；当前仓库已存在 `db/`（Flyway 迁移）、`infra/`（本地依赖编排）、`lp-common/`、`lp-gateway/`、`scripts/` 与父 `pom.xml`。
 - 单仓库（monorepo），按模块独立构建镜像；`apps/miniapp` 构建产物为微信小程序包，由 CI 调 `miniprogram-ci` 上传。
 - 文件/目录/表/接口/配置/分支/tag/CI job 的命名一律按 `AGENTS.md` 第十一节执行，本节不重复条文。
 
@@ -1830,47 +1830,47 @@ DoD：学伴无法回答率 ≤ 30%、找课点击率 +10%、售后 FAQ 命中�
 | 任务 ID | 分组 | 任务名 | 产出物（路径或可验证结果） | 前置依赖 | 预估人日 | 验收标准（可判定） | 责任人 |
 |---|---|---|---|---|---|---|---|
 | M0-01 | 基线 | 父工程聚合与版本锁定 | `pom.xml`（packaging=pom，Java 17，dependencyManagement） | 无 | 0.5 | `mvn -q -N validate` 退出码 0；`mvn -q dependency:tree` 无版本冲突告警 | 后端·A |
-| M0-02 | 基线 | common 模块骨架 | `common/pom.xml`、`com/lp/common/package-info.java` | M0-01 | 0.5 | `mvn -q -pl common -am compile` 退出码 0 | 后端·A |
+| M0-02 | 基线 | common 模块骨架 | `lp-common/pom.xml`、`com/lp/common/package-info.java` | M0-01 | 0.5 | `mvn -q -pl lp-common -am compile` 退出码 0 | 后端·A |
 | M0-03 | 基线 | 本地钩子一键安装 | `scripts/install-hooks.sh` | 无 | 0.5 | 执行后 `git config --get core.hooksPath` 输出 `.githooks`；`git commit --allow-empty -m "非法提交信息"` 返回非 0 且未生成提交 | 运维 |
 | M0-04 | 基线 | 服务脚手架生成器 | `scripts/gen-service.sh`、`scripts/templates/service/` | M0-01、M0-02 | 1 | `bash scripts/gen-service.sh demo 8199 lp_demo` 后可 `mvn -q -pl demo -am compile`；验证后删除 demo 模块 | 后端·A |
-| M0-05 | 本地环境 | 五件套 Compose | `deploy/dev/docker-compose.yml` | 无 | 1 | 五容器均 running；端口 nacos 8848、mysql 3306、redis 6379、rocketmq 9876、minio 9000/9001 | 运维 |
-| M0-06 | 本地环境 | 桶与 Topic 初始化 | `deploy/dev/init/minio-init.sh`、`deploy/dev/init/rocketmq-init.sh` | M0-05 | 0.5 | `mc ls local` 含 `lp-media`；`mqadmin topicList` 含 `lp-topic` | 运维 |
-| M0-07 | 本地环境 | 环境变量模板 | `deploy/dev/.env.example` | M0-05 | 0.5 | 所有变量以 `LP_` 开头（非 `LP_` 行数为 0）；`grep -nE 'AKIA\|BEGIN PRIVATE\|sk-'` 无输出 | 运维 |
-| M0-08 | 本地环境 | 六库与账号建库脚本 | `deploy/db/00-create-databases.sql` | M0-05 | 0.5 | 执行后 `SHOW DATABASES LIKE 'lp_%'` 返回 6 行；业务账号仅授权到对应库 | 后端·B |
-| M0-09 | 本地环境 | 一键起停与重置 | `deploy/dev/up.sh`、`down.sh`、`reset.sh` | M0-05、M0-06、M0-07、M0-08 | 1 | 清空容器后 `bash deploy/dev/up.sh` 退出码 0，末尾调用 `scripts/smoke/deps-check.sh` 全 OK | 运维 |
+| M0-05 | 本地环境 | 五件套 Compose | `infra/docker-compose.yml` | 无 | 1 | 五容器均 running；端口 nacos 8848、mysql 3306、redis 6379、rocketmq 9876、minio 9000/9001 | 运维 |
+| M0-06 | 本地环境 | 桶与 Topic 初始化 | `infra/init/minio-init.sh`、`infra/init/rocketmq-init.sh` | M0-05 | 0.5 | `mc ls local` 含 `lp-media`；`mqadmin topicList` 含 `lp-topic` | 运维 |
+| M0-07 | 本地环境 | 环境变量模板 | `infra/.env.example` | M0-05 | 0.5 | 所有变量以 `LP_` 开头（非 `LP_` 行数为 0）；`grep -nE 'AKIA\|BEGIN PRIVATE\|sk-'` 无输出 | 运维 |
+| M0-08 | 本地环境 | 六库与账号建库脚本 | `infra/mysql/init/00-create-databases.sql` | M0-05 | 0.5 | 执行后 `SHOW DATABASES LIKE 'lp_%'` 返回 6 行；业务账号仅授权到对应库 | 后端·B |
+| M0-09 | 本地环境 | 一键起停与重置 | `infra/up.sh`、`down.sh`、`reset.sh` | M0-05、M0-06、M0-07、M0-08 | 1 | 清空容器后 `bash infra/up.sh` 退出码 0，末尾调用 `scripts/smoke/deps-check.sh` 全 OK | 运维 |
 | M0-10 | 本地环境 | 依赖可达性断言 | `scripts/smoke/deps-check.sh` | M0-06、M0-08、M0-09 | 0.5 | 12 项断言全 OK、退出码 0；`docker stop` 掉 mysql 后退出码非 0 | 测试 |
 | M0-11 | 本地环境 | 端口占用预检 | `scripts/preflight.sh` | M0-05 | 0.5 | 端口全空时输出 OK；占用 3306 时列出冲突端口并非 0 退出 | 运维 |
-| M0-12 | 配置 | Nacos 命名空间与 dataId 初始化 | `deploy/dev/init/nacos-init.sh` | M0-09 | 0.5 | 拉取 `lp-common-dev.yaml`（`group=lp-group`、namespace `dev`）返回 200 且有内容 | 运维 |
-| M0-13 | 配置 | 公共配置模板 | `deploy/nacos/dev/lp-common-dev.yaml` | M0-12 | 0.5 | 推送后拉取可命中 `logging.level`；文件内无密钥明文 | 后端·B |
-| M0-14 | 配置 | 网关开关清单 | `deploy/nacos/dev/lp-gateway-dev.yaml` | M0-12 | 0.5 | 五个键齐备：`identity.inject.enabled`、`identity.enforce.mode=obs`、`pay.channel.alipay.enabled`、`pay.channel.wxpay.enabled=false`、`mp.enabled=false` | 后端·B |
-| M0-15 | 配置 | 配置动态刷新验证 | `common/.../config/IdentityProperties.java` | M0-02、M0-13、M0-14 | 0.5 | 改 `identity.enforce.mode=soft` 后 10s 内日志打印新值，无需重启 | 后端·B |
+| M0-12 | 配置 | Nacos 命名空间与 dataId 初始化 | `infra/init/nacos-init.sh` | M0-09 | 0.5 | 拉取 `lp-common-dev.yaml`（`group=lp-group`、namespace `dev`）返回 200 且有内容 | 运维 |
+| M0-13 | 配置 | 公共配置模板 | `infra/nacos/dev/lp-common-dev.yaml` | M0-12 | 0.5 | 推送后拉取可命中 `logging.level`；文件内无密钥明文 | 后端·B |
+| M0-14 | 配置 | 网关开关清单 | `infra/nacos/dev/lp-gateway-dev.yaml` | M0-12 | 0.5 | 五个键齐备：`identity.inject.enabled`、`identity.enforce.mode=obs`、`pay.channel.alipay.enabled`、`pay.channel.wxpay.enabled=false`、`mp.enabled=false` | 后端·B |
+| M0-15 | 配置 | 配置动态刷新验证 | `lp-common/.../config/IdentityProperties.java` | M0-02、M0-13、M0-14 | 0.5 | 改 `identity.enforce.mode=soft` 后 10s 内日志打印新值，无需重启 | 后端·B |
 | M0-16 | 数据 | Flyway 接入与执行脚本 | 父 `pom.xml` 插件配置、`scripts/flyway.sh` | M0-01、M0-08 | 0.5 | `bash scripts/flyway.sh migrate auth` 后该库 `flyway_schema_history` 有记录 | 后端·A |
 | M0-17 | 数据 | auth 库 V1 基线 | `db/migration/auth/V1__baseline.sql` | M0-16 | 1 | 建 7 张表（`sys_user`、`sys_role`、`sys_menu`、`sys_user_role`、`sys_role_menu`、`sys_user_wechat`、`audit_log`），时间字段为 `created_at/updated_at`，`flyway:info` 显示 version 1 成功 | 后端·A |
 | M0-18 | 数据 | 其余六库 V1 占位 | `db/migration/{course,trade,learn,ugc,admin,ai}/V1__baseline.sql` | M0-16、M0-17 | 0.5 | 六库各自 `flyway_schema_history` version=1；重复执行无变更 | 后端·B |
 | M0-19 | 数据 | 迁移规范校验脚本 | `scripts/check-migration.sh` | M0-17 | 0.5 | 合规样例退出 0；`V1__drop_table.sql` 与 `v1_bad name.sql` 两者均被拒 | 后端·B |
 | M0-20 | 数据 | dev 种子数据 | `db/seed/dev-seed.sql` | M0-18 | 0.5 | `SELECT count(*) FROM sys_role` ≥ 4（ADMIN/OPS/TEACHER/STUDENT）；数据不含真实手机号与 openid | 后端·B |
-| M0-21 | 中间件 | Redis 封装与 Key 常量 | `common/.../cache/RedisCache.java`、`RedisKeys.java` | M0-02、M0-09 | 0.5 | 单测通过；`RedisKeys` 常量 ≥ 6 且 key 统一 `lp:` 前缀 | 后端·A |
-| M0-22 | 中间件 | 幂等消费骨架 | `common/.../mq/IdempotentConsumer.java` | M0-21 | 0.5 | 同一 `msgId` 消费两次，第二次跳过（断言计数=1） | 后端·A |
-| M0-23 | 中间件 | 消息信封定义 | `common/.../mq/MessageEnvelope.java` | M0-02 | 0.5 | 字段含 `msgId/bizType/occurredAt/attempt`；序列化往返单测通过 | 后端·B |
+| M0-21 | 中间件 | Redis 封装与 Key 常量 | `lp-common/.../cache/RedisCache.java`、`RedisKeys.java` | M0-02、M0-09 | 0.5 | 单测通过；`RedisKeys` 常量 ≥ 6 且 key 统一 `lp:` 前缀 | 后端·A |
+| M0-22 | 中间件 | 幂等消费骨架 | `lp-common/.../mq/IdempotentConsumer.java` | M0-21 | 0.5 | 同一 `msgId` 消费两次，第二次跳过（断言计数=1） | 后端·A |
+| M0-23 | 中间件 | 消息信封定义 | `lp-common/.../mq/MessageEnvelope.java` | M0-02 | 0.5 | 字段含 `msgId/bizType/occurredAt/attempt`；序列化往返单测通过 | 后端·B |
 | M0-24 | 中间件 | MQ 收发冒烟 | `scripts/smoke/mq-smoke.sh` | M0-09、M0-23 | 0.5 | 发送 1 条后消费日志命中 1 次，无重复消费 | 后端·B |
-| M0-25 | 中间件 | 对象存储封装 | `common/.../storage/ObjectStorage.java` | M0-02、M0-06、M0-09 | 1 | 预签名 URL 15min 内 GET 200、过期 403；匿名访问 `lp-media` 返回 AccessDenied | 后端·A |
-| M0-26 | 网关 | gateway 骨架与健康检查 | `gateway/pom.xml`、`GatewayApp.java`、`application-local.yml` | M0-04、M0-15 | 0.5 | `curl :8080/actuator/health` 返回 UP | 后端·A |
-| M0-27 | 网关 | 路由表与白名单 | `gateway/src/main/resources/routes.yaml` | M0-26 | 1 | 含 7 条服务路由、`/mp/**` 段、登录与支付回调白名单；`curl :8080/api/v1/auth/ping` 非 502 | 后端·B |
+| M0-25 | 中间件 | 对象存储封装 | `lp-common/.../storage/ObjectStorage.java` | M0-02、M0-06、M0-09 | 1 | 预签名 URL 15min 内 GET 200、过期 403；匿名访问 `lp-media` 返回 AccessDenied | 后端·A |
+| M0-26 | 网关 | gateway 骨架与健康检查 | `lp-gateway/pom.xml`、`GatewayApp.java`、`application-local.yml` | M0-04、M0-15 | 0.5 | `curl :8080/actuator/health` 返回 UP | 后端·A |
+| M0-27 | 网关 | 路由表与白名单 | `lp-gateway/src/main/resources/routes.yaml` | M0-26 | 1 | 含 7 条服务路由、`/mp/**` 段、登录与支付回调白名单；`curl :8080/api/v1/auth/ping` 非 502 | 后端·B |
 | M0-28 | 网关 | 七服务骨架落地 | `auth-service/`、`course-service/`、`trade-service/`、`learn-service/`、`ugc-service/`、`admin-service/`、`ai-service/` | M0-04、M0-09、M0-18 | 0.5 | 8101–8107 各 `curl /api/v1/*/ping` 返回 200 | 后端·A |
-| M0-29 | 网关 | 统一返回与异常 | `common/.../web/Result.java`、`ErrorCode.java`、`GlobalExceptionHandler.java` | M0-02 | 1 | `BizException(40001)` 返回 `code=40001`；未捕获异常返回 50001；响应体含 `traceId` | 后端·B |
-| M0-30 | 网关 | 分页与参数校验统一 | `common/.../web/PageResult.java`、校验切面 | M0-29 | 0.5 | `pageSize=1000` 被夹到 100；缺必填参数返回 40001 | 后端·B |
-| M0-31 | 契约 | 身份头上下文 | `common/.../identity/UserContext.java`、`TrustedHeaderFilter.java` | M0-02 | 0.5 | 缺失 `X-User-Id` 且非白名单返回 40101；有头时能读到 userId/roles/source | 后端·A |
-| M0-32 | 契约 | 网关剥离伪造身份头 | `gateway/.../filter/HeaderSanitizeFilter.java` | M0-26、M0-31 | 1 | `curl -H 'X-User-Id: 999'` 后下游收到的是网关注入值；重复头与大小写变体归一为单值 | 后端·A |
-| M0-33 | 契约 | JWT 校验三态 | `gateway/.../filter/JwtAuthFilter.java`、`JwtVerifier.java` | M0-26、M0-31、M0-14 | 1 | `obs` 只打点不拒绝；`hard` 下无 token 返回 40101、过期返回 40102 | 后端·A |
-| M0-34 | 契约 | 支付渠道适配接口 | `common/.../pay/PayChannelAdapter.java`、`PayChannel.java`、请求响应 DTO | M0-02 | 0.5 | 接口含 `prepare/query/refund/verifyNotify`；业务代码中 `if (alipay)` 出现行数为 0 | 后端·B |
-| M0-35 | 契约 | 支付宝适配器骨架 | `common/.../pay/alipay/AlipayAdapter.java` | M0-34、M0-14 | 0.5 | 未配置抛 50202；接入沙箱账号后 `prepare` 返回非空 `tradeNo`（沙箱账号见 13.6.3） | 后端·B |
-| M0-36 | 契约 | 微信支付适配器骨架 | `common/.../pay/wxpay/WxpayAdapter.java` | M0-34、M0-14 | 1 | 未配置抛 50203；自签证书的验签用例通过，伪造 `Wechatpay-Signature` 用例被拒 | 后端·B |
-| M0-37 | 契约 | 渠道与来源端绑定 | `common/.../pay/ChannelSourceGuard.java` | M0-34、M0-31 | 0.5 | 4 组组合用例：miniapp+支付宝、web+微信 JSAPI 返回 62005，合法组合放行 | 后端·B |
+| M0-29 | 网关 | 统一返回与异常 | `lp-common/.../web/Result.java`、`ErrorCode.java`、`GlobalExceptionHandler.java` | M0-02 | 1 | `BizException(40001)` 返回 `code=40001`；未捕获异常返回 50001；响应体含 `traceId` | 后端·B |
+| M0-30 | 网关 | 分页与参数校验统一 | `lp-common/.../web/PageResult.java`、校验切面 | M0-29 | 0.5 | `pageSize=1000` 被夹到 100；缺必填参数返回 40001 | 后端·B |
+| M0-31 | 契约 | 身份头上下文 | `lp-common/.../identity/UserContext.java`、`TrustedHeaderFilter.java` | M0-02 | 0.5 | 缺失 `X-User-Id` 且非白名单返回 40101；有头时能读到 userId/roles/source | 后端·A |
+| M0-32 | 契约 | 网关剥离伪造身份头 | `lp-gateway/.../filter/HeaderSanitizeFilter.java` | M0-26、M0-31 | 1 | `curl -H 'X-User-Id: 999'` 后下游收到的是网关注入值；重复头与大小写变体归一为单值 | 后端·A |
+| M0-33 | 契约 | JWT 校验三态 | `lp-gateway/.../filter/JwtAuthFilter.java`、`JwtVerifier.java` | M0-26、M0-31、M0-14 | 1 | `obs` 只打点不拒绝；`hard` 下无 token 返回 40101、过期返回 40102 | 后端·A |
+| M0-34 | 契约 | 支付渠道适配接口 | `lp-common/.../pay/PayChannelAdapter.java`、`PayChannel.java`、请求响应 DTO | M0-02 | 0.5 | 接口含 `prepare/query/refund/verifyNotify`；业务代码中 `if (alipay)` 出现行数为 0 | 后端·B |
+| M0-35 | 契约 | 支付宝适配器骨架 | `lp-common/.../pay/alipay/AlipayAdapter.java` | M0-34、M0-14 | 0.5 | 未配置抛 50202；接入沙箱账号后 `prepare` 返回非空 `tradeNo`（沙箱账号见 13.6.3） | 后端·B |
+| M0-36 | 契约 | 微信支付适配器骨架 | `lp-common/.../pay/wxpay/WxpayAdapter.java` | M0-34、M0-14 | 1 | 未配置抛 50203；自签证书的验签用例通过，伪造 `Wechatpay-Signature` 用例被拒 | 后端·B |
+| M0-37 | 契约 | 渠道与来源端绑定 | `lp-common/.../pay/ChannelSourceGuard.java` | M0-34、M0-31 | 0.5 | 4 组组合用例：miniapp+支付宝、web+微信 JSAPI 返回 62005，合法组合放行 | 后端·B |
 | M0-38 | 契约 | 身份与越权用例集 | `tests/security/`（脚本 + 用例清单） | M0-28、M0-32、M0-33、M0-37 | 1 | 伪造身份头、越权 ID、跨来源端支付三类用例 100% 拦截 | 测试 |
-| M0-39 | 可观测 | JSON 日志与 traceId | `common/src/main/resources/logback-json.xml` | M0-02、M0-29 | 0.5 | 每行日志可被 `jq -e .` 解析，且含 `traceId/service/latencyMs` 三个字段 | 后端·A |
-| M0-40 | 可观测 | Prometheus 指标骨架 | 各服务 `/actuator/prometheus`、`deploy/observability/prometheus.yml` | M0-28、M0-29 | 0.5 | `curl :8101/actuator/prometheus` 输出含 `http_server_requests` 指标名 | 运维 |
-| M0-41 | 可观测 | 监控栈本地编排 | `deploy/observability/docker-compose.yml` | M0-05 | 0.5 | `curl :9090/-/healthy` 返回 Healthy；Grafana 3000 端口可登录 | 运维 |
-| M0-42 | 可观测 | 健康探针依赖联动 | `common/.../health/`、各服务 `management.endpoint.health` 配置 | M0-21、M0-28、M0-40 | 0.5 | 停掉 redis 后 readiness 为 DOWN、liveness 仍 UP | 运维 |
+| M0-39 | 可观测 | JSON 日志与 traceId | `lp-common/src/main/resources/logback-json.xml` | M0-02、M0-29 | 0.5 | 每行日志可被 `jq -e .` 解析，且含 `traceId/service/latencyMs` 三个字段 | 后端·A |
+| M0-40 | 可观测 | Prometheus 指标骨架 | 各服务 `/actuator/prometheus`、`infra/observability/prometheus.yml` | M0-28、M0-29 | 0.5 | `curl :8101/actuator/prometheus` 输出含 `http_server_requests` 指标名 | 运维 |
+| M0-41 | 可观测 | 监控栈本地编排 | `infra/observability/docker-compose.yml` | M0-05 | 0.5 | `curl :9090/-/healthy` 返回 Healthy；Grafana 3000 端口可登录 | 运维 |
+| M0-42 | 可观测 | 健康探针依赖联动 | `lp-common/.../health/`、各服务 `management.endpoint.health` 配置 | M0-21、M0-28、M0-40 | 0.5 | 停掉 redis 后 readiness 为 DOWN、liveness 仍 UP | 运维 |
 | M0-43 | 前端 | apps/web 骨架 | `apps/web/`（Vite + Vue3 + TS + ESLint + Vitest） | 无 | 1 | `pnpm -C apps/web build` 通过；`curl :5173` 返回 200 且 `/api` 代理到 8080 | 前端 |
 | M0-44 | 前端 | apps/admin 骨架 | `apps/admin/`（端口 5174） | M0-43 | 0.5 | `pnpm -C apps/admin build` 通过；`curl :5174` 返回 200 | 前端 |
 | M0-45 | 前端 | shared 请求封装 | `packages/shared/`（类型 + request） | M0-43 | 0.5 | `pnpm -w typecheck` 通过；请求自动带 Bearer 与 `X-Request-Id` | 前端 |
@@ -1889,20 +1889,20 @@ DoD：学伴无法回答率 ≤ 30%、找课点击率 +10%、售后 FAQ 命中�
 
 | 任务 ID | 分组 | 任务名 | 产出物（路径或可验证结果） | 前置依赖 | 预估人日 | 验收标准（可判定） | 责任人 |
 |---|---|---|---|---|---|---|---|
-| M0-05 | 本地环境 | 五件套 Compose | `deploy/dev/docker-compose.yml` | 无 | 1 | 五容器均 running；端口 nacos 8848、mysql 3306、redis 6379、rocketmq 9876、minio 9000/9001 | 运维 |
-| M0-08 | 本地环境 | 六库与账号建库脚本 | `deploy/db/00-create-databases.sql` | M0-05 | 0.5 | `SHOW DATABASES LIKE 'lp_%'` 返回 6 行 | 后端·B |
-| M0-06 | 本地环境 | 桶与 Topic 初始化 | `deploy/dev/init/minio-init.sh`、`rocketmq-init.sh` | M0-05 | 0.5 | `mc ls local` 含 `lp-media`；`mqadmin topicList` 含 `lp-topic` | 运维 |
-| M0-07 | 本地环境 | 环境变量模板 | `deploy/dev/.env.example` | M0-05 | 0.5 | 全部变量 `LP_` 前缀；无明文密钥 | 运维 |
-| M0-09 | 本地环境 | 一键起停与重置 | `deploy/dev/up.sh`、`down.sh`、`reset.sh` | M0-05、M0-06、M0-07、M0-08 | 1 | `bash deploy/dev/up.sh` 退出码 0，末尾 deps-check 全 OK | 运维 |
+| M0-05 | 本地环境 | 五件套 Compose | `infra/docker-compose.yml` | 无 | 1 | 五容器均 running；端口 nacos 8848、mysql 3306、redis 6379、rocketmq 9876、minio 9000/9001 | 运维 |
+| M0-08 | 本地环境 | 六库与账号建库脚本 | `infra/mysql/init/00-create-databases.sql` | M0-05 | 0.5 | `SHOW DATABASES LIKE 'lp_%'` 返回 6 行 | 后端·B |
+| M0-06 | 本地环境 | 桶与 Topic 初始化 | `infra/init/minio-init.sh`、`rocketmq-init.sh` | M0-05 | 0.5 | `mc ls local` 含 `lp-media`；`mqadmin topicList` 含 `lp-topic` | 运维 |
+| M0-07 | 本地环境 | 环境变量模板 | `infra/.env.example` | M0-05 | 0.5 | 全部变量 `LP_` 前缀；无明文密钥 | 运维 |
+| M0-09 | 本地环境 | 一键起停与重置 | `infra/up.sh`、`down.sh`、`reset.sh` | M0-05、M0-06、M0-07、M0-08 | 1 | `bash infra/up.sh` 退出码 0，末尾 deps-check 全 OK | 运维 |
 | M0-11 | 本地环境 | 端口占用预检 | `scripts/preflight.sh` | M0-05 | 0.5 | 端口空时 OK；占用 3306 时非 0 退出 | 运维 |
 | M0-01 | 基线 | 父工程聚合与版本锁定 | `pom.xml` | 无 | 0.5 | `mvn -q -N validate` 退出码 0 | 后端·A |
-| M0-02 | 基线 | common 模块骨架 | `common/pom.xml`、`package-info.java` | M0-01 | 0.5 | `mvn -q -pl common -am compile` 退出码 0 | 后端·A |
+| M0-02 | 基线 | common 模块骨架 | `lp-common/pom.xml`、`package-info.java` | M0-01 | 0.5 | `mvn -q -pl lp-common -am compile` 退出码 0 | 后端·A |
 | M0-03 | 基线 | 本地钩子一键安装 | `scripts/install-hooks.sh` | 无 | 0.5 | `core.hooksPath` 为 `.githooks`；非法提交信息被拒 | 运维 |
 | M0-16 | 数据 | Flyway 接入与执行脚本 | 父 `pom.xml` 插件、`scripts/flyway.sh` | M0-01、M0-08 | 0.5 | `migrate auth` 后 `flyway_schema_history` 有记录 | 后端·A |
 | M0-17 | 数据 | auth 库 V1 基线 | `db/migration/auth/V1__baseline.sql` | M0-16 | 1 | 7 张表建立且 `flyway:info` version 1 成功 | 后端·A |
-| M0-12 | 配置 | Nacos 命名空间与 dataId 初始化 | `deploy/dev/init/nacos-init.sh` | M0-09 | 0.5 | 拉取 `lp-common-dev.yaml` 返回 200 且有内容 | 运维 |
-| M0-13 | 配置 | 公共配置模板 | `deploy/nacos/dev/lp-common-dev.yaml` | M0-12 | 0.5 | 拉取命中 `logging.level`；无密钥明文 | 后端·B |
-| M0-14 | 配置 | 网关开关清单 | `deploy/nacos/dev/lp-gateway-dev.yaml` | M0-12 | 0.5 | 五个开关键齐备，`identity.enforce.mode=obs` | 后端·B |
+| M0-12 | 配置 | Nacos 命名空间与 dataId 初始化 | `infra/init/nacos-init.sh` | M0-09 | 0.5 | 拉取 `lp-common-dev.yaml` 返回 200 且有内容 | 运维 |
+| M0-13 | 配置 | 公共配置模板 | `infra/nacos/dev/lp-common-dev.yaml` | M0-12 | 0.5 | 拉取命中 `logging.level`；无密钥明文 | 后端·B |
+| M0-14 | 配置 | 网关开关清单 | `infra/nacos/dev/lp-gateway-dev.yaml` | M0-12 | 0.5 | 五个开关键齐备，`identity.enforce.mode=obs` | 后端·B |
 | M0-04 | 基线 | 服务脚手架生成器 | `scripts/gen-service.sh`、`scripts/templates/service/` | M0-01、M0-02 | 1 | 生成 demo 服务后可编译；验证后清理 | 后端·A |
 | M0-21 | 中间件 | Redis 封装与 Key 常量 | `RedisCache.java`、`RedisKeys.java` | M0-02、M0-09 | 0.5 | 单测通过；key 统一 `lp:` 前缀 | 后端·A |
 | M0-29 | 网关 | 统一返回与异常 | `Result.java`、`ErrorCode.java`、`GlobalExceptionHandler.java` | M0-02 | 1 | 40001/50001 返回正确且含 `traceId` | 后端·B |
@@ -1918,7 +1918,7 @@ DoD：学伴无法回答率 ≤ 30%、找课点击率 +10%、售后 FAQ 命中�
 
 | 依赖项 | 阻塞的任务与里程碑 | 最晚启动（周次/时间点） | 办理时长（估算） | 责任 | 当前状态与推进动作 |
 |---|---|---|---|---|---|
-| 支付宝开放平台账号 + 沙箱应用 | M0-35、M2 支付宝联调（W6） | W1 第 1 天 | 当日自助开通 | 产品 | 未启动；注册后把 `app_id`、私钥占位写入 `deploy/dev/.env.example` |
+| 支付宝开放平台账号 + 沙箱应用 | M0-35、M2 支付宝联调（W6） | W1 第 1 天 | 当日自助开通 | 产品 | 未启动；注册后把 `app_id`、私钥占位写入 `infra/.env.example` |
 | 支付宝正式商户号（企业实名 + 应用签约） | M2 支付上线（W6–W9）、M5 | W1 第 1 天 | 审核 1–3 工作日 + 签约 1–2 周 | 产品 | 未启动；与沙箱并行提交，避免 W6 空等 |
 | 微信支付商户号（AppID 绑定、APIv3 密钥与平台证书） | M0-36 验签联调、M2 微信适配（W6）、M6 | W1 第 1 天 | 进件 3–7 工作日 + 证书配置 1 天 | 产品 | 未启动；APIv3 无沙箱，staging 需 1 分钱实测，W6 前必须可用 |
 | 小程序 AppID（测试号 + 正式号） | M0-46（W1）、M6（W11） | W1 第 1 天 | 测试号当日；正式号随认证 | 小程序 | 未启动；先用测试号跑骨架，正式号与认证同批办理 |
@@ -1931,7 +1931,7 @@ DoD：学伴无法回答率 ≤ 30%、找课点击率 +10%、售后 FAQ 命中�
 
 | 13.2 M0 DoD | 对应任务 | 可执行断言 |
 |---|---|---|
-| dev 环境一键起 | M0-05 → M0-11 | `bash deploy/dev/up.sh` 与 `bash scripts/smoke/deps-check.sh` 连续执行退出码均为 0 |
+| dev 环境一键起 | M0-05 → M0-11 | `bash infra/up.sh` 与 `bash scripts/smoke/deps-check.sh` 连续执行退出码均为 0 |
 | CI 跑通（含 `miniprogram-ci` 空跑） | M0-48、M0-49、M0-50 | 三个 workflow 在 PR 上全绿；无上传密钥时 miniapp job 打印 SKIP 仍为绿 |
 | 网关可路由 | M0-26、M0-27、M0-28 | 7 条 `curl :8080/api/v1/*/ping` 全部返回 200，无 502 |
 | 身份头与渠道适配已定义 | M0-31 → M0-38 | 越权与伪造头用例集 100% 拦截；`PayChannelAdapter` 已被两个适配器实现 |
