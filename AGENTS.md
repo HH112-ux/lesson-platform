@@ -337,6 +337,14 @@ chore(deps): upgrade wechatpay-java to 0.2.12
 - **必须**：`apps/web`、`apps/admin`、`apps/miniapp`、后端各 `*-service` 模块在仓库尚未创建前，一律标注「规划中」。
 - **禁止**：引用不存在的脚本/目录（如 `ml-generator/SQL/`）而不标注来源与状态。
 
+### 11.7 代码注释与 Javadoc
+
+- **必须**：代码一律英文——类/方法/变量命名、注释、日志、异常消息、Javadoc 与提交信息均使用英文；中文只出现在文档。
+- **必须**：所有 `public`/`protected` 的类型（类、接口、枚举）与成员方法必须写 Javadoc。类型级说明职责并附 `@author Caspian` 与 `@since`；方法级说明做什么，逐参数写 `@param`，有返回值写 `@return`，可能抛异常时写触发条件的 `@throws`。
+- **必须**：语义不直观的常量与公开字段必须写 Javadoc。
+- **禁止**：无信息量注释（如 `// get id`、无负责人与工单的 `// TODO`）；行内注释只解释"为什么"，不复述代码。
+- **判定**：新增或修改的 `public`/`protected` 声明，其上一行无 Javadoc 即视为不合规，评审时直接打回。
+
 ---
 
 ## 速查（一页）
