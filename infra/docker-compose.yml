@@ -46,6 +46,8 @@ services:
     image: apache/rocketmq:5.3.1
     container_name: lp-rocketmq-namesrv
     restart: unless-stopped
+    # 镜像默认以 uid 3000(rocketmq) 运行，命名卷首次挂载属 root 不可写；本地开发直接以 root 运行
+    user: "0:0"
     command: ["sh", "mqnamesrv"]
     ports:
       - "${LP_ROCKETMQ_NAMESRV_PORT:-9876}:9876"
@@ -55,7 +57,8 @@ services:
     volumes:
       - lp-rocketmq-namesrv-logs:/home/rocketmq/logs
     healthcheck:
-      test: ["CMD-SHELL", "mqadmin clusterList -n localhost:9876 >/dev/null 2>&1 || exit 1"]
+      # 镜像未把 bin 目录加入 PATH，必须用相对/绝对路径调用
+      test: ["CMD-SHELL", "./mqadmin clusterList -n localhost:9876 >/dev/null 2>&1 || exit 1"]
       interval: 15s
       timeout: 10s
       retries: 20
@@ -65,6 +68,8 @@ services:
     image: apache/rocketmq:5.3.1
     container_name: lp-rocketmq-broker
     restart: unless-stopped
+    # 同 namesrv：命名卷属 root，rocketmq 用户不可写，本地开发以 root 运行
+    user: "0:0"
     command: ["sh", "mqbroker", "-n", "rocketmq-namesrv:9876", "-c", "/home/rocketmq/conf/broker.conf"]
     depends_on:
       rocketmq-namesrv:
@@ -87,9 +92,14 @@ services:
       start_period: 40s
 
   minio:
-    image: minio/minio:RELEASE.2024-06-13T22-53-53Z
+    # 上游 minio/minio 镜像已随开源项目归档下线（dl.min.io 返回 410），改用 Bitnami 归档镜像，内部为同一 MinIO Server 二进制
+    image: bitnamilegacy/minio:2025.5.24
     container_name: lp-minio
     restart: unless-stopped
+    # Bitnami 镜像默认 uid 1001，命名卷属 root 不可写；本地开发以 root 运行
+    user: "0:0"
+    # 绕过 Bitnami 的初始化脚本，直接以官方参数启动 MinIO Server
+    entrypoint: ["/opt/bitnami/minio/bin/minio"]
     command: ["server", "/data", "--console-address", ":9001"]
     ports:
       - "${LP_MINIO_API_PORT:-9000}:9000"
