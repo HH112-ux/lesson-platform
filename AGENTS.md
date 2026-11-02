@@ -3,10 +3,10 @@
 > **这是什么**：本仓库（monorepo：后端服务 + `apps/web` + `apps/admin` + `apps/miniapp`）的**仓库级工作规则**。Agent 启动即自动加载 AGENTS.md，把它作为开工前必读的第一份约束；它不是说明文档，而是**可判定、可执行的条款**。
 > **谁必须遵守**：人类工程师与所有 AI Agent **同等适用、无豁免**。Agent 不得以"提高效率""时间紧""只是小改动"为由放宽任何条款。
 > **生效范围**：整个仓库，含后端服务（`gateway/auth/course/trade/learn/ugc/admin/ai`）、Web 端（`apps/web`）、运营与教师后台（`apps/admin`）、微信小程序（`apps/miniapp`）、数据库迁移（Flyway）、CI/CD 与文档。
-> **与项目文档的关系**：`docs/06-engineering-plan.md` 描述"做什么、怎么设计"；AGENTS.md 规定"怎么做、什么禁止"。该文档第 9 章只写工程流程差异并引用 AGENTS.md，**执行规则以 AGENTS.md 为准**。
+> **与项目文档的关系**：`docs/engineering-plan.md` 描述"做什么、怎么设计"；AGENTS.md 规定"怎么做、什么禁止"。该文档第 9 章只写工程流程差异并引用 AGENTS.md，**执行规则以 AGENTS.md 为准**。
 > **开工前要求**：任何写操作（改文件、切分支、commit、push）之前，**必须先完整读完 AGENTS.md**，再执行第二节的开工四查；未读完不得动手。
 > **冲突处理**：AGENTS.md 与用户当轮指令、项目文档、CI 配置冲突时，**立即停止操作**，写明冲突点（规则条款 / 涉及文件 / 两种做法），交负责人裁决；禁止自行取舍，禁止"先做了再说"。
-> **文档边界**：本仓库只保留 AGENTS.md 与 `docs/06-engineering-plan.md` 两份常驻规则/方案文件，不新建同类文档。
+> **文档边界**：本仓库常驻规则/方案文件为 AGENTS.md 与 `docs/` 下的 `engineering-plan.md`、`product-lifecycle.md`（`local-dev-guide.md` 为 M0 规划产出），不新建同类文档。
 
 ---
 
@@ -18,7 +18,7 @@
 
 1. 用户/负责人在**当前对话轮次或当前工单**中给出的明确指令；
 2. AGENTS.md；
-3. 仓库内其他约定（`.github/workflows/*`、`docs/06-engineering-plan.md` 第 9 章、`commitlint` 配置等）。
+3. 仓库内其他约定（`.github/workflows/*`、`docs/engineering-plan.md` 第 9 章、`commitlint` 配置等）。
 
 **冲突处理**：任意两层冲突时，**停止操作**，把冲突点写清楚（哪一条规则、哪一个文件、两种做法），交负责人裁决。禁止自行取舍。
 
@@ -149,16 +149,16 @@ git remote -v
 
 - `type` 白名单（不得自创）：`feat`、`fix`、`docs`、`style`、`refactor`、`perf`、`test`、`chore`、`revert`。CI 与构建统一用 `chore`。
 - `scope`：见第五节的模块清单；无法归类时省略，写作 `feat: xxx`。
-- `subject`：祈使句、≤ 50 字、结尾不加句号、不得与 scope 重复、不得重复 type 动词。**本项目允许中文 subject**，同一 PR 内语言保持一致。
+- `subject`：**英文**、祈使句动词原形、全小写、≤ 50 字符、结尾不加句号、不得与 scope 重复、不得重复 type 动词。
 - `body`：写"为什么"而不是"改了什么"，每行 ≤ 72 字符。
 - `footer`：破坏性变更写 `BREAKING CHANGE: <说明>`，header 的 type 后加 `!`；关联工单写 `Closes #123`（必须落在 footer）。
 
 正例：
 
 ```text
-feat(trade): 新增微信支付回调验签与解密
-fix(auth): 修正 miniapp 登录 code 重放校验
-chore(deps): 升级 wechatpay-java 至 0.2.12
+feat(trade): add wxpay callback verify and decrypt
+fix(auth): fix miniapp login code replay check
+chore(deps): upgrade wechatpay-java to 0.2.12
 ```
 
 **粒度要求**：
@@ -189,7 +189,7 @@ chore(deps): 升级 wechatpay-java 至 0.2.12
 ### 7.1 本地钩子启用与 bootstrap 例外
 
 - **启用（每台机器执行一次）**：`git config core.hooksPath .githooks`。启用后 `pre-commit` 跑 `scripts/check-docs.sh`，`commit-msg` 跑 `scripts/check-commit-msg.sh`；两者均为纯 shell，不依赖 Node。
-- **验证**：`bash scripts/check-docs.sh && echo "ci: 冒烟提交" > /tmp/msg && bash scripts/check-commit-msg.sh /tmp/msg`。
+- **验证**：`bash scripts/check-docs.sh && echo "chore: smoke commit" > /tmp/msg && bash scripts/check-commit-msg.sh /tmp/msg`。
 - **bootstrap 例外**：仓库初始化阶段允许直接在 `develop` 上提交并推送（此时分支保护尚未开启）；保护开启后一律按第二节从 `origin/develop` 切分支、经 PR 合入，例外自动失效，无需另行审批。
 - CI 端同等校验见 `.github/workflows/docs-ci.yml`；本地钩子未启用不得作为跳过 CI 的理由。
 
@@ -290,12 +290,12 @@ chore(deps): 升级 wechatpay-java 至 0.2.12
 
 ### 11.1 文件与目录
 
-- **必须**：文档命名统一为 `NN-英文短语-kebab-case.md`，编号两位、连续、与文档业务主题一致；同一目录内风格统一（全部英文短名或全部中文标题，不允许混排）。本仓库 docs 采用「全英文短名」，文档标题行与正文仍用中文。
+- **必须**：文档命名统一为 `英文短语-kebab-case.md`（无数字前缀），与文档业务主题一致；仅当确实存在有序系列（如数据库迁移脚本、发布步骤）时才使用编号。同一目录内风格统一。本仓库 docs 采用「全英文短名」，文档标题行与正文仍用中文。
 - **必须**：根目录常驻文件只允许 `AGENTS.md`；`docs/` 只放文档；源码与构建配置放各自目录，不得在根目录堆临时文件。
 - **禁止入库**：`.DS_Store`、`.screenshots/`、`*.tmp`、`*.log`、`node_modules/`、`dist/`、`target/`、`.idea/`、`.vscode/`（`AGENTS.md` 第三节 F6 已列为红线）。
 - **禁止**：新增说明类文档前不检索既有文档；本仓库只维护一份工程规划文档，其余内容并入既有章节。
 
-> 反例 1：`docs/新方案 V2 (final).md`（无编号、空格、大写与中文混排）。
+> 反例 1：`docs/新方案 V2 (final).md`（空格、大写与中文混排）。
 
 ### 11.2 文档内部
 
