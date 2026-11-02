@@ -120,7 +120,7 @@ services:
       start_period: 15s
 
   nacos:
-    image: nacos/nacos-server:v2.3.2
+    image: nacos/nacos-server:v2.5.3
     container_name: lp-nacos
     restart: unless-stopped
     ports:
