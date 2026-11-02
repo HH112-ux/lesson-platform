@@ -4,6 +4,7 @@ import com.lp.gateway.support.HeaderSanitizer;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.cloud.gateway.filter.GlobalFilter;
 import org.springframework.core.Ordered;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ServerWebExchange;
@@ -37,10 +38,11 @@ public class HeaderSanitizeFilter implements GlobalFilter, Ordered {
      */
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
+        HttpHeaders sanitizedHeaders = HeaderSanitizer.sanitize(exchange.getRequest().getHeaders());
         ServerHttpRequest sanitized = exchange.getRequest().mutate()
                 .headers(headers -> {
                     headers.clear();
-                    headers.addAll(HeaderSanitizer.sanitize(exchange.getRequest().getHeaders()));
+                    headers.addAll(sanitizedHeaders);
                 })
                 .build();
         return chain.filter(exchange.mutate().request(sanitized).build());
