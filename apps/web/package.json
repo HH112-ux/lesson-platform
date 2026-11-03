@@ -12,6 +12,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@lp/shared": "workspace:*",
     "vue": "^3.4.38"
   },
   "devDependencies": {

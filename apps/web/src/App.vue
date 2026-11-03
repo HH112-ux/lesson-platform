@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { GATEWAY_HEALTH_PATH } from '@lp/shared'
 import { describeGatewayHealth } from './utils/health'
 
 const checking = ref(false)
@@ -13,7 +14,7 @@ const summary = computed(() =>
 async function probeGateway(): Promise<void> {
   checking.value = true
   try {
-    const response = await fetch('/actuator/health', {
+    const response = await fetch(GATEWAY_HEALTH_PATH, {
       signal: AbortSignal.timeout(5000),
     })
     reachable.value = response.ok

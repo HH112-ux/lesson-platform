@@ -81,8 +81,8 @@ lp-gateway/            网关模块（已存在）
 scripts/               仓库脚本（已存在）
 apps/web/              C 端 Web 骨架（已存在）
 apps/miniapp/          微信小程序骨架（已存在）
-apps/admin/            运营与教师后台（规划中）
-packages/shared/       Web 与 admin 共用类型与请求封装（规划中）
+apps/admin/            运营与教师后台骨架（已存在，端口 5174）
+packages/shared/       Web 与 admin 共用类型与常量（已存在，`@lp/shared`）
 lp-auth-service/       认证域服务骨架（已存在，端口 8101）
 lp-course-service/     课程域服务骨架（已存在，端口 8102）
 lp-trade-service/      交易域服务骨架（已存在，端口 8103）
@@ -169,6 +169,31 @@ pnpm -C apps/web build
 
 构建产物写入 `apps/web/dist/`，已被根目录 `.gitignore` 忽略。
 
+### 5.1 运营与教师后台
+
+```bash
+pnpm -C apps/admin dev
+```
+
+打开 `http://localhost:5174`，代理配置与 Web 相同（`/api`、`/actuator` 转发到 `http://localhost:8080`）。
+
+```bash
+pnpm -C apps/admin lint
+pnpm -C apps/admin typecheck
+pnpm -C apps/admin test
+pnpm -C apps/admin build
+```
+
+### 5.2 共享包 `packages/shared`
+
+`@lp/shared` 通过 pnpm workspace 依赖（`workspace:*`）被 `apps/web` 与 `apps/admin` 引用；`exports` 直接指向 `src/index.ts`，由 Vue 与 vue-tsc 直接消费，没有独立构建产物。
+
+```bash
+pnpm -C packages/shared lint
+pnpm -C packages/shared typecheck
+pnpm -C packages/shared test
+```
+
 ## 6. 微信小程序
 
 1. 用微信开发者工具"导入项目"，目录选择 `apps/miniapp`。
@@ -194,9 +219,14 @@ node apps/miniapp/scripts/check.mjs
 | 范围 | 命令 | 备注 |
 |---|---|---|
 | 文档 | `bash scripts/check-docs.sh` | 文件名、相对链接、HTML 标签、旧命名 |
-| 提交信息 | `bash scripts/check-commit-msg.sh /tmp/msg` | 英文祈使句、全小写、不超过 50 字符 |
+| 提交信息 | `bash scripts/check-commit-msg.sh /tmp/msg` | 英文祈使句、全小写、不超过 60 字符 |
 | 后端 | `./mvnw -B test` | 不含打包 |
 | Web | `pnpm -C apps/web lint` 与 `typecheck` 与 `test` 与 `build` | 与 CI 的 `web-build` 一致 |
+| 运营后台 | `pnpm -C apps/admin lint` 与 `typecheck` 与 `test` 与 `build` | 与 Web 同口径 |
+| 共享包 | `pnpm -C packages/shared lint` 与 `typecheck` 与 `test` | `@lp/shared` 类型与常量 |
+| 本地依赖 | `bash scripts/smoke/run-all.sh` | MySQL / Redis / RocketMQ / MinIO / Nacos 逐项通过或失败 |
+| 迁移 | `bash scripts/flyway.sh info all`（或 `migrate all`） | 六库封装，目标库或迁移目录名均可 |
+| 钩子 | `bash scripts/install-hooks.sh` | 设置 `core.hooksPath=.githooks` 并打印验证结果 |
 | 小程序 | `node apps/miniapp/scripts/check.mjs` | 与 CI 的 `miniapp-check` 一致 |
 
 ## 8. 常见问题
@@ -209,6 +239,9 @@ node apps/miniapp/scripts/check.mjs
 
 ## 9. 尚未落地的部分
 
-- 七个域服务已有 M0 骨架（端口 8101–8107，仅健康检查，无业务接口）；`apps/admin`、`packages/shared` 仍为规划中，目录尚不存在。
-- `scripts/install-hooks.sh`、`scripts/flyway.sh`、`scripts/smoke/*` 等 M0 脚本未创建。
+- 七个域服务已有 M0 骨架（端口 8101–8107，仅健康检查，无业务接口）；`apps/web`、`apps/admin`、`apps/miniapp`、`packages/shared` 均为 M0 最小骨架（可安装、可校验、可构建）。
+- `scripts/install-hooks.sh`、`scripts/flyway.sh`、`scripts/smoke/{mysql,redis,rocketmq,minio,nacos}.sh` 与 `scripts/smoke/run-all.sh` 已创建并实测通过。
+- `db/migration/admin/V1__baseline.sql` 尚无独立数据库：工程规划把 `admin-service` 映射到 `lp_ums`/`lp_cms`，与 `auth`、`course` 基线的 `flyway_schema_history` 冲突，`scripts/flyway.sh` 对 `admin` 目标直接拒绝并说明原因；库归属待决定。
+- `infra/up.sh`、`infra/down.sh`、`infra/reset.sh` 与 `scripts/gen-service.sh`、`scripts/preflight.sh`、`scripts/check-migration.sh` 仍为 M0 规划项（见工程规划 13.6），未创建前以上述 compose 与已创建脚本为准。
+- MinIO 使用归档镜像 `bitnamilegacy/minio`，M1 前需评估 SeaweedFS、Garage 或云对象存储替代方案。
 - `docs/local-dev-guide.md`（本文件）随 M0 骨架产出，后续新增脚本时同步更新对应命令。

@@ -8,10 +8,11 @@ importers:
 
   .: {}
 
-  apps/miniapp: {}
-
-  apps/web:
+  apps/admin:
     dependencies:
+      '@lp/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       vue:
         specifier: ^3.4.38
         version: 3.5.44(typescript@5.5.4)
@@ -43,6 +44,63 @@ importers:
       vue-tsc:
         specifier: ^2.0.29
         version: 2.2.12(typescript@5.5.4)
+
+  apps/miniapp: {}
+
+  apps/web:
+    dependencies:
+      '@lp/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
+      vue:
+        specifier: ^3.4.38
+        version: 3.5.44(typescript@5.5.4)
+    devDependencies:
+      '@eslint/js':
+        specifier: ^9.9.0
+        version: 9.39.5
+      '@vitejs/plugin-vue':
+        specifier: ^5.1.2
+        version: 5.2.4(vite@5.4.21)(vue@3.5.44(typescript@5.5.4))
+      eslint:
+        specifier: ^9.9.0
+        version: 9.39.5(supports-color@7.2.0)
+      eslint-plugin-vue:
+        specifier: ^9.27.0
+        version: 9.33.0(eslint@9.39.5(supports-color@7.2.0))(supports-color@7.2.0)
+      typescript:
+        specifier: ~5.5.4
+        version: 5.5.4
+      typescript-eslint:
+        specifier: ^8.2.0
+        version: 8.72.1(eslint@9.39.5(supports-color@7.2.0))(supports-color@7.2.0)(typescript@5.5.4)
+      vite:
+        specifier: ^5.4.2
+        version: 5.4.21
+      vitest:
+        specifier: ^2.0.5
+        version: 2.1.9(supports-color@7.2.0)
+      vue-tsc:
+        specifier: ^2.0.29
+        version: 2.2.12(typescript@5.5.4)
+
+  packages/shared:
+    devDependencies:
+      '@eslint/js':
+        specifier: ^9.9.0
+        version: 9.39.5
+      eslint:
+        specifier: ^9.9.0
+        version: 9.39.5(supports-color@7.2.0)
+      typescript:
+        specifier: ~5.5.4
+        version: 5.5.4
+      typescript-eslint:
+        specifier: ^8.2.0
+        version: 8.72.1(eslint@9.39.5(supports-color@7.2.0))(supports-color@7.2.0)(typescript@5.5.4)
+      vitest:
+        specifier: ^2.0.5
+        version: 2.1.9(supports-color@7.2.0)
 
 packages:
 

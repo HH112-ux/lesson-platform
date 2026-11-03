@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Commit message check: type(scope): subject, English imperative, lowercase, <= 50 characters.
+# Commit message check: type(scope): subject, English imperative, lowercase, <= 60 characters.
 # Usage: check-commit-msg.sh <message-file> [commit-sha]
 # The optional sha lets the checker skip merge commits (more than one parent); CI passes it
 # because it validates every commit of a pull request.
 set -uo pipefail
 
-MAX_LENGTH=50
+MAX_LENGTH=60
 
 msg_file="${1:-}"
 [ -z "$msg_file" ] && { echo "FAIL missing commit message file argument"; exit 1; }

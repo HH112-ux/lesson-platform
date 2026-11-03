@@ -328,7 +328,7 @@ flowchart TB
 
 - 后端 Maven 多模块聚合，父工程统一 `dependencyManagement`；各服务 Maven 模块名为 `lp-{域}-service`，服务名（`spring.application.name`、网关路由 id）为 `{域}-service`（**已存在** M0 骨架，仅健康检查，无业务逻辑）。
 - 包结构固定：`controller / dto / vo / entity / mapper / service / service.impl / feign / mq / config / util`（M0 骨架先落地 `controller / service / service.impl / mapper`）；命名规则见 `AGENTS.md` 第 11.5 节。
-- 前端：`apps/web`（C 端 Web）、`apps/admin`（运营后台 + **教师工作台**）、`apps/miniapp`（微信小程序）、`packages/shared`（类型与请求封装，Web 与 admin 共用；小程序单独维护轻量 `api/` 层）——`apps/web`、`apps/miniapp` 已存在（M0 最小骨架，可构建、可静态校验）；`apps/admin`、`packages/shared` 仍为规划中。当前仓库已存在 `db/`（Flyway 迁移）、`infra/`（本地依赖编排）、`lp-common/`、`lp-auth-service/` 等七个域服务骨架、`lp-gateway/`、`scripts/`、`package.json`（pnpm workspace）与父 `pom.xml`。
+- 前端：`apps/web`（C 端 Web）、`apps/admin`（运营后台 + **教师工作台**）、`apps/miniapp`（微信小程序）、`packages/shared`（类型与常量，Web 与 admin 共用；小程序单独维护轻量 `api/` 层）——`apps/web`、`apps/miniapp` 已存在（M0 最小骨架，可构建、可静态校验）；`apps/admin`、`packages/shared` 已存在（M0 最小骨架，纳入 pnpm workspace，可 lint / typecheck / test / build）。当前仓库已存在 `db/`（Flyway 迁移）、`infra/`（本地依赖编排）、`lp-common/`、`lp-auth-service/` 等七个域服务骨架、`lp-gateway/`、`scripts/`、`package.json`（pnpm workspace）与父 `pom.xml`。
 - 单仓库（monorepo），按模块独立构建镜像；`apps/miniapp` 构建产物为微信小程序包，由 CI 调 `miniprogram-ci` 上传。
 - 文件/目录/表/接口/配置/分支/tag/CI job 的命名一律按 `AGENTS.md` 第十一节执行，本节不重复条文。
 
@@ -1876,7 +1876,7 @@ DoD：学伴无法回答率 ≤ 30%、找课点击率 +10%、售后 FAQ 命中�
 | M0-45 | 前端 | shared 请求封装 | `packages/shared/`（类型 + request） | M0-43 | 0.5 | `pnpm -w typecheck` 通过；请求自动带 Bearer 与 `X-Request-Id` | 前端 |
 | M0-46 | 小程序 | apps/miniapp 骨架 | `apps/miniapp/`（`project.config.json`、`app.json`、`pages/index`） | 无 | 1 | 开发者工具编译 0 报错；测试号可预览 | 小程序 |
 | M0-47 | 小程序 | 小程序请求封装与联调 | `apps/miniapp/utils/request.js` | M0-46、M0-27 | 1 | 开发者工具调 `GET /api/v1/auth/ping` 返回 200；请求头含 Bearer 与 `X-Request-Id` | 小程序 |
-| M0-48 | CI | 前端 CI job | `.github/workflows/frontend-ci.yml` | M0-43、M0-45 | 0.5 | PR 触发 `web-build`、`admin-build` 全绿；人为引入 lint 错误时转红 | 前端 |
+| M0-48 | CI | 前端 CI job | `.github/workflows/frontend-ci.yml` | M0-43、M0-45 | 0.5 | PR 触发 `frontend-check` 全绿（lint / typecheck / test / build 覆盖 `apps/web`、`apps/admin`、`packages/shared`）；人为引入 lint 错误时转红 | 前端 |
 | M0-49 | CI | 小程序 CI 空跑 | `.github/workflows/miniapp-ci.yml` | M0-46、M0-48 | 0.5 | 无 `MP_PRIVATE_KEY` 时输出 SKIP 且 job 绿；有密钥时 `miniprogram-ci` 上传体验版成功 | 小程序 |
 | M0-50 | CI | 后端 CI job | `.github/workflows/backend-ci.yml` | M0-01、M0-19、M0-28 | 0.5 | PR 触发 `backend-build` 绿（compile + 迁移校验 + `flyway:validate`）；故意破坏迁移时转红 | 后端·A |
 | M0-51 | CI | 冒烟汇总与调度 | `scripts/smoke/smoke-dev.sh` | M0-10、M0-24、M0-38、M0-42 | 1 | 12 项断言退出码 0；停掉任一依赖后退出码非 0 | 测试 |

@@ -1,6 +1,8 @@
 packages:
   - apps/web
+  - apps/admin
   - apps/miniapp
+  - packages/shared
 allowBuilds:
   esbuild: true
 onlyBuiltDependencies:
