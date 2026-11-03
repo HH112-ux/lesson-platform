@@ -947,7 +947,7 @@ erDiagram
 | 40302 | 未购买该课程 | 权益校验失败 |
 | 40303 | 非本人课程 | 教师访问他人课程（`owner_teacher_id` 不匹配） |
 | 40401 | 资源不存在 | — |
-| 40901 | 状态冲突 | 重复购买、订单状态不允许、课程状态不允许 |
+| 40901 | 状态冲突 | 重复购买、订单状态不允许、课程状态不允许、注册账号重复 |
 | 42901 | 请求过于频繁 | 网关限流 |
 | 50001 | 系统异常 | 未捕获异常 |
 | 50201 | 下游服务失败 | Feign 超时/错误 |
@@ -985,7 +985,7 @@ erDiagram
 
 | 方法 | 路径 | 用途 | 请求 | 响应 | 主要错误码 |
 |---|---|---|---|---|---|
-| POST | `/api/v1/auth/register` | 注册学员 | `{username,password,nickname,email?}` | `{userId}` | 40001,40901(账号重复) |
+| POST | `/api/v1/auth/register` | 注册学员并直接签发 Token 对（默认授予 `STUDENT`） | `{username,password,nickname,email?,phone?}` | `{accessToken,refreshToken,expiresIn,user:{id,nickname,avatarUrl,roles[]}}` | 40001,40901(账号重复),50001(Redis 不可用) |
 | POST | `/api/v1/auth/login` | 登录签发 Token | `{account,password}` | `{accessToken,refreshToken,expiresIn,user:{id,nickname,avatarUrl,roles[]}}` | 40101,40301(禁用) |
 | POST | `/api/v1/auth/refresh` | 用 refresh token 轮换签发新 Token 对（旧 refresh 立即失效） | `{refreshToken}` | `{accessToken,refreshToken,expiresIn}` | 40101,40102,40301(禁用),50001(Redis 不可用) |
 | POST | `/api/v1/auth/miniapp-login` | 小程序登录（`wx.login` 的 code 换会话） | `{code}` | `{accessToken,refreshToken,expiresIn,isNewUser,user:{id,nickname,avatarUrl,roles[]}}` | 40001,66001 |
@@ -998,7 +998,7 @@ erDiagram
 | POST | `/api/v1/user/deactivation` | 申请账号注销（进入 7 天冷静期，15.2 D8；有进行中订单/退款时拒绝） | `{confirm:bool}` | `{status:2,effectiveAt}` | 40101,40901 |
 | POST | `/api/v1/user/deactivation/cancel` | 撤销注销（冷静期内可撤） | `{}` | `{status:1}` | 40101,40901 |
 
-**鉴权边界**：网关白名单只放行 `login`/`refresh`/`logout`，`/api/v1/auth/me` 必须携带 access token；`/api/v1/admin/**` 由网关做粗粒度角色门禁，角色不含 `ADMIN` 或 `OPS` 时返回 HTTP `403` + `40301`，细粒度权限码由各接口自行校验。角色与权限码来自 `sys_role`/`sys_role_menu`/`sys_menu`，并随 access token 的 `roles`/`permissions` 声明下发、由网关透传为 `X-User-Roles`/`X-User-Permissions`。
+**鉴权边界**：网关白名单只放行 `register`/`login`/`refresh`/`logout`，`/api/v1/auth/me` 必须携带 access token；`/api/v1/admin/**` 由网关做粗粒度角色门禁，角色不含 `ADMIN` 或 `OPS` 时返回 HTTP `403` + `40301`，细粒度权限码由各接口自行校验。角色与权限码来自 `sys_role`/`sys_role_menu`/`sys_menu`，并随 access token 的 `roles`/`permissions` 声明下发、由网关透传为 `X-User-Roles`/`X-User-Permissions`。
 
 ## 5.4 课程与内容域（course-service）
 
@@ -2063,7 +2063,7 @@ DoD：学伴无法回答率 ≤ 30%、找课点击率 +10%、售后 FAQ 命中�
 | 认证 | 40101–40102 | 未登录/过期 |
 | 权限 | 40301–40303 | 40301 角色不足、40302 权益不足、**40303 非本人课程（教师越权）** |
 | 资源 | 40401 | 不存在 |
-| 冲突 | 40901 | 重复/状态不允许 |
+| 冲突 | 40901 | 重复/状态不允许（注册账号重复走此码） |
 | 限流 | 42901 | — |
 | 服务端 | 50001、50201–50306 | 50001 系统异常、50201 下游失败、**50202 支付宝渠道失败**、**50203 微信支付渠道失败**、**50204 对账存在未处理差异**、50301/50302 AI 不可用、**50303 模型未配置**、**50304 密钥无效**、**50305 配额用尽**、**50306 上游超时/限流** |
 | 业务-课程 | 61001–61004 | 61001 未上架、61002 已购、**61003 视频上传校验未通过**、**61004 播放并发超限** |

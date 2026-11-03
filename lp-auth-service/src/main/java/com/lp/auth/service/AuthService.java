@@ -6,6 +6,7 @@ import com.lp.auth.dto.LogoutRequest;
 import com.lp.auth.dto.MeResponse;
 import com.lp.auth.dto.RefreshRequest;
 import com.lp.auth.dto.RefreshResponse;
+import com.lp.auth.dto.RegisterRequest;
 
 /**
  * Authentication use cases owned by the auth domain.
@@ -25,6 +26,17 @@ public interface AuthService {
      * @since 0.1.0
      */
     LoginResponse login(LoginRequest request, String source);
+
+    /**
+     * Creates a student account and issues a token pair in the same call.
+     *
+     * @param request validated registration body
+     * @param source source platform recorded with the refresh session
+     * @return tokens plus the new user summary with the granted roles
+     * @author Caspian
+     * @since 0.1.0
+     */
+    LoginResponse register(RegisterRequest request, String source);
 
     /**
      * Rotates a refresh token into a new token pair.

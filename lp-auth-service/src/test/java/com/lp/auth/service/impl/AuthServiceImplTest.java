@@ -3,6 +3,7 @@ package com.lp.auth.service.impl;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -14,6 +15,7 @@ import com.lp.auth.dto.LogoutRequest;
 import com.lp.auth.dto.MeResponse;
 import com.lp.auth.dto.RefreshRequest;
 import com.lp.auth.dto.RefreshResponse;
+import com.lp.auth.dto.RegisterRequest;
 import com.lp.auth.entity.UserAccount;
 import com.lp.auth.mapper.AuthUserMapper;
 import com.lp.auth.security.JwtTokenService;
@@ -34,8 +36,11 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.stubbing.Answer;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
@@ -180,6 +185,108 @@ class AuthServiceImplTest {
                         BizException.class,
                         ex -> assertThat(ex.getCode()).isEqualTo(ErrorCode.FORBIDDEN.getCode()));
         verify(authUserMapper, never()).touchLastLogin(anyLong());
+    }
+
+    /**
+     * Creates a student account, hashes the password and stores the refresh session at once.
+     *
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Test
+    void registersStudentAndStoresRefreshSession() {
+        when(authUserMapper.selectByUsername("newbie")).thenReturn(null);
+        when(authUserMapper.insertUser(any(UserAccount.class))).thenAnswer(assignId(9L));
+        when(authUserMapper.selectRoleIdByCode(AuthServiceImpl.DEFAULT_ROLE_CODE)).thenReturn(5L);
+        when(authUserMapper.selectRoleCodes(9L)).thenReturn(List.of("STUDENT"));
+        when(authUserMapper.selectPermissionCodes(9L)).thenReturn(List.of());
+
+        LoginResponse response = authService.register(registerRequest(), "web");
+
+        assertThat(response.getAccessToken()).isNotBlank();
+        assertThat(response.getRefreshToken()).isNotBlank();
+        assertThat(response.getUser().getId()).isEqualTo(9L);
+        assertThat(response.getUser().getNickname()).isEqualTo("Newbie");
+        assertThat(response.getUser().getRoles()).containsExactly("STUDENT");
+
+        ArgumentCaptor<UserAccount> inserted = ArgumentCaptor.forClass(UserAccount.class);
+        verify(authUserMapper).insertUser(inserted.capture());
+        assertThat(inserted.getValue().getPasswordHash())
+                .isNotEqualTo(RAW_PASSWORD)
+                .startsWith("$2");
+        assertThat(passwordEncoder.matches(RAW_PASSWORD, inserted.getValue().getPasswordHash()))
+                .isTrue();
+        assertThat(inserted.getValue().getEmail()).isNull();
+        assertThat(inserted.getValue().getPhone()).isNull();
+        verify(authUserMapper).insertUserRole(9L, 5L);
+
+        RefreshSession session = refreshTokenStore.get(response.getRefreshToken());
+        assertThat(session).isNotNull();
+        assertThat(session.getUserId()).isEqualTo(9L);
+        assertThat(session.getSource()).isEqualTo("web");
+    }
+
+    /**
+     * Rejects a taken login name with {@code 40901} before writing anything.
+     *
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Test
+    void registerRejectsDuplicateUsername() {
+        when(authUserMapper.selectByUsername("newbie"))
+                .thenReturn(account(7L, AuthServiceImpl.STATUS_ACTIVE, "hash"));
+
+        assertThatThrownBy(() -> authService.register(registerRequest(), "web"))
+                .isInstanceOfSatisfying(
+                        BizException.class,
+                        ex ->
+                                assertThat(ex.getCode())
+                                        .isEqualTo(ErrorCode.STATE_CONFLICT.getCode()));
+        verify(authUserMapper, never()).insertUser(any(UserAccount.class));
+        verify(authUserMapper, never()).insertUserRole(anyLong(), anyLong());
+    }
+
+    /**
+     * Translates a concurrent duplicate key into the same {@code 40901} code.
+     *
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Test
+    void registerMapsConcurrentDuplicateToConflict() {
+        when(authUserMapper.selectByUsername("newbie")).thenReturn(null);
+        when(authUserMapper.insertUser(any(UserAccount.class)))
+                .thenThrow(new DuplicateKeyException("uk_username"));
+
+        assertThatThrownBy(() -> authService.register(registerRequest(), "web"))
+                .isInstanceOfSatisfying(
+                        BizException.class,
+                        ex ->
+                                assertThat(ex.getCode())
+                                        .isEqualTo(ErrorCode.STATE_CONFLICT.getCode()));
+        verify(authUserMapper, never()).insertUserRole(anyLong(), anyLong());
+    }
+
+    /**
+     * Fails with {@code 50001} when the seeded default role is missing.
+     *
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Test
+    void registerRejectsMissingDefaultRole() {
+        when(authUserMapper.selectByUsername("newbie")).thenReturn(null);
+        when(authUserMapper.insertUser(any(UserAccount.class))).thenAnswer(assignId(9L));
+        when(authUserMapper.selectRoleIdByCode(AuthServiceImpl.DEFAULT_ROLE_CODE)).thenReturn(null);
+
+        assertThatThrownBy(() -> authService.register(registerRequest(), "web"))
+                .isInstanceOfSatisfying(
+                        BizException.class,
+                        ex ->
+                                assertThat(ex.getCode())
+                                        .isEqualTo(ErrorCode.INTERNAL_ERROR.getCode()));
+        verify(authUserMapper, never()).insertUserRole(anyLong(), anyLong());
     }
 
     /**
@@ -356,6 +463,38 @@ class AuthServiceImplTest {
                 .isInstanceOfSatisfying(
                         BizException.class,
                         ex -> assertThat(ex.getCode()).isEqualTo(ErrorCode.FORBIDDEN.getCode()));
+    }
+
+    /**
+     * Builds a valid registration body whose optional fields are blank on purpose.
+     *
+     * @return request body
+     * @author Caspian
+     * @since 0.1.0
+     */
+    private static RegisterRequest registerRequest() {
+        RegisterRequest request = new RegisterRequest();
+        request.setUsername("newbie");
+        request.setPassword(RAW_PASSWORD);
+        request.setNickname("Newbie");
+        request.setEmail("  ");
+        request.setPhone("");
+        return request;
+    }
+
+    /**
+     * Simulates a generated key being written back into the inserted entity.
+     *
+     * @param userId id the database would generate
+     * @return mock answer returning one inserted row
+     * @author Caspian
+     * @since 0.1.0
+     */
+    private static Answer<Integer> assignId(long userId) {
+        return invocation -> {
+            invocation.<UserAccount>getArgument(0).setId(userId);
+            return 1;
+        };
     }
 
     /**

@@ -26,11 +26,12 @@ public class IdentityProperties {
     /**
      * Paths that never require identity.
      *
-     * <p>Only the token issuing endpoints are public; {@code /api/v1/auth/me} needs a verified
-     * token so the gateway can inject the user id it reads.
+     * <p>Only account entry and token endpoints are public; {@code /api/v1/auth/me} needs a
+     * verified token so the gateway can inject the user id it reads.
      */
     public List<String> whitelist =
             List.of(
+                    "/api/v1/auth/register",
                     "/api/v1/auth/login",
                     "/api/v1/auth/refresh",
                     "/api/v1/auth/logout",
