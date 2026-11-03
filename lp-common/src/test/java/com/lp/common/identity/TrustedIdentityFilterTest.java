@@ -33,9 +33,12 @@ class TrustedIdentityFilterTest {
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/courses");
         MockHttpServletResponse response = new MockHttpServletResponse();
 
-        filter.doFilter(request, response, (req, res) -> {
-            throw new AssertionError("downstream must not be called");
-        });
+        filter.doFilter(
+                request,
+                response,
+                (req, res) -> {
+                    throw new AssertionError("downstream must not be called");
+                });
 
         assertThat(response.getStatus()).isEqualTo(401);
         assertThat(response.getContentAsString()).contains("\"code\":40101");
@@ -55,8 +58,7 @@ class TrustedIdentityFilterTest {
         request.addHeader(IdentityHeaders.USER_ID, "not-a-number");
         MockHttpServletResponse response = new MockHttpServletResponse();
 
-        filter.doFilter(request, response, (req, res) -> {
-        });
+        filter.doFilter(request, response, (req, res) -> {});
 
         assertThat(response.getStatus()).isEqualTo(401);
         assertThat(response.getContentAsString()).contains("40101");
@@ -74,6 +76,7 @@ class TrustedIdentityFilterTest {
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/orders");
         request.addHeader(IdentityHeaders.USER_ID, "42");
         request.addHeader(IdentityHeaders.USER_ROLES, "STUDENT, TEACHER");
+        request.addHeader(IdentityHeaders.USER_PERMISSIONS, "course:learn, comment:write");
         request.addHeader(IdentityHeaders.USER_SOURCE, IdentityHeaders.SOURCE_WEB);
         MockHttpServletResponse response = new MockHttpServletResponse();
         AtomicReference<UserContext> captured = new AtomicReference<>();
@@ -85,6 +88,7 @@ class TrustedIdentityFilterTest {
         assertThat(context).isNotNull();
         assertThat(context.getUserId()).isEqualTo(42L);
         assertThat(context.getRoles()).containsExactly("STUDENT", "TEACHER");
+        assertThat(context.getPermissions()).containsExactly("course:learn", "comment:write");
         assertThat(context.getSource()).isEqualTo(IdentityHeaders.SOURCE_WEB);
         assertThat(UserContext.get()).as("context must be cleared").isNull();
     }

@@ -8,8 +8,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  *
  * <p>{@code enforce-mode} follows {@code docs/engineering-plan.md} 6.4: {@code obs} only logs,
  * {@code soft} injects headers and lets downstream services fall back, {@code hard} rejects a
- * request without a valid access token. The default is {@code hard} so the login chain is
- * closed from the first milestone.</p>
+ * request without a valid access token. The default is {@code hard} so the login chain is closed
+ * from the first milestone.
  *
  * @author Caspian
  * @since 0.1.0
@@ -23,8 +23,19 @@ public class IdentityProperties {
     /** Whether verified identity headers are injected. */
     public boolean injectEnabled = true;
 
-    /** Paths that never require identity. */
-    public List<String> whitelist = List.of("/api/v1/auth/**", "/actuator/**", "/error");
+    /**
+     * Paths that never require identity.
+     *
+     * <p>Only the token issuing endpoints are public; {@code /api/v1/auth/me} needs a verified
+     * token so the gateway can inject the user id it reads.
+     */
+    public List<String> whitelist =
+            List.of(
+                    "/api/v1/auth/login",
+                    "/api/v1/auth/refresh",
+                    "/api/v1/auth/logout",
+                    "/actuator/**",
+                    "/error");
 
     /** Token verification settings. */
     public Jwt jwt = new Jwt();
