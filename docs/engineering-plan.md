@@ -1876,7 +1876,7 @@ DoD：学伴无法回答率 ≤ 30%、找课点击率 +10%、售后 FAQ 命中�
 | M0-45 | 前端 | shared 请求封装 | `packages/shared/`（类型 + request） | M0-43 | 0.5 | `pnpm -w typecheck` 通过；请求自动带 Bearer 与 `X-Request-Id` | 前端 |
 | M0-46 | 小程序 | apps/miniapp 骨架 | `apps/miniapp/`（`project.config.json`、`app.json`、`pages/index`） | 无 | 1 | 开发者工具编译 0 报错；测试号可预览 | 小程序 |
 | M0-47 | 小程序 | 小程序请求封装与联调 | `apps/miniapp/utils/request.js` | M0-46、M0-27 | 1 | 开发者工具调 `GET /api/v1/auth/ping` 返回 200；请求头含 Bearer 与 `X-Request-Id` | 小程序 |
-| M0-48 | CI | 前端 CI job | `.github/workflows/frontend-ci.yml` | M0-43、M0-45 | 0.5 | PR 触发 `web-build`、`admin-build` 全绿；人为引入 lint 错误时转红 | 前端 |
+| M0-48 | CI | 前端 CI job | `.github/workflows/frontend-ci.yml` | M0-43、M0-45 | 0.5 | PR 触发 `frontend-check` 全绿（lint / typecheck / test / build 覆盖 `apps/web`、`apps/admin`、`packages/shared`）；人为引入 lint 错误时转红 | 前端 |
 | M0-49 | CI | 小程序 CI 空跑 | `.github/workflows/miniapp-ci.yml` | M0-46、M0-48 | 0.5 | 无 `MP_PRIVATE_KEY` 时输出 SKIP 且 job 绿；有密钥时 `miniprogram-ci` 上传体验版成功 | 小程序 |
 | M0-50 | CI | 后端 CI job | `.github/workflows/backend-ci.yml` | M0-01、M0-19、M0-28 | 0.5 | PR 触发 `backend-build` 绿（compile + 迁移校验 + `flyway:validate`）；故意破坏迁移时转红 | 后端·A |
 | M0-51 | CI | 冒烟汇总与调度 | `scripts/smoke/smoke-dev.sh` | M0-10、M0-24、M0-38、M0-42 | 1 | 12 项断言退出码 0；停掉任一依赖后退出码非 0 | 测试 |

@@ -10,8 +10,8 @@ on:
       - develop
 
 jobs:
-  web-build:
-    name: web-build
+  frontend-check:
+    name: frontend-check
     runs-on: ubuntu-latest
     steps:
       - name: 检出代码
@@ -30,16 +30,16 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: 代码规范
-        run: pnpm -C apps/web lint
+        run: pnpm -r --if-present lint
 
       - name: 类型检查
-        run: pnpm -C apps/web typecheck
+        run: pnpm -r --if-present typecheck
 
       - name: 单元测试
-        run: pnpm -C apps/web test
+        run: pnpm -r --if-present test
 
       - name: 构建
-        run: pnpm -C apps/web build
+        run: pnpm -r --if-present build
 
   miniapp-check:
     name: miniapp-check
