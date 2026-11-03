@@ -3,8 +3,8 @@ package com.lp.auth.entity;
 /**
  * Account row used by the login query.
  *
- * <p>Only the columns needed to authenticate a user are selected, so no password hash ever
- * reaches the controller layer or a response payload.</p>
+ * <p>Only the columns needed to authenticate a user are selected, so no password hash ever reaches
+ * the controller layer or a response payload.
  *
  * @author Caspian
  * @since 0.1.0
@@ -20,6 +20,10 @@ public class UserAccount {
     private String nickname;
 
     private String avatarUrl;
+
+    private String email;
+
+    private String phone;
 
     private Integer status;
 
@@ -131,6 +135,50 @@ public class UserAccount {
      */
     public void setAvatarUrl(String avatarUrl) {
         this.avatarUrl = avatarUrl;
+    }
+
+    /**
+     * Returns the email address.
+     *
+     * @return email, may be {@code null}
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public String getEmail() {
+        return email;
+    }
+
+    /**
+     * Sets the email address.
+     *
+     * @param email email address
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public void setEmail(String email) {
+        this.email = email;
+    }
+
+    /**
+     * Returns the phone number.
+     *
+     * @return phone, may be {@code null}
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public String getPhone() {
+        return phone;
+    }
+
+    /**
+     * Sets the phone number.
+     *
+     * @param phone phone number
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public void setPhone(String phone) {
+        this.phone = phone;
     }
 
     /**

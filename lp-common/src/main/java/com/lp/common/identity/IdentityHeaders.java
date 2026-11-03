@@ -6,11 +6,11 @@ import java.util.List;
 /**
  * Trusted identity header names.
  *
- * <p>Identity headers are validated and injected by the gateway after JWT verification.
- * Business services only read them and must never write them. Inbound requests carrying these
- * headers are stripped by the gateway unconditionally, so a client can never impersonate
- * another user (see {@code docs/engineering-plan.md} chapter 6). Header names use full English
- * words and never abbreviations, as required by {@code AGENTS.md} section 11.4.</p>
+ * <p>Identity headers are validated and injected by the gateway after JWT verification. Business
+ * services only read them and must never write them. Inbound requests carrying these headers are
+ * stripped by the gateway unconditionally, so a client can never impersonate another user (see
+ * {@code docs/engineering-plan.md} chapter 6). Header names use full English words and never
+ * abbreviations, as required by {@code AGENTS.md} section 11.4.
  *
  * @author Caspian
  * @since 0.1.0
@@ -22,6 +22,9 @@ public final class IdentityHeaders {
 
     /** Comma separated role codes injected by the gateway. */
     public static final String USER_ROLES = "X-User-Roles";
+
+    /** Comma separated permission codes injected by the gateway. */
+    public static final String USER_PERMISSIONS = "X-User-Permissions";
 
     /** Request source platform injected by the gateway: web, miniapp or admin. */
     public static final String USER_SOURCE = "X-User-Source";
@@ -43,17 +46,15 @@ public final class IdentityHeaders {
 
     /** Headers that only the gateway may set. */
     public static final List<String> TRUSTED_HEADERS =
-            List.of(USER_ID, USER_ROLES, USER_SOURCE, TENANT_ID);
+            List.of(USER_ID, USER_ROLES, USER_PERMISSIONS, USER_SOURCE, TENANT_ID);
 
     /** Personal data header variants that must never reach a business service. */
-    public static final List<String> BANNED_PII_HEADERS =
-            List.of("X-User-Phone", "X-User-Email");
+    public static final List<String> BANNED_PII_HEADERS = List.of("X-User-Phone", "X-User-Email");
 
     /** Complete inbound strip list: trusted headers plus banned personal data variants. */
     public static final List<String> SANITIZE_HEADERS = buildSanitizeHeaders();
 
-    private IdentityHeaders() {
-    }
+    private IdentityHeaders() {}
 
     /**
      * Builds the immutable complete strip list.

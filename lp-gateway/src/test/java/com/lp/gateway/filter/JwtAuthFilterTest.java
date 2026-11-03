@@ -24,7 +24,6 @@ import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.mock.http.server.reactive.MockServerHttpRequest;
 import org.springframework.mock.web.server.MockServerWebExchange;
 import org.springframework.web.server.ServerWebExchange;
@@ -70,8 +69,11 @@ class JwtAuthFilterTest {
     void setUp() {
         properties = new IdentityProperties();
         properties.setEnforceMode("hard");
-        filter = new JwtAuthFilter(properties,
-                new JwtVerifier(keyPair.getPublic(), ISSUER), new ObjectMapper());
+        filter =
+                new JwtAuthFilter(
+                        properties,
+                        new JwtVerifier(keyPair.getPublic(), ISSUER),
+                        new ObjectMapper());
     }
 
     /**
@@ -116,8 +118,9 @@ class JwtAuthFilterTest {
     @Test
     void rejectsExpiredToken() {
         CapturingChain chain = new CapturingChain();
-        MockServerWebExchange exchange = exchangeWithToken("/api/v1/courses",
-                token(7L, List.of("STUDENT"), Duration.ofMinutes(-1)));
+        MockServerWebExchange exchange =
+                exchangeWithToken(
+                        "/api/v1/courses", token(7L, List.of("STUDENT"), Duration.ofMinutes(-1)));
         filter.filter(exchange, chain).block();
 
         assertThat(chain.called).isFalse();
@@ -149,15 +152,44 @@ class JwtAuthFilterTest {
     @Test
     void injectsIdentityHeadersForValidToken() {
         CapturingChain chain = new CapturingChain();
-        filter.filter(exchangeWithToken("/api/v1/courses",
-                token(7L, List.of("STUDENT", "TEACHER"), Duration.ofMinutes(15))), chain).block();
+        filter.filter(
+                        exchangeWithToken(
+                                "/api/v1/courses",
+                                token(
+                                        7L,
+                                        List.of("STUDENT", "TEACHER"),
+                                        List.of("course:learn"),
+                                        Duration.ofMinutes(15))),
+                        chain)
+                .block();
 
         assertThat(chain.called).isTrue();
         HttpHeaders headers = chain.exchange().getRequest().getHeaders();
         assertThat(headers.getFirst(IdentityHeaders.USER_ID)).isEqualTo("7");
         assertThat(headers.getFirst(IdentityHeaders.USER_ROLES)).isEqualTo("STUDENT,TEACHER");
+        assertThat(headers.getFirst(IdentityHeaders.USER_PERMISSIONS)).isEqualTo("course:learn");
         assertThat(headers.getFirst(IdentityHeaders.USER_SOURCE)).isEqualTo("web");
         assertThat(headers.getFirst(IdentityHeaders.REQUEST_ID)).isNotBlank();
+    }
+
+    /**
+     * An authenticated user without a console role is rejected with {@code 40301}.
+     *
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Test
+    void rejectsAdminPathWithoutConsoleRole() {
+        CapturingChain chain = new CapturingChain();
+        MockServerWebExchange exchange =
+                exchangeWithToken(
+                        "/api/v1/admin/users",
+                        token(7L, List.of("STUDENT"), Duration.ofMinutes(15)));
+        filter.filter(exchange, chain).block();
+
+        assertThat(chain.called).isFalse();
+        assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(bodyOf(exchange)).contains("40301");
     }
 
     /**
@@ -169,11 +201,15 @@ class JwtAuthFilterTest {
     @Test
     void derivesMiniappSourceFromPath() {
         CapturingChain chain = new CapturingChain();
-        filter.filter(exchangeWithToken("/mp/api/v1/courses",
-                token(7L, List.of("STUDENT"), Duration.ofMinutes(15))), chain).block();
+        filter.filter(
+                        exchangeWithToken(
+                                "/mp/api/v1/courses",
+                                token(7L, List.of("STUDENT"), Duration.ofMinutes(15))),
+                        chain)
+                .block();
 
-        assertThat(chain.exchange().getRequest().getHeaders()
-                .getFirst(IdentityHeaders.USER_SOURCE)).isEqualTo("miniapp");
+        assertThat(chain.exchange().getRequest().getHeaders().getFirst(IdentityHeaders.USER_SOURCE))
+                .isEqualTo("miniapp");
     }
 
     /**
@@ -185,11 +221,15 @@ class JwtAuthFilterTest {
     @Test
     void derivesAdminSourceFromPath() {
         CapturingChain chain = new CapturingChain();
-        filter.filter(exchangeWithToken("/api/v1/admin/users",
-                token(7L, List.of("OPS"), Duration.ofMinutes(15))), chain).block();
+        filter.filter(
+                        exchangeWithToken(
+                                "/api/v1/admin/users",
+                                token(7L, List.of("OPS"), Duration.ofMinutes(15))),
+                        chain)
+                .block();
 
-        assertThat(chain.exchange().getRequest().getHeaders()
-                .getFirst(IdentityHeaders.USER_SOURCE)).isEqualTo("admin");
+        assertThat(chain.exchange().getRequest().getHeaders().getFirst(IdentityHeaders.USER_SOURCE))
+                .isEqualTo("admin");
     }
 
     /**
@@ -201,15 +241,17 @@ class JwtAuthFilterTest {
     @Test
     void preservesClientRequestId() {
         CapturingChain chain = new CapturingChain();
-        MockServerHttpRequest request = MockServerHttpRequest.get("/api/v1/courses")
-                .header(HttpHeaders.AUTHORIZATION,
-                        "Bearer " + token(7L, List.of(), Duration.ofMinutes(15)))
-                .header(IdentityHeaders.REQUEST_ID, "req-abc")
-                .build();
+        MockServerHttpRequest request =
+                MockServerHttpRequest.get("/api/v1/courses")
+                        .header(
+                                HttpHeaders.AUTHORIZATION,
+                                "Bearer " + token(7L, List.of(), Duration.ofMinutes(15)))
+                        .header(IdentityHeaders.REQUEST_ID, "req-abc")
+                        .build();
         filter.filter(MockServerWebExchange.from(request), chain).block();
 
-        assertThat(chain.exchange().getRequest().getHeaders()
-                .getFirst(IdentityHeaders.REQUEST_ID)).isEqualTo("req-abc");
+        assertThat(chain.exchange().getRequest().getHeaders().getFirst(IdentityHeaders.REQUEST_ID))
+                .isEqualTo("req-abc");
     }
 
     /**
@@ -244,34 +286,52 @@ class JwtAuthFilterTest {
     /**
      * Builds an exchange carrying a bearer token.
      *
-     * @param path  request path
+     * @param path request path
      * @param token token text
      * @return mock exchange
      * @author Caspian
      * @since 0.1.0
      */
     private static MockServerWebExchange exchangeWithToken(String path, String token) {
-        return MockServerWebExchange.from(MockServerHttpRequest.get(path)
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
-                .build());
+        return MockServerWebExchange.from(
+                MockServerHttpRequest.get(path)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .build());
     }
 
     /**
      * Signs a token with the test private key.
      *
      * @param userId user id
-     * @param roles  role codes
-     * @param ttl    lifetime, negative for an already expired token
+     * @param roles role codes
+     * @param ttl lifetime, negative for an already expired token
      * @return compact JWT
      * @author Caspian
      * @since 0.1.0
      */
     private static String token(long userId, List<String> roles, Duration ttl) {
+        return token(userId, roles, List.of(), ttl);
+    }
+
+    /**
+     * Signs a token with the test private key, including permission codes.
+     *
+     * @param userId user id
+     * @param roles role codes
+     * @param permissions permission codes
+     * @param ttl lifetime, negative for an already expired token
+     * @return compact JWT
+     * @author Caspian
+     * @since 0.1.0
+     */
+    private static String token(
+            long userId, List<String> roles, List<String> permissions, Duration ttl) {
         Instant now = Instant.now();
         return Jwts.builder()
                 .issuer(ISSUER)
                 .subject(Long.toString(userId))
                 .claim("roles", roles)
+                .claim("permissions", permissions)
                 .issuedAt(Date.from(now))
                 .expiration(Date.from(now.plus(ttl)))
                 .signWith((RSAPrivateKey) keyPair.getPrivate(), Jwts.SIG.RS256)

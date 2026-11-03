@@ -991,12 +991,14 @@ erDiagram
 | POST | `/api/v1/auth/miniapp-login` | 小程序登录（`wx.login` 的 code 换会话） | `{code}` | `{accessToken,refreshToken,expiresIn,isNewUser,user:{id,nickname,avatarUrl,roles[]}}` | 40001,66001 |
 | POST | `/api/v1/auth/miniapp/bind-phone` | 小程序授权手机号并绑定（需登录态；手机号与既有账号冲突时返回 `40901` 并提示登录原账号，**不自动合并账号**，15.2 D8） | `{code}`（`getPhoneNumber` 返回的动态令牌） | `{phoneMasked:"138****0000"}` | 40101,66002,40901 |
 | POST | `/api/v1/auth/logout` | 注销并吊销 refresh（幂等，重复调用仍返回成功） | `{refreshToken}` | `{}` | 40001,50001(Redis 不可用) |
-| GET | `/api/v1/auth/me` | 当前用户与角色 | — | `{id,username,nickname,avatarUrl,email,phone,roles[]}` | 40101 |
+| GET | `/api/v1/auth/me` | 当前用户、角色与权限集合（需 access token；网关据此注入 `X-User-Id`） | — | `{id,username,nickname,avatarUrl,email,phone,roles[],permissions[]}` | 40101,40301(禁用) |
 | PUT | `/api/v1/user/profile` | 改昵称/头像 | `{nickname?,avatarUrl?}` | `{updated:true}` | 40001 |
 | PUT | `/api/v1/user/password` | 改密码 | `{oldPassword,newPassword}` | `{updated:true}` | 40001,40101 |
 | POST | `/api/v1/user/avatar` | 上传头像（multipart `file`） | form-data | `{avatarUrl}` | 40002,50001 |
 | POST | `/api/v1/user/deactivation` | 申请账号注销（进入 7 天冷静期，15.2 D8；有进行中订单/退款时拒绝） | `{confirm:bool}` | `{status:2,effectiveAt}` | 40101,40901 |
 | POST | `/api/v1/user/deactivation/cancel` | 撤销注销（冷静期内可撤） | `{}` | `{status:1}` | 40101,40901 |
+
+**鉴权边界**：网关白名单只放行 `login`/`refresh`/`logout`，`/api/v1/auth/me` 必须携带 access token；`/api/v1/admin/**` 由网关做粗粒度角色门禁，角色不含 `ADMIN` 或 `OPS` 时返回 HTTP `403` + `40301`，细粒度权限码由各接口自行校验。角色与权限码来自 `sys_role`/`sys_role_menu`/`sys_menu`，并随 access token 的 `roles`/`permissions` 声明下发、由网关透传为 `X-User-Roles`/`X-User-Permissions`。
 
 ## 5.4 课程与内容域（course-service）
 

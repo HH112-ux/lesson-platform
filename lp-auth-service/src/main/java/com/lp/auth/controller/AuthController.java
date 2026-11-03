@@ -3,14 +3,18 @@ package com.lp.auth.controller;
 import com.lp.auth.dto.LoginRequest;
 import com.lp.auth.dto.LoginResponse;
 import com.lp.auth.dto.LogoutRequest;
+import com.lp.auth.dto.MeResponse;
 import com.lp.auth.dto.RefreshRequest;
 import com.lp.auth.dto.RefreshResponse;
 import com.lp.auth.service.AuthService;
+import com.lp.common.exception.BizException;
+import com.lp.common.exception.ErrorCode;
 import com.lp.common.identity.IdentityHeaders;
 import com.lp.common.result.Result;
 import com.lp.common.web.TraceIds;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -20,7 +24,7 @@ import org.springframework.web.bind.annotation.RestController;
  * Authentication endpoints under {@code /api/v1/auth}.
  *
  * <p>Login, refresh and logout are available. Register and miniapp login arrive with their own
- * slices. Failures are translated into the unified envelope by {@code GlobalExceptionHandler}.</p>
+ * slices. Failures are translated into the unified envelope by {@code GlobalExceptionHandler}.
  *
  * @author Caspian
  * @since 0.1.0
@@ -45,55 +49,90 @@ public class AuthController {
     /**
      * Verifies credentials and returns a token pair.
      *
-     * @param request     validated login body
+     * @param request validated login body
      * @param httpRequest current request, used for the source platform and trace id
      * @return successful envelope carrying tokens and the user summary
      * @author Caspian
      * @since 0.1.0
      */
     @PostMapping("/login")
-    public Result<LoginResponse> login(@Valid @RequestBody LoginRequest request,
-                                       HttpServletRequest httpRequest) {
-        return Result.ok(authService.login(request, sourceOf(httpRequest)),
-                TraceIds.resolve(httpRequest));
+    public Result<LoginResponse> login(
+            @Valid @RequestBody LoginRequest request, HttpServletRequest httpRequest) {
+        return Result.ok(
+                authService.login(request, sourceOf(httpRequest)), TraceIds.resolve(httpRequest));
     }
 
     /**
      * Rotates a refresh token into a new token pair.
      *
-     * @param request     validated refresh body
+     * @param request validated refresh body
      * @param httpRequest current request, used for the trace id
      * @return successful envelope carrying the new token pair
      * @author Caspian
      * @since 0.1.0
      */
     @PostMapping("/refresh")
-    public Result<RefreshResponse> refresh(@Valid @RequestBody RefreshRequest request,
-                                           HttpServletRequest httpRequest) {
+    public Result<RefreshResponse> refresh(
+            @Valid @RequestBody RefreshRequest request, HttpServletRequest httpRequest) {
         return Result.ok(authService.refresh(request), TraceIds.resolve(httpRequest));
     }
 
     /**
      * Revokes the presented refresh token; repeated calls succeed.
      *
-     * @param request     validated logout body
+     * @param request validated logout body
      * @param httpRequest current request, used for the trace id
      * @return successful envelope with an empty payload
      * @author Caspian
      * @since 0.1.0
      */
     @PostMapping("/logout")
-    public Result<Void> logout(@Valid @RequestBody LogoutRequest request,
-                               HttpServletRequest httpRequest) {
+    public Result<Void> logout(
+            @Valid @RequestBody LogoutRequest request, HttpServletRequest httpRequest) {
         authService.logout(request);
         return Result.ok(null, TraceIds.resolve(httpRequest));
+    }
+
+    /**
+     * Returns the current user profile with effective roles and permissions.
+     *
+     * @param httpRequest current request carrying the gateway injected user id
+     * @return successful envelope with the profile, roles and permissions
+     * @throws BizException {@code 40101} when the trusted user id header is absent or malformed
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @GetMapping("/me")
+    public Result<MeResponse> me(HttpServletRequest httpRequest) {
+        return Result.ok(authService.me(userIdOf(httpRequest)), TraceIds.resolve(httpRequest));
+    }
+
+    /**
+     * Reads the trusted gateway user id, rejecting anything that is not a positive number.
+     *
+     * @param request current request
+     * @return authenticated user id
+     * @throws BizException {@code 40101} when the header is absent, blank or not numeric
+     * @author Caspian
+     * @since 0.1.0
+     */
+    private static long userIdOf(HttpServletRequest request) {
+        String header = request.getHeader(IdentityHeaders.USER_ID);
+        if (header == null || header.isBlank()) {
+            throw new BizException(ErrorCode.UNAUTHENTICATED);
+        }
+        try {
+            return Long.parseLong(header.trim());
+        } catch (NumberFormatException ex) {
+            throw new BizException(ErrorCode.UNAUTHENTICATED);
+        }
     }
 
     /**
      * Reads the source platform injected by the gateway, defaulting to web.
      *
      * <p>Inbound values are stripped by the gateway, so a value present here was set upstream.
-     * Anything outside the known set falls back to {@code web} rather than being trusted.</p>
+     * Anything outside the known set falls back to {@code web} rather than being trusted.
      *
      * @param request current request
      * @return {@code miniapp}, {@code admin} or {@code web}
