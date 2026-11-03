@@ -109,6 +109,22 @@ class JwtAuthFilterTest {
     }
 
     /**
+     * Miniapp login is public because the caller has no token yet.
+     *
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Test
+    void letsMiniappLoginThroughWithoutIdentity() {
+        CapturingChain chain = new CapturingChain();
+        filter.filter(exchange("/api/v1/auth/miniapp-login"), chain).block();
+
+        assertThat(chain.called).isTrue();
+        assertThat(chain.exchange().getRequest().getHeaders().getFirst(IdentityHeaders.USER_ID))
+                .isNull();
+    }
+
+    /**
      * A protected path without a token is rejected with {@code 40101}.
      *
      * @author Caspian

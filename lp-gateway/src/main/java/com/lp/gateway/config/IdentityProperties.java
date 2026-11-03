@@ -32,6 +32,7 @@ public class IdentityProperties {
     public List<String> whitelist =
             List.of(
                     "/api/v1/auth/register",
+                    "/api/v1/auth/miniapp-login",
                     "/api/v1/auth/login",
                     "/api/v1/auth/refresh",
                     "/api/v1/auth/logout",
