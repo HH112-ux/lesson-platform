@@ -100,7 +100,7 @@ docker compose -f infra/docker-compose.yml up -d
 docker compose -f infra/docker-compose.yml ps
 ```
 
-首次启动会由 MySQL 容器自动执行 `infra/mysql/init/00-create-databases.sql`，创建 `lp_ums`、`lp_cms`、`lp_oms`、`lp_lms`、`lp_ugc`、`lp_ai` 六个库与业务账号。
+首次启动会由 MySQL 容器自动执行 `infra/mysql/init/00-create-databases.sql`，创建 `lp_ums`、`lp_cms`、`lp_oms`、`lp_lms`、`lp_ugc`、`lp_ai`、`lp_ops` 七个库与业务账号。
 
 | 组件 | 端口 | 控制台或入口 |
 |---|---|---|
@@ -225,7 +225,7 @@ node apps/miniapp/scripts/check.mjs
 | 运营后台 | `pnpm -C apps/admin lint` 与 `typecheck` 与 `test` 与 `build` | 与 Web 同口径 |
 | 共享包 | `pnpm -C packages/shared lint` 与 `typecheck` 与 `test` | `@lp/shared` 类型与常量 |
 | 本地依赖 | `bash scripts/smoke/run-all.sh` | MySQL / Redis / RocketMQ / MinIO / Nacos 逐项通过或失败 |
-| 迁移 | `bash scripts/flyway.sh info all`（或 `migrate all`） | 六库封装，目标库或迁移目录名均可 |
+| 迁移 | `bash scripts/flyway.sh info all`（或 `migrate all`） | 七库封装，目标库或迁移目录名均可 |
 | 钩子 | `bash scripts/install-hooks.sh` | 设置 `core.hooksPath=.githooks` 并打印验证结果 |
 | 小程序 | `node apps/miniapp/scripts/check.mjs` | 与 CI 的 `miniapp-check` 一致 |
 
@@ -241,7 +241,7 @@ node apps/miniapp/scripts/check.mjs
 
 - 七个域服务已有 M0 骨架（端口 8101–8107，仅健康检查，无业务接口）；`apps/web`、`apps/admin`、`apps/miniapp`、`packages/shared` 均为 M0 最小骨架（可安装、可校验、可构建）。
 - `scripts/install-hooks.sh`、`scripts/flyway.sh`、`scripts/smoke/{mysql,redis,rocketmq,minio,nacos}.sh` 与 `scripts/smoke/run-all.sh` 已创建并实测通过。
-- `db/migration/admin/V1__baseline.sql` 尚无独立数据库：工程规划把 `admin-service` 映射到 `lp_ums`/`lp_cms`，与 `auth`、`course` 基线的 `flyway_schema_history` 冲突，`scripts/flyway.sh` 对 `admin` 目标直接拒绝并说明原因；库归属待决定。
+- `db/migration/ops/V1__baseline.sql` 归属独立库 `lp_ops`（工程规划 15.2 D13）：`admin-service` 不再与 `lp_ums`/`lp_cms` 共享 schema history，`scripts/flyway.sh` 用 `ops` 或 `lp_ops` 目标执行，`admin` 目标按未知目标报错。
 - `infra/up.sh`、`infra/down.sh`、`infra/reset.sh` 与 `scripts/gen-service.sh`、`scripts/preflight.sh`、`scripts/check-migration.sh` 仍为 M0 规划项（见工程规划 13.6），未创建前以上述 compose 与已创建脚本为准。
 - MinIO 使用归档镜像 `bitnamilegacy/minio`，M1 前需评估 SeaweedFS、Garage 或云对象存储替代方案。
 - `docs/local-dev-guide.md`（本文件）随 M0 骨架产出，后续新增脚本时同步更新对应命令。

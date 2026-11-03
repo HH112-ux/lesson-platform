@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Flyway wrapper for the six business databases.
+# Flyway wrapper for the seven business databases.
 # Usage: bash scripts/flyway.sh <command> <target>
 #   command: migrate | info | validate | repair
-#   target:  all | one database (lp_ums lp_cms lp_oms lp_lms lp_ugc lp_ai)
-#            or one migration directory (auth course trade learn ugc ai)
+#   target:  all | one database (lp_ums lp_cms lp_oms lp_lms lp_ugc lp_ai lp_ops)
+#            or one migration directory (auth course trade learn ugc ai ops)
 # Database credentials can be overridden with LP_FLYWAY_USER / LP_FLYWAY_PASSWORD.
 set -euo pipefail
 
@@ -28,16 +28,16 @@ usage() {
 Usage: bash scripts/flyway.sh <command> <target>
 
   command: migrate | info | validate | repair
-  target:  all | lp_ums | lp_cms | lp_oms | lp_lms | lp_ugc | lp_ai
-           | auth | course | trade | learn | ugc | ai | admin
+  target:  all | lp_ums | lp_cms | lp_oms | lp_lms | lp_ugc | lp_ai | lp_ops
+           | auth | course | trade | learn | ugc | ai | ops
 
 Database to migration directory mapping:
   lp_ums -> auth    lp_cms -> course   lp_oms -> trade
   lp_lms -> learn   lp_ugc -> ugc      lp_ai  -> ai
+  lp_ops -> ops
 
-The admin migration directory has no dedicated database: the engineering plan maps
-admin-service to lp_ums and lp_cms, which are already owned by the auth and course
-baselines. Running it is refused until a separate database is decided.
+The admin domain owns the dedicated lp_ops database (engineering plan 15.2 D13),
+so admin-service no longer shares schema history with lp_ums and lp_cms.
 USAGE
 }
 
@@ -71,6 +71,7 @@ resolve_db() {
     lp_lms|learn)  printf 'lp_lms learn\n' ;;
     lp_ugc|ugc)    printf 'lp_ugc ugc\n' ;;
     lp_ai|ai)      printf 'lp_ai ai\n' ;;
+    lp_ops|ops)    printf 'lp_ops ops\n' ;;
     *) return 1 ;;
   esac
 }
@@ -94,18 +95,13 @@ run_one() {
 }
 
 if [ "$target" = "all" ]; then
-  for db in lp_ums lp_cms lp_oms lp_lms lp_ugc lp_ai; do
+  for db in lp_ums lp_cms lp_oms lp_lms lp_ugc lp_ai lp_ops; do
     resolved="$(resolve_db "$db")" || { printf 'FAIL unresolved database: %s\n' "$db"; exit 1; }
     # shellcheck disable=SC2086
     run_one $resolved
   done
-  printf 'OK flyway %s finished for all six databases\n' "$command"
+  printf 'OK flyway %s finished for all seven databases\n' "$command"
   exit 0
-fi
-
-if [ "$target" = "admin" ]; then
-  printf 'FAIL admin has no dedicated database; see usage notes above\n'
-  exit 1
 fi
 
 if ! resolved="$(resolve_db "$target")"; then

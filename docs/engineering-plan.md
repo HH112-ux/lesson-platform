@@ -214,7 +214,7 @@ stateDiagram-v2
 | `trade-service` | 8103 | `lp_oms` | 购物车、优惠券、订单、**双通道支付（支付宝/微信）**、退款、对账 | 权益与学习 |
 | `learn-service` | 8104 | `lp_lms` | 权益、播放签名、学习进度 | 订单状态 |
 | `ugc-service` | 8105 | `lp_ugc` | 评论、收藏、举报 | 内容审核决策（AI 出建议，运营处置） |
-| `admin-service` | 8106 | `lp_ums`/`lp_cms` | 后台聚合接口、RBAC、审核队列、看板、教师资质管理 | 不直接改交易状态（调用 trade） |
+| `admin-service` | 8106 | `lp_ops` | 后台聚合接口、RBAC、审核队列、看板、教师资质管理 | 不直接改交易状态（调用 trade） |
 | `ai-service` | 8107 | `lp_ai` | AI 编排、脱敏、本地规则、评测、计量 | 不持有业务主数据 |
 | `common` | — | — | Result、异常、身份上下文、Feign、Redis、MinIO、脱敏 | — |
 | `job-worker` | — | — | 超时关单、对账、AI 批处理（XXL-Job） | — |
@@ -283,7 +283,7 @@ flowchart TB
     end
 
     subgraph DATA["数据层"]
-        MYSQL[("MySQL 主从<br/>lp_ums / lp_cms / lp_oms / lp_lms / lp_ugc / lp_ai")]
+        MYSQL[("MySQL 主从<br/>lp_ums / lp_cms / lp_oms / lp_lms / lp_ugc / lp_ai / lp_ops")]
         REDIS[("Redis 哨兵")]
         MQ[("RocketMQ")]
         MINIO[("MinIO + CDN 回源")]
@@ -349,7 +349,7 @@ flowchart TB
 | 外键 | 不建物理外键，用 `*_id` + 索引；跨库不 JOIN，冗余展示字段 |
 | 字符集 | `utf8mb4` / `utf8mb4_0900_ai_ci` |
 | 日志/映射类表 | 追加写，只保留 `id, created_at`（明确例外，见各表说明） |
-| 分库 | 按服务分库：`lp_ums / lp_cms / lp_oms / lp_lms / lp_ugc / lp_ai` |
+| 分库 | 按服务分库：`lp_ums / lp_cms / lp_oms / lp_lms / lp_ugc / lp_ai / lp_ops` |
 
 ## 4.2 ER 图
 
@@ -1836,7 +1836,7 @@ DoD：学伴无法回答率 ≤ 30%、找课点击率 +10%、售后 FAQ 命中�
 | M0-05 | 本地环境 | 五件套 Compose | `infra/docker-compose.yml` | 无 | 1 | 五容器均 running；端口 nacos 8848、mysql 3306、redis 6379、rocketmq 9876、minio 9000/9001 | 运维 |
 | M0-06 | 本地环境 | 桶与 Topic 初始化 | `infra/init/minio-init.sh`、`infra/init/rocketmq-init.sh` | M0-05 | 0.5 | `mc ls local` 含 `lp-media`；`mqadmin topicList` 含 `lp-topic` | 运维 |
 | M0-07 | 本地环境 | 环境变量模板 | `infra/.env.example` | M0-05 | 0.5 | 所有变量以 `LP_` 开头（非 `LP_` 行数为 0）；`grep -nE 'AKIA\|BEGIN PRIVATE\|sk-'` 无输出 | 运维 |
-| M0-08 | 本地环境 | 六库与账号建库脚本 | `infra/mysql/init/00-create-databases.sql` | M0-05 | 0.5 | 执行后 `SHOW DATABASES LIKE 'lp_%'` 返回 6 行；业务账号仅授权到对应库 | 后端·B |
+| M0-08 | 本地环境 | 七库与账号建库脚本 | `infra/mysql/init/00-create-databases.sql` | M0-05 | 0.5 | 执行后 `SHOW DATABASES LIKE 'lp_%'` 返回 7 行；业务账号仅授权到对应库 | 后端·B |
 | M0-09 | 本地环境 | 一键起停与重置 | `infra/up.sh`、`down.sh`、`reset.sh` | M0-05、M0-06、M0-07、M0-08 | 1 | 清空容器后 `bash infra/up.sh` 退出码 0，末尾调用 `scripts/smoke/deps-check.sh` 全 OK | 运维 |
 | M0-10 | 本地环境 | 依赖可达性断言 | `scripts/smoke/deps-check.sh` | M0-06、M0-08、M0-09 | 0.5 | 12 项断言全 OK、退出码 0；`docker stop` 掉 mysql 后退出码非 0 | 测试 |
 | M0-11 | 本地环境 | 端口占用预检 | `scripts/preflight.sh` | M0-05 | 0.5 | 端口全空时输出 OK；占用 3306 时列出冲突端口并非 0 退出 | 运维 |
@@ -1846,7 +1846,7 @@ DoD：学伴无法回答率 ≤ 30%、找课点击率 +10%、售后 FAQ 命中�
 | M0-15 | 配置 | 配置动态刷新验证 | `lp-common/.../config/IdentityProperties.java` | M0-02、M0-13、M0-14 | 0.5 | 改 `identity.enforce.mode=soft` 后 10s 内日志打印新值，无需重启 | 后端·B |
 | M0-16 | 数据 | Flyway 接入与执行脚本 | 父 `pom.xml` 插件配置、`scripts/flyway.sh` | M0-01、M0-08 | 0.5 | `bash scripts/flyway.sh migrate auth` 后该库 `flyway_schema_history` 有记录 | 后端·A |
 | M0-17 | 数据 | auth 库 V1 基线 | `db/migration/auth/V1__baseline.sql` | M0-16 | 1 | 建 7 张表（`sys_user`、`sys_role`、`sys_menu`、`sys_user_role`、`sys_role_menu`、`sys_user_wechat`、`audit_log`），时间字段为 `created_at/updated_at`，`flyway:info` 显示 version 1 成功 | 后端·A |
-| M0-18 | 数据 | 其余六库 V1 占位 | `db/migration/{course,trade,learn,ugc,admin,ai}/V1__baseline.sql` | M0-16、M0-17 | 0.5 | 六库各自 `flyway_schema_history` version=1；重复执行无变更 | 后端·B |
+| M0-18 | 数据 | 其余六库 V1 占位 | `db/migration/{course,trade,learn,ugc,ops,ai}/V1__baseline.sql` | M0-16、M0-17 | 0.5 | 六库各自 `flyway_schema_history` version=1；重复执行无变更 | 后端·B |
 | M0-19 | 数据 | 迁移规范校验脚本 | `scripts/check-migration.sh` | M0-17 | 0.5 | 合规样例退出 0；`V1__drop_table.sql` 与 `v1_bad name.sql` 两者均被拒 | 后端·B |
 | M0-20 | 数据 | dev 种子数据 | `db/seed/dev-seed.sql` | M0-18 | 0.5 | `SELECT count(*) FROM sys_role` ≥ 4（ADMIN/OPS/TEACHER/STUDENT）；数据不含真实手机号与 openid | 后端·B |
 | M0-21 | 中间件 | Redis 封装与 Key 常量 | `lp-common/.../cache/RedisCache.java`、`RedisKeys.java` | M0-02、M0-09 | 0.5 | 单测通过；`RedisKeys` 常量 ≥ 6 且 key 统一 `lp:` 前缀 | 后端·A |
@@ -1890,7 +1890,7 @@ DoD：学伴无法回答率 ≤ 30%、找课点击率 +10%、售后 FAQ 命中�
 | 任务 ID | 分组 | 任务名 | 产出物（路径或可验证结果） | 前置依赖 | 预估人日 | 验收标准（可判定） | 责任人 |
 |---|---|---|---|---|---|---|---|
 | M0-05 | 本地环境 | 五件套 Compose | `infra/docker-compose.yml` | 无 | 1 | 五容器均 running；端口 nacos 8848、mysql 3306、redis 6379、rocketmq 9876、minio 9000/9001 | 运维 |
-| M0-08 | 本地环境 | 六库与账号建库脚本 | `infra/mysql/init/00-create-databases.sql` | M0-05 | 0.5 | `SHOW DATABASES LIKE 'lp_%'` 返回 6 行 | 后端·B |
+| M0-08 | 本地环境 | 七库与账号建库脚本 | `infra/mysql/init/00-create-databases.sql` | M0-05 | 0.5 | `SHOW DATABASES LIKE 'lp_%'` 返回 7 行 | 后端·B |
 | M0-06 | 本地环境 | 桶与 Topic 初始化 | `infra/init/minio-init.sh`、`rocketmq-init.sh` | M0-05 | 0.5 | `mc ls local` 含 `lp-media`；`mqadmin topicList` 含 `lp-topic` | 运维 |
 | M0-07 | 本地环境 | 环境变量模板 | `infra/.env.example` | M0-05 | 0.5 | 全部变量 `LP_` 前缀；无明文密钥 | 运维 |
 | M0-09 | 本地环境 | 一键起停与重置 | `infra/up.sh`、`down.sh`、`reset.sh` | M0-05、M0-06、M0-07、M0-08 | 1 | `bash infra/up.sh` 退出码 0，末尾 deps-check 全 OK | 运维 |
@@ -2045,7 +2045,7 @@ DoD：学伴无法回答率 ≤ 30%、找课点击率 +10%、售后 FAQ 命中�
 | **D10** | **指标口径** | **已决策（暂定，M1 前可复议）**：学习会话按 15 分钟切分统计；跨端属性 `source` 仅 `web/miniapp`；事件名与漏斗按 07 第 10 章 | 1.4、10.2、11.2、12.4 |
 | **D11** | **支付截止** | **已决策（暂定，M1 前可复议）**：下单后 30 分钟未支付自动关单；重付前先关原支付单，仅限原渠道 | 2.3、4.3.3、5.2（`62006`）、5.5 |
 | **D12** | **首发课程规模** | **已决策（暂定，M1 前可复议）**：保持基线 20 门课 / 约 200 课时 / 视频 100–200GB，标注 TBD，上线后按真实数据校准；调整时同步第 10.3、11.1、14 章三处 | 10.3、11.1、13.2、14 |
-| **D13** | **admin 域数据库归属** | **已决策（暂定，M1 阶段可复议）**：admin 域使用独立数据库 `lp_ops`，不与 `lp_ums`/`lp_cms` 共享 schema history；`db/migration/admin` 调整为 `db/migration/ops`（实现安排在 PR #16 合并后） | 附录 B 库表清单、11.3 数据层、13.6 迁移目录、`scripts/flyway.sh` 的库映射 |
+| **D13** | **admin 域数据库归属** | **已决策（暂定，M1 阶段可复议）**：admin 域使用独立数据库 `lp_ops`，不与 `lp_ums`/`lp_cms` 共享 schema history；`db/migration/admin` 调整为 `db/migration/ops`（**已实施**：迁移目录 `db/migration/ops`，`scripts/flyway.sh` 映射 `lp_ops`，建库脚本含 `lp_ops`） | 附录 B 库表清单、11.3 数据层、13.6 迁移目录、`scripts/flyway.sh` 的库映射 |
 | **D14** | **MinIO 归档镜像处置** | **已决策（暂定，M1 阶段可复议）**：M1 阶段继续使用 `bitnamilegacy/minio` 归档镜像，仅作为本地开发依赖；M1 收尾前按压测与运维成本评估 SeaweedFS / Garage / 云对象存储替代方案 | `infra/docker-compose.yml`、`docs/local-dev-guide.md` 的 MinIO 章节、15.1 R5 |
 
 **剩余待决策（0 条）**：原 Q3 首发课程规模已按确认结果落地为 D12（暂定，M1 前可复议）；D6–D14 均为暂定决策，M1 阶段可复议。后续新增待决策项在此登记。
@@ -2081,6 +2081,7 @@ DoD：学伴无法回答率 ≤ 30%、找课点击率 +10%、售后 FAQ 命中�
 | `lp_lms` | user_entitlement、learning_progress |
 | `lp_ugc` | comment、favorite、content_report |
 | `lp_ai` | **ai_model_config**、ai_course_profile、ai_conversation、ai_message、ai_generation_task、ai_moderation_record、ai_usage_log、ai_pii_mapping、ai_course_faq、ai_feedback |
+| `lp_ops` | 暂无业务表：V1 仅登记基线；后台聚合、RBAC、审核队列与看板表在 M1 细化，不复制业务主数据 |
 
 # 附录 C 上线检查清单（可勾选）
 

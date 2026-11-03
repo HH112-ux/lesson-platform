@@ -306,7 +306,7 @@ chore(deps): upgrade wechatpay-java to 0.2.12
 
 ### 11.3 数据层
 
-- **必须**：库名 `lp_{域}`（`lp_ums / lp_cms / lp_oms / lp_lms / lp_ugc / lp_ai`）；表名 snake_case、**单数**、全小写（`course_lesson`、`trade_order`）。
+- **必须**：库名 `lp_{域}`（`lp_ums / lp_cms / lp_oms / lp_lms / lp_ugc / lp_ai / lp_ops`）；表名 snake_case、**单数**、全小写（`course_lesson`、`trade_order`）。
 - **必须**：字段 snake_case；外键 `{单数表名}_id`；时间字段统一 `*_at`（`created_at / updated_at / paid_at`），禁止 `create_time / gmt_create`；布尔用 `is_ / has_` 或 `status` 枚举。
 - **必须**：索引 `idx_{列名组合}`、唯一 `uk_{语义}`、全文 `ft_{列名}`，禁止 `index1 / uk1` 等无意义命名。
 - **必须**：枚举用 `TINYINT` + 代码常量类，字段说明写成「0 x / 1 y」，禁止字符串魔法值。
