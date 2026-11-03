@@ -942,7 +942,7 @@ erDiagram
 | 40001 | 参数校验失败 | Bean Validation |
 | 40002 | 参数格式错误 | JSON 解析/类型不匹配 |
 | 40101 | 未登录或凭证无效 | 无 Token/签名失败 |
-| 40102 | 凭证已过期 | access token 过期 |
+| 40102 | 凭证已过期 | access token 过期，或 refresh 无效/已吊销/已被轮换使用 |
 | 40301 | 无权限 | 角色/归属校验失败 |
 | 40302 | 未购买该课程 | 权益校验失败 |
 | 40303 | 非本人课程 | 教师访问他人课程（`owner_teacher_id` 不匹配） |
@@ -987,10 +987,10 @@ erDiagram
 |---|---|---|---|---|---|
 | POST | `/api/v1/auth/register` | 注册学员 | `{username,password,nickname,email?}` | `{userId}` | 40001,40901(账号重复) |
 | POST | `/api/v1/auth/login` | 登录签发 Token | `{account,password}` | `{accessToken,refreshToken,expiresIn,user:{id,nickname,avatarUrl,roles[]}}` | 40101,40301(禁用) |
-| POST | `/api/v1/auth/refresh` | 刷新 access token | `{refreshToken}` | `{accessToken,expiresIn}` | 40102,40101 |
+| POST | `/api/v1/auth/refresh` | 用 refresh token 轮换签发新 Token 对（旧 refresh 立即失效） | `{refreshToken}` | `{accessToken,refreshToken,expiresIn}` | 40101,40102,40301(禁用),50001(Redis 不可用) |
 | POST | `/api/v1/auth/miniapp-login` | 小程序登录（`wx.login` 的 code 换会话） | `{code}` | `{accessToken,refreshToken,expiresIn,isNewUser,user:{id,nickname,avatarUrl,roles[]}}` | 40001,66001 |
 | POST | `/api/v1/auth/miniapp/bind-phone` | 小程序授权手机号并绑定（需登录态；手机号与既有账号冲突时返回 `40901` 并提示登录原账号，**不自动合并账号**，15.2 D8） | `{code}`（`getPhoneNumber` 返回的动态令牌） | `{phoneMasked:"138****0000"}` | 40101,66002,40901 |
-| POST | `/api/v1/auth/logout` | 注销并吊销 refresh | 空 | `{}` | 40101 |
+| POST | `/api/v1/auth/logout` | 注销并吊销 refresh（幂等，重复调用仍返回成功） | `{refreshToken}` | `{}` | 40001,50001(Redis 不可用) |
 | GET | `/api/v1/auth/me` | 当前用户与角色 | — | `{id,username,nickname,avatarUrl,email,phone,roles[]}` | 40101 |
 | PUT | `/api/v1/user/profile` | 改昵称/头像 | `{nickname?,avatarUrl?}` | `{updated:true}` | 40001 |
 | PUT | `/api/v1/user/password` | 改密码 | `{oldPassword,newPassword}` | `{updated:true}` | 40001,40101 |
@@ -1167,7 +1167,7 @@ erDiagram
 2. 请求携带 `Authorization: Bearer <access>` → gateway 验签（RS256 公钥）→ 校验 Redis 会话未被吊销。
 3. gateway **剥离**入站所有身份头 → 注入可信头 → 转发；`X-User-Source` 由网关按**入口域名/`X-Client-Platform` 头 + 会话属性**判定，**不采信客户端自报**（小程序请求由网关的 `/mp/**` 路由段统一标记为 `miniapp`）。
 4. 下游服务只读可信头，不信任 body/path 中的用户 ID；教师归属、订单归属、会话归属一律用头里的 `X-User-Id` 反查。
-5. access 过期返回 `40102`，客户端用 refresh 换新；refresh 失效要求重新登录（小程序端重新 `wx.login`，不保留敏感授权）。
+5. access 过期返回 `40102`，客户端用 refresh 换新；refresh 采用**一次性轮换**，换发后旧 refresh 立即失效，重复使用返回 `40102`；`logout` 吊销当前 refresh（幂等）。refresh 失效要求重新登录（小程序端重新 `wx.login`，不保留敏感授权）。
 
 ## 6.2 头字段规范
 

@@ -49,6 +49,12 @@
       <scope>runtime</scope>
     </dependency>
 
+    <!-- Refresh token whitelist: the auth domain owns the session keys in Redis. -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-data-redis</artifactId>
+    </dependency>
+
     <!-- Password hashing and RS256 access tokens. -->
     <dependency>
       <groupId>org.springframework.security</groupId>

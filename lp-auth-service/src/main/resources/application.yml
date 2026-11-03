@@ -13,6 +13,14 @@ spring:
     hikari:
       maximum-pool-size: 5
       minimum-idle: 1
+  # Refresh tokens are stored in Redis under lp:auth:refresh:{sha256(token)}. Login, refresh
+  # and logout fail with 50001 when Redis is unreachable; they never fall back to an
+  # unvalidated token. Local containers expose 6379 (see infra/docker-compose.yml).
+  data:
+    redis:
+      host: ${LP_REDIS_HOST:127.0.0.1}
+      port: ${LP_REDIS_PORT:6379}
+      timeout: 2s
   # Schema history is managed by the flyway CLI (scripts/flyway.sh), not at application startup.
   # Nacos config centre placeholder. The client is not on the classpath yet, so these keys are
   # inert and the service always starts with the local defaults below. Once M1 adds

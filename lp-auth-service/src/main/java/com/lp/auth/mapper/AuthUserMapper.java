@@ -33,6 +33,19 @@ public interface AuthUserMapper {
     UserAccount selectByUsername(@Param("account") String account);
 
     /**
+     * Finds a live account by id, used when refreshing a session.
+     *
+     * @param userId authentic user id taken from the stored refresh session
+     * @return account row, or {@code null} when absent or deleted
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Select("SELECT id, username, password_hash AS passwordHash, nickname, "
+            + "avatar_url AS avatarUrl, status FROM sys_user "
+            + "WHERE id = #{userId} AND deleted = 0 LIMIT 1")
+    UserAccount selectById(@Param("userId") long userId);
+
+    /**
      * Returns enabled role codes granted to the user.
      *
      * @param userId authentic user id

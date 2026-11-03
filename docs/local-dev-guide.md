@@ -171,11 +171,22 @@ curl -s -X POST http://localhost:8080/api/v1/auth/login \
   -H 'Content-Type: application/json' \
   -d '{"account":"alice","password":"secret123"}'
 
+# 轮换：用上一步返回的 refreshToken 换新的一对 token，旧 refresh 立即失效
+curl -s -X POST http://localhost:8080/api/v1/auth/refresh \
+  -H 'Content-Type: application/json' \
+  -d '{"refreshToken":"<refreshToken>"}'
+
+# 注销：吊销当前 refresh，重复调用仍返回成功
+curl -s -X POST http://localhost:8080/api/v1/auth/logout \
+  -H 'Content-Type: application/json' \
+  -d '{"refreshToken":"<refreshToken>"}'
+
 # 受保护路径缺少 token 返回 40101，token 过期返回 40102
 curl -s http://localhost:8080/api/v1/courses
 ```
 
-- 账号需先写入 `lp_ums.sys_user`（密码为 BCrypt 哈希）；M1 第一个里程碑只做登录，不含注册、找回密码与第三方登录。
+- 账号需先写入 `lp_ums.sys_user`（密码为 BCrypt 哈希）；M1 当前已实现登录、刷新与退出，注册、找回密码与第三方登录在后续切片。
+- 登录、刷新与退出依赖 Redis：key 为 `lp:auth:refresh:{sha256(token)}`，TTL 与 refresh 有效期一致（7 天），不落明文 token；Redis 不可用返回 `50001`，不会放行未校验的 token。
 - `lp.auth.jwt.private-key-path` 或 `lp.identity.jwt.public-key-path` 为空时服务启动失败，属于预期的保护行为。
 
 ## 5. Web 前端
