@@ -92,9 +92,9 @@ services:
       start_period: 40s
 
   minio:
-    # TODO(M1): 上游社区版 MinIO 已归档下线（dl.min.io 返回 410，minio/minio 镜像所有镜像站均 403/not found），
-    # 当前依赖 bitnamilegacy/minio:2025.5.24 归档镜像（内部同一 MinIO Server 二进制）；M1 里程碑前需评估替代：
-    # 自建 SeaweedFS / Garage / 直接上云对象存储。届时同步更新 docs/local-dev-guide.md 的 MinIO 章节。
+    # TODO(M1, 15.2 D14): 上游社区版 MinIO 已归档下线（dl.min.io 返回 410，minio/minio 镜像所有镜像站均 403/not found），
+    # 当前依赖 bitnamilegacy/minio:2025.5.24 归档镜像（内部同一 MinIO Server 二进制）；M1 收尾前按压测与运维成本评估替代：
+    # SeaweedFS / Garage / 云对象存储（决策登记见 docs/engineering-plan.md 15.2 D14）。届时同步更新 docs/local-dev-guide.md 的 MinIO 章节。
     image: bitnamilegacy/minio:2025.5.24
     container_name: lp-minio
     restart: unless-stopped
