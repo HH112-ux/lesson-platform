@@ -6,6 +6,7 @@ import com.lp.auth.dto.LogoutRequest;
 import com.lp.auth.dto.MeResponse;
 import com.lp.auth.dto.RefreshRequest;
 import com.lp.auth.dto.RefreshResponse;
+import com.lp.auth.dto.RegisterRequest;
 import com.lp.auth.service.AuthService;
 import com.lp.common.exception.BizException;
 import com.lp.common.exception.ErrorCode;
@@ -23,8 +24,9 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * Authentication endpoints under {@code /api/v1/auth}.
  *
- * <p>Login, refresh and logout are available. Register and miniapp login arrive with their own
- * slices. Failures are translated into the unified envelope by {@code GlobalExceptionHandler}.
+ * <p>Register, login, refresh, logout and the current profile are available. Miniapp login arrives
+ * with its own slice. Failures are translated into the unified envelope by {@code
+ * GlobalExceptionHandler}.
  *
  * @author Caspian
  * @since 0.1.0
@@ -44,6 +46,24 @@ public class AuthController {
      */
     public AuthController(AuthService authService) {
         this.authService = authService;
+    }
+
+    /**
+     * Creates a student account and returns a token pair so the caller is signed in at once.
+     *
+     * @param request validated registration body
+     * @param httpRequest current request, used for the source platform and trace id
+     * @return successful envelope carrying tokens and the new user summary
+     * @throws BizException {@code 40901} when the login name already exists
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @PostMapping("/register")
+    public Result<LoginResponse> register(
+            @Valid @RequestBody RegisterRequest request, HttpServletRequest httpRequest) {
+        return Result.ok(
+                authService.register(request, sourceOf(httpRequest)),
+                TraceIds.resolve(httpRequest));
     }
 
     /**

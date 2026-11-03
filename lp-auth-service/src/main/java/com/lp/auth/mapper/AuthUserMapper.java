@@ -2,7 +2,9 @@ package com.lp.auth.mapper;
 
 import com.lp.auth.entity.UserAccount;
 import java.util.List;
+import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Options;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
@@ -80,6 +82,49 @@ public interface AuthUserMapper {
                     + "WHERE ur.user_id = #{userId} AND m.deleted = 0 AND m.status = 1 "
                     + "AND m.permission_code IS NOT NULL ORDER BY m.permission_code")
     List<String> selectPermissionCodes(@Param("userId") long userId);
+
+    /**
+     * Inserts a new account and fills the generated id back into the entity.
+     *
+     * <p>{@code status} and {@code gender} fall back to their schema defaults, so a registered
+     * account is active from the moment it exists. A duplicate login name, email or phone still
+     * violates a unique key and surfaces as a duplicate key exception.
+     *
+     * @param account account row carrying the encoded password
+     * @return number of inserted rows
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Insert(
+            "INSERT INTO sys_user (username, password_hash, nickname, email, phone) "
+                    + "VALUES (#{username}, #{passwordHash}, #{nickname}, #{email}, #{phone})")
+    @Options(useGeneratedKeys = true, keyProperty = "id")
+    int insertUser(UserAccount account);
+
+    /**
+     * Finds an enabled role id by its code.
+     *
+     * @param code role code such as {@code STUDENT}
+     * @return role id, or {@code null} when the role is absent or disabled
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Select(
+            "SELECT id FROM sys_role WHERE code = #{code} AND deleted = 0 "
+                    + "AND status = 1 LIMIT 1")
+    Long selectRoleIdByCode(@Param("code") String code);
+
+    /**
+     * Grants a role to a user.
+     *
+     * @param userId user id
+     * @param roleId role id
+     * @return number of inserted rows
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Insert("INSERT INTO sys_user_role (user_id, role_id) VALUES (#{userId}, #{roleId})")
+    int insertUserRole(@Param("userId") long userId, @Param("roleId") long roleId);
 
     /**
      * Records the successful login time.
