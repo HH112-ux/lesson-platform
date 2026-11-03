@@ -45,19 +45,26 @@ class JwtTokenServiceTest {
      */
     @Test
     void issuesVerifiableRs256Token() {
-        JwtTokenService service = new JwtTokenService((RSAPrivateKey) keyPair.getPrivate(),
-                "auth-service", Duration.ofMinutes(15), Duration.ofDays(7));
+        JwtTokenService service =
+                new JwtTokenService(
+                        (RSAPrivateKey) keyPair.getPrivate(),
+                        "auth-service",
+                        Duration.ofMinutes(15),
+                        Duration.ofDays(7));
 
-        AuthTokens tokens = service.issue(42L, List.of("STUDENT", "TEACHER"));
+        AuthTokens tokens =
+                service.issue(42L, List.of("STUDENT", "TEACHER"), List.of("course:learn"));
 
-        Claims claims = Jwts.parser()
-                .verifyWith(keyPair.getPublic())
-                .requireIssuer("auth-service")
-                .build()
-                .parseSignedClaims(tokens.getAccessToken())
-                .getPayload();
+        Claims claims =
+                Jwts.parser()
+                        .verifyWith(keyPair.getPublic())
+                        .requireIssuer("auth-service")
+                        .build()
+                        .parseSignedClaims(tokens.getAccessToken())
+                        .getPayload();
         assertThat(claims.getSubject()).isEqualTo("42");
         assertThat(claims.get("roles", List.class)).containsExactly("STUDENT", "TEACHER");
+        assertThat(claims.get("permissions", List.class)).containsExactly("course:learn");
         assertThat(tokens.getExpiresInSeconds()).isEqualTo(900);
         assertThat(claims.getExpiration().toInstant())
                 .isAfter(Instant.now().plus(Duration.ofMinutes(14)))
@@ -74,10 +81,14 @@ class JwtTokenServiceTest {
      */
     @Test
     void issuesUniqueRefreshTokens() {
-        JwtTokenService service = new JwtTokenService((RSAPrivateKey) keyPair.getPrivate(),
-                "auth-service", Duration.ofMinutes(15), Duration.ofDays(7));
+        JwtTokenService service =
+                new JwtTokenService(
+                        (RSAPrivateKey) keyPair.getPrivate(),
+                        "auth-service",
+                        Duration.ofMinutes(15),
+                        Duration.ofDays(7));
 
-        assertThat(service.issue(7L, List.of()).getRefreshToken())
-                .isNotEqualTo(service.issue(7L, List.of()).getRefreshToken());
+        assertThat(service.issue(7L, List.of(), List.of()).getRefreshToken())
+                .isNotEqualTo(service.issue(7L, List.of(), List.of()).getRefreshToken());
     }
 }

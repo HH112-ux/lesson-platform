@@ -11,6 +11,7 @@ import static org.mockito.Mockito.when;
 import com.lp.auth.dto.LoginRequest;
 import com.lp.auth.dto.LoginResponse;
 import com.lp.auth.dto.LogoutRequest;
+import com.lp.auth.dto.MeResponse;
 import com.lp.auth.dto.RefreshRequest;
 import com.lp.auth.dto.RefreshResponse;
 import com.lp.auth.entity.UserAccount;
@@ -41,9 +42,9 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 /**
  * Covers the login, refresh and logout decision branches without a database or Redis.
  *
- * <p>The token issuer is real and signs with a generated RSA key, while persistence and the
- * refresh whitelist are in-memory stand-ins, so the asserted tokens are genuinely verifiable
- * and the rotation rules are observable.</p>
+ * <p>The token issuer is real and signs with a generated RSA key, while persistence and the refresh
+ * whitelist are in-memory stand-ins, so the asserted tokens are genuinely verifiable and the
+ * rotation rules are observable.
  *
  * @author Caspian
  * @since 0.1.0
@@ -55,8 +56,7 @@ class AuthServiceImplTest {
 
     private static KeyPair keyPair;
 
-    @Mock
-    private AuthUserMapper authUserMapper;
+    @Mock private AuthUserMapper authUserMapper;
 
     private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
 
@@ -86,10 +86,15 @@ class AuthServiceImplTest {
      */
     @BeforeEach
     void setUp() {
-        JwtTokenService tokenService = new JwtTokenService((RSAPrivateKey) keyPair.getPrivate(),
-                "auth-service", Duration.ofMinutes(15), Duration.ofDays(7));
-        authService = new AuthServiceImpl(authUserMapper, tokenService, refreshTokenStore,
-                passwordEncoder);
+        JwtTokenService tokenService =
+                new JwtTokenService(
+                        (RSAPrivateKey) keyPair.getPrivate(),
+                        "auth-service",
+                        Duration.ofMinutes(15),
+                        Duration.ofDays(7));
+        authService =
+                new AuthServiceImpl(
+                        authUserMapper, tokenService, refreshTokenStore, passwordEncoder);
     }
 
     /**
@@ -132,8 +137,11 @@ class AuthServiceImplTest {
                 .thenReturn(account(7L, 1, passwordEncoder.encode(RAW_PASSWORD)));
 
         assertThatThrownBy(() -> authService.login(request("alice", "wrong-pass"), "web"))
-                .isInstanceOfSatisfying(BizException.class,
-                        ex -> assertThat(ex.getCode()).isEqualTo(ErrorCode.UNAUTHENTICATED.getCode()));
+                .isInstanceOfSatisfying(
+                        BizException.class,
+                        ex ->
+                                assertThat(ex.getCode())
+                                        .isEqualTo(ErrorCode.UNAUTHENTICATED.getCode()));
         verify(authUserMapper, never()).touchLastLogin(anyLong());
     }
 
@@ -148,8 +156,11 @@ class AuthServiceImplTest {
         when(authUserMapper.selectByUsername("nobody")).thenReturn(null);
 
         assertThatThrownBy(() -> authService.login(request("nobody", RAW_PASSWORD), "web"))
-                .isInstanceOfSatisfying(BizException.class,
-                        ex -> assertThat(ex.getCode()).isEqualTo(ErrorCode.UNAUTHENTICATED.getCode()));
+                .isInstanceOfSatisfying(
+                        BizException.class,
+                        ex ->
+                                assertThat(ex.getCode())
+                                        .isEqualTo(ErrorCode.UNAUTHENTICATED.getCode()));
         verify(authUserMapper, never()).touchLastLogin(anyLong());
     }
 
@@ -165,7 +176,8 @@ class AuthServiceImplTest {
                 .thenReturn(account(7L, 0, passwordEncoder.encode(RAW_PASSWORD)));
 
         assertThatThrownBy(() -> authService.login(request("alice", RAW_PASSWORD), "web"))
-                .isInstanceOfSatisfying(BizException.class,
+                .isInstanceOfSatisfying(
+                        BizException.class,
                         ex -> assertThat(ex.getCode()).isEqualTo(ErrorCode.FORBIDDEN.getCode()));
         verify(authUserMapper, never()).touchLastLogin(anyLong());
     }
@@ -193,8 +205,7 @@ class AuthServiceImplTest {
         assertThat(refreshed.getExpiresIn()).isEqualTo(900);
         assertThat(refreshTokenStore.contains(oldRefreshToken)).isFalse();
         assertThat(refreshTokenStore.get(refreshed.getRefreshToken())).isNotNull();
-        assertThat(refreshTokenStore.get(refreshed.getRefreshToken()).getSource())
-                .isEqualTo("web");
+        assertThat(refreshTokenStore.get(refreshed.getRefreshToken()).getSource()).isEqualTo("web");
     }
 
     /**
@@ -212,8 +223,11 @@ class AuthServiceImplTest {
         authService.refresh(refreshRequest("refresh-1"));
 
         assertThatThrownBy(() -> authService.refresh(refreshRequest("refresh-1")))
-                .isInstanceOfSatisfying(BizException.class,
-                        ex -> assertThat(ex.getCode()).isEqualTo(ErrorCode.TOKEN_EXPIRED.getCode()));
+                .isInstanceOfSatisfying(
+                        BizException.class,
+                        ex ->
+                                assertThat(ex.getCode())
+                                        .isEqualTo(ErrorCode.TOKEN_EXPIRED.getCode()));
     }
 
     /**
@@ -225,8 +239,11 @@ class AuthServiceImplTest {
     @Test
     void rejectUnknownRefreshToken() {
         assertThatThrownBy(() -> authService.refresh(refreshRequest("never-issued")))
-                .isInstanceOfSatisfying(BizException.class,
-                        ex -> assertThat(ex.getCode()).isEqualTo(ErrorCode.TOKEN_EXPIRED.getCode()));
+                .isInstanceOfSatisfying(
+                        BizException.class,
+                        ex ->
+                                assertThat(ex.getCode())
+                                        .isEqualTo(ErrorCode.TOKEN_EXPIRED.getCode()));
     }
 
     /**
@@ -241,7 +258,8 @@ class AuthServiceImplTest {
         when(authUserMapper.selectById(7L)).thenReturn(account(7L, 0, "hash"));
 
         assertThatThrownBy(() -> authService.refresh(refreshRequest("refresh-1")))
-                .isInstanceOfSatisfying(BizException.class,
+                .isInstanceOfSatisfying(
+                        BizException.class,
                         ex -> assertThat(ex.getCode()).isEqualTo(ErrorCode.FORBIDDEN.getCode()));
         assertThat(refreshTokenStore.contains("refresh-1")).isFalse();
     }
@@ -258,8 +276,11 @@ class AuthServiceImplTest {
         when(authUserMapper.selectById(7L)).thenReturn(null);
 
         assertThatThrownBy(() -> authService.refresh(refreshRequest("refresh-1")))
-                .isInstanceOfSatisfying(BizException.class,
-                        ex -> assertThat(ex.getCode()).isEqualTo(ErrorCode.UNAUTHENTICATED.getCode()));
+                .isInstanceOfSatisfying(
+                        BizException.class,
+                        ex ->
+                                assertThat(ex.getCode())
+                                        .isEqualTo(ErrorCode.UNAUTHENTICATED.getCode()));
     }
 
     /**
@@ -280,9 +301,67 @@ class AuthServiceImplTest {
     }
 
     /**
+     * Returns the profile with effective roles and permissions for an active account.
+     *
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Test
+    void meReturnsRolesAndPermissions() {
+        UserAccount account = account(7L, 1, "hash");
+        account.setEmail("alice@example.com");
+        account.setPhone("[PHONE_1]");
+        when(authUserMapper.selectById(7L)).thenReturn(account);
+        when(authUserMapper.selectRoleCodes(7L)).thenReturn(List.of("TEACHER"));
+        when(authUserMapper.selectPermissionCodes(7L)).thenReturn(List.of("teacher:course:manage"));
+
+        MeResponse me = authService.me(7L);
+
+        assertThat(me.getId()).isEqualTo(7L);
+        assertThat(me.getUsername()).isEqualTo("alice");
+        assertThat(me.getEmail()).isEqualTo("alice@example.com");
+        assertThat(me.getRoles()).containsExactly("TEACHER");
+        assertThat(me.getPermissions()).containsExactly("teacher:course:manage");
+    }
+
+    /**
+     * Rejects a profile request whose account no longer exists with {@code 40101}.
+     *
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Test
+    void meRejectsMissingAccount() {
+        when(authUserMapper.selectById(7L)).thenReturn(null);
+
+        assertThatThrownBy(() -> authService.me(7L))
+                .isInstanceOfSatisfying(
+                        BizException.class,
+                        ex ->
+                                assertThat(ex.getCode())
+                                        .isEqualTo(ErrorCode.UNAUTHENTICATED.getCode()));
+    }
+
+    /**
+     * Rejects a profile request for a disabled account with {@code 40301}.
+     *
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Test
+    void meRejectsDisabledAccount() {
+        when(authUserMapper.selectById(7L)).thenReturn(account(7L, 0, "hash"));
+
+        assertThatThrownBy(() -> authService.me(7L))
+                .isInstanceOfSatisfying(
+                        BizException.class,
+                        ex -> assertThat(ex.getCode()).isEqualTo(ErrorCode.FORBIDDEN.getCode()));
+    }
+
+    /**
      * Builds a login request.
      *
-     * @param account  login name
+     * @param account login name
      * @param password raw password
      * @return request body
      * @author Caspian
@@ -326,8 +405,8 @@ class AuthServiceImplTest {
     /**
      * Builds an account row.
      *
-     * @param id           user id
-     * @param status       account status
+     * @param id user id
+     * @param status account status
      * @param passwordHash BCrypt hash
      * @return account row
      * @author Caspian
@@ -358,7 +437,7 @@ class AuthServiceImplTest {
          * Stores a session.
          *
          * @param refreshToken raw token used as the map key
-         * @param session      session metadata
+         * @param session session metadata
          * @author Caspian
          * @since 0.1.0
          */
