@@ -261,6 +261,7 @@ node apps/miniapp/scripts/check.mjs
 | 文档 | `bash scripts/check-docs.sh` | 文件名、相对链接、HTML 标签、旧命名 |
 | 提交信息 | `bash scripts/check-commit-msg.sh /tmp/msg` | 英文祈使句、全小写、不超过 60 字符 |
 | 后端 | `./mvnw -B test` | 不含打包 |
+| 后端格式 | `./mvnw spotless:check` | 只校验自 `origin/develop` 起改动过的文件（ratchet），修复用 `spotless:apply` |
 | Web | `pnpm -C apps/web lint` 与 `typecheck` 与 `test` 与 `build` | 与 CI 的 `web-build` 一致 |
 | 运营后台 | `pnpm -C apps/admin lint` 与 `typecheck` 与 `test` 与 `build` | 与 Web 同口径 |
 | 共享包 | `pnpm -C packages/shared lint` 与 `typecheck` 与 `test` | `@lp/shared` 类型与常量 |
