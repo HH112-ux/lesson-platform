@@ -3,9 +3,8 @@ package com.lp.auth.security;
 /**
  * Tokens returned to a client after a successful login.
  *
- * <p>The access token is a signed JWT valid for a short window. The refresh token is an
- * opaque random value whose 7 day whitelist entry in Redis is added by the refresh endpoint
- * milestone; this slice only generates and returns it.</p>
+ * <p>The access token is a signed JWT valid for a short window. The refresh token is an opaque
+ * random value; its hashed Redis entry is written by the caller right after issuance.</p>
  *
  * @author Caspian
  * @since 0.1.0
