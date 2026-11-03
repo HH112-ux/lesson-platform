@@ -7,22 +7,31 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.lp.auth.config.MiniappProperties;
 import com.lp.auth.dto.LoginRequest;
 import com.lp.auth.dto.LoginResponse;
 import com.lp.auth.dto.LogoutRequest;
 import com.lp.auth.dto.MeResponse;
+import com.lp.auth.dto.MiniappLoginRequest;
+import com.lp.auth.dto.MiniappLoginResponse;
 import com.lp.auth.dto.RefreshRequest;
 import com.lp.auth.dto.RefreshResponse;
 import com.lp.auth.dto.RegisterRequest;
 import com.lp.auth.entity.UserAccount;
+import com.lp.auth.entity.UserWechat;
 import com.lp.auth.mapper.AuthUserMapper;
 import com.lp.auth.security.JwtTokenService;
 import com.lp.auth.security.RefreshSession;
 import com.lp.auth.security.RefreshTokenStore;
+import com.lp.auth.security.WechatMiniappClient;
+import com.lp.auth.security.WechatSession;
 import com.lp.common.exception.BizException;
 import com.lp.common.exception.ErrorCode;
+import com.lp.common.identity.IdentityHeaders;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.interfaces.RSAPrivateKey;
@@ -63,9 +72,13 @@ class AuthServiceImplTest {
 
     @Mock private AuthUserMapper authUserMapper;
 
+    @Mock private WechatMiniappClient wechatMiniappClient;
+
     private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
 
     private final InMemoryRefreshTokenStore refreshTokenStore = new InMemoryRefreshTokenStore();
+
+    private MiniappProperties miniappProperties;
 
     private AuthServiceImpl authService;
 
@@ -97,9 +110,16 @@ class AuthServiceImplTest {
                         "auth-service",
                         Duration.ofMinutes(15),
                         Duration.ofDays(7));
+        miniappProperties = new MiniappProperties();
+        miniappProperties.setEnabled(true);
         authService =
                 new AuthServiceImpl(
-                        authUserMapper, tokenService, refreshTokenStore, passwordEncoder);
+                        authUserMapper,
+                        tokenService,
+                        refreshTokenStore,
+                        passwordEncoder,
+                        miniappProperties,
+                        wechatMiniappClient);
     }
 
     /**
@@ -463,6 +483,131 @@ class AuthServiceImplTest {
                 .isInstanceOfSatisfying(
                         BizException.class,
                         ex -> assertThat(ex.getCode()).isEqualTo(ErrorCode.FORBIDDEN.getCode()));
+    }
+
+    /**
+     * Signs an existing openid in without creating another account.
+     *
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Test
+    void miniappLoginSignsInExistingOpenid() {
+        when(wechatMiniappClient.exchange("code-old"))
+                .thenReturn(new WechatSession("openid-old", null, "session-key-old"));
+        UserWechat binding = new UserWechat();
+        binding.setUserId(7L);
+        when(authUserMapper.selectByOpenid("openid-old")).thenReturn(binding);
+        when(authUserMapper.selectById(7L)).thenReturn(account(7L, 1, "hash"));
+        when(authUserMapper.selectRoleCodes(7L)).thenReturn(List.of("STUDENT"));
+        when(authUserMapper.selectPermissionCodes(7L)).thenReturn(List.of());
+
+        MiniappLoginResponse response = authService.miniappLogin(miniappRequest("code-old"));
+
+        assertThat(response.isNewUser()).isFalse();
+        assertThat(response.getUser().getId()).isEqualTo(7L);
+        assertThat(response.getUser().getRoles()).containsExactly("STUDENT");
+        assertThat(response.getAccessToken()).isNotBlank();
+        verify(authUserMapper, never()).insertUser(any(UserAccount.class));
+        verify(authUserMapper, never()).insertWechatBinding(any(UserWechat.class));
+        RefreshSession session = refreshTokenStore.get(response.getRefreshToken());
+        assertThat(session).isNotNull();
+        assertThat(session.getUserId()).isEqualTo(7L);
+        assertThat(session.getSource()).isEqualTo(IdentityHeaders.SOURCE_MINIAPP);
+    }
+
+    /**
+     * Creates a student account, binding and tokens on the first login of an openid.
+     *
+     * @throws Exception when the response cannot be serialized
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Test
+    void miniappLoginCreatesStudentOnFirstLogin() throws Exception {
+        when(wechatMiniappClient.exchange("code-new"))
+                .thenReturn(new WechatSession("openid-new", "union-new", "session-key-new"));
+        when(authUserMapper.selectByOpenid("openid-new")).thenReturn(null);
+        when(authUserMapper.insertUser(any(UserAccount.class))).thenAnswer(assignId(9L));
+        when(authUserMapper.selectRoleIdByCode(AuthServiceImpl.DEFAULT_ROLE_CODE)).thenReturn(5L);
+        when(authUserMapper.selectRoleCodes(9L)).thenReturn(List.of("STUDENT"));
+        when(authUserMapper.selectPermissionCodes(9L)).thenReturn(List.of());
+
+        MiniappLoginResponse response = authService.miniappLogin(miniappRequest("code-new"));
+
+        assertThat(response.isNewUser()).isTrue();
+        assertThat(response.getUser().getRoles()).containsExactly("STUDENT");
+
+        ArgumentCaptor<UserAccount> inserted = ArgumentCaptor.forClass(UserAccount.class);
+        verify(authUserMapper).insertUser(inserted.capture());
+        assertThat(inserted.getValue().getUsername()).startsWith("mp_").hasSize(19);
+        assertThat(inserted.getValue().getPasswordHash()).startsWith("$2");
+        assertThat(inserted.getValue().getNickname()).startsWith("微信用户");
+        verify(authUserMapper).insertUserRole(9L, 5L);
+
+        ArgumentCaptor<UserWechat> bound = ArgumentCaptor.forClass(UserWechat.class);
+        verify(authUserMapper).insertWechatBinding(bound.capture());
+        assertThat(bound.getValue().getUserId()).isEqualTo(9L);
+        assertThat(bound.getValue().getOpenid()).isEqualTo("openid-new");
+        assertThat(bound.getValue().getUnionid()).isEqualTo("union-new");
+        assertThat(bound.getValue().getSessionKey()).isEqualTo("session-key-new");
+
+        String json = new ObjectMapper().writeValueAsString(response);
+        assertThat(json).doesNotContain("sessionKey").doesNotContain("session-key-new");
+    }
+
+    /**
+     * Rejects every call with {@code 66003} while the feature switch is off.
+     *
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Test
+    void miniappLoginRejectsWhenDisabled() {
+        miniappProperties.setEnabled(false);
+
+        assertThatThrownBy(() -> authService.miniappLogin(miniappRequest("code-new")))
+                .isInstanceOfSatisfying(
+                        BizException.class,
+                        ex ->
+                                assertThat(ex.getCode())
+                                        .isEqualTo(ErrorCode.MINIAPP_LOGIN_DISABLED.getCode()));
+        verifyNoInteractions(wechatMiniappClient);
+        verify(authUserMapper, never()).selectByOpenid(any());
+    }
+
+    /**
+     * Passes a WeChat rejection through as {@code 66001} without touching account tables.
+     *
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Test
+    void miniappLoginPropagatesWechatFailure() {
+        when(wechatMiniappClient.exchange("bad-code"))
+                .thenThrow(new BizException(ErrorCode.MINIAPP_LOGIN_BIZ_ERROR));
+
+        assertThatThrownBy(() -> authService.miniappLogin(miniappRequest("bad-code")))
+                .isInstanceOfSatisfying(
+                        BizException.class,
+                        ex ->
+                                assertThat(ex.getCode())
+                                        .isEqualTo(ErrorCode.MINIAPP_LOGIN_BIZ_ERROR.getCode()));
+        verify(authUserMapper, never()).selectByOpenid(any());
+    }
+
+    /**
+     * Builds a miniapp login body.
+     *
+     * @param code one-time login code
+     * @return request body
+     * @author Caspian
+     * @since 0.1.0
+     */
+    private static MiniappLoginRequest miniappRequest(String code) {
+        MiniappLoginRequest request = new MiniappLoginRequest();
+        request.setCode(code);
+        return request;
     }
 
     /**

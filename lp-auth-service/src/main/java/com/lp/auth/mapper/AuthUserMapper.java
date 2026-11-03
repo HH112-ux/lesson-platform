@@ -1,6 +1,7 @@
 package com.lp.auth.mapper;
 
 import com.lp.auth.entity.UserAccount;
+import com.lp.auth.entity.UserWechat;
 import java.util.List;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
@@ -48,6 +49,21 @@ public interface AuthUserMapper {
                     + "avatar_url AS avatarUrl, email, phone, status FROM sys_user "
                     + "WHERE id = #{userId} AND deleted = 0 LIMIT 1")
     UserAccount selectById(@Param("userId") long userId);
+
+    /**
+     * Finds a live WeChat binding by openid.
+     *
+     * <p>A logically deleted binding is ignored so a reused openid can be bound again.
+     *
+     * @param openid WeChat openid resolved from {@code jscode2session}
+     * @return binding row, or {@code null} when absent or deleted
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Select(
+            "SELECT user_id AS userId, openid, unionid, session_key AS sessionKey "
+                    + "FROM sys_user_wechat WHERE openid = #{openid} AND deleted = 0 LIMIT 1")
+    UserWechat selectByOpenid(@Param("openid") String openid);
 
     /**
      * Returns enabled role codes granted to the user.
@@ -125,6 +141,21 @@ public interface AuthUserMapper {
      */
     @Insert("INSERT INTO sys_user_role (user_id, role_id) VALUES (#{userId}, #{roleId})")
     int insertUserRole(@Param("userId") long userId, @Param("roleId") long roleId);
+
+    /**
+     * Binds a WeChat openid to an account.
+     *
+     * <p>The session key is persisted for server-side use only; it is never logged or returned.
+     *
+     * @param binding binding row with user id, openid, unionid and session key
+     * @return number of inserted rows
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Insert(
+            "INSERT INTO sys_user_wechat (user_id, openid, unionid, session_key) "
+                    + "VALUES (#{userId}, #{openid}, #{unionid}, #{sessionKey})")
+    int insertWechatBinding(UserWechat binding);
 
     /**
      * Records the successful login time.

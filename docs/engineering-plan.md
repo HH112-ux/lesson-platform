@@ -978,6 +978,7 @@ erDiagram
 | 65001 | AI 会话不存在或不属于本人 | — |
 | 66001 | 小程序登录凭证无效 | `code` 失效/已被使用/jscode2session 失败 |
 | 66002 | 微信授权信息缺失 | 未授权手机号或拒绝授权，需引导重新授权 |
+| 66003 | 小程序登录未开启 | `lp.auth.miniapp.enabled=false` 时任何 code 请求都被拒绝，明确告知能力未开放 |
 
 **分段规则（与 `AGENTS.md` 第 11.4 节一致）**：`4xxxx` 为客户端/协议类（400 参数、401 凭证、403 权限/归属、404 资源、409 状态、429 限流）；`5xxxx` 为服务端与依赖类（500 未捕获、502 第三方支付渠道、503 AI 模型链路）；`6xxxx` 为业务类，第 2 位表示域（61 课程、62 交易、63 学习、64 互动、65 AI 会话、66 小程序登录）。同一语义只在一个段内定义，禁止跨段重复；新增码按域顺延，不得跳号占用。
 
@@ -988,7 +989,7 @@ erDiagram
 | POST | `/api/v1/auth/register` | 注册学员并直接签发 Token 对（默认授予 `STUDENT`） | `{username,password,nickname,email?,phone?}` | `{accessToken,refreshToken,expiresIn,user:{id,nickname,avatarUrl,roles[]}}` | 40001,40901(账号重复),50001(Redis 不可用) |
 | POST | `/api/v1/auth/login` | 登录签发 Token | `{account,password}` | `{accessToken,refreshToken,expiresIn,user:{id,nickname,avatarUrl,roles[]}}` | 40101,40301(禁用) |
 | POST | `/api/v1/auth/refresh` | 用 refresh token 轮换签发新 Token 对（旧 refresh 立即失效） | `{refreshToken}` | `{accessToken,refreshToken,expiresIn}` | 40101,40102,40301(禁用),50001(Redis 不可用) |
-| POST | `/api/v1/auth/miniapp-login` | 小程序登录（`wx.login` 的 code 换会话） | `{code}` | `{accessToken,refreshToken,expiresIn,isNewUser,user:{id,nickname,avatarUrl,roles[]}}` | 40001,66001 |
+| POST | `/api/v1/auth/miniapp-login` | 小程序登录（`wx.login` 的 code 换会话；老 openid 直接登录，新 openid 自动建号并授予 `STUDENT`） | `{code}` | `{accessToken,refreshToken,expiresIn,isNewUser,user:{id,nickname,avatarUrl,roles[]}}` | 40001,66001,66003(开关关闭) |
 | POST | `/api/v1/auth/miniapp/bind-phone` | 小程序授权手机号并绑定（需登录态；手机号与既有账号冲突时返回 `40901` 并提示登录原账号，**不自动合并账号**，15.2 D8） | `{code}`（`getPhoneNumber` 返回的动态令牌） | `{phoneMasked:"138****0000"}` | 40101,66002,40901 |
 | POST | `/api/v1/auth/logout` | 注销并吊销 refresh（幂等，重复调用仍返回成功） | `{refreshToken}` | `{}` | 40001,50001(Redis 不可用) |
 | GET | `/api/v1/auth/me` | 当前用户、角色与权限集合（需 access token；网关据此注入 `X-User-Id`） | — | `{id,username,nickname,avatarUrl,email,phone,roles[],permissions[]}` | 40101,40301(禁用) |
@@ -1165,7 +1166,7 @@ erDiagram
 
 1. 客户端登录 → auth-service 签发 **JWT access（15min）** + **refresh token（7d，Redis 白名单）**。
    - Web：账号密码 / 验证码登录。
-   - 小程序：`wx.login()` 取 `code` → `POST /api/v1/auth/miniapp-login` → auth-service 调微信 `jscode2session`（`appid + secret`，secret 存 Secret）→ 得 `openid` → 按 `sys_user_wechat(uk_app_openid)` 查用户，无则建号 → **签发与 Web 完全相同的 JWT**（不新增第二套鉴权体系）。
+   - 小程序：`wx.login()` 取 `code` → `POST /api/v1/auth/miniapp-login` → auth-service 调微信 `jscode2session`（`appid + secret`，secret 存 Secret）→ 得 `openid` → 按 `sys_user_wechat(uk_openid)` 查用户，无则建号 → **签发与 Web 完全相同的 JWT**（不新增第二套鉴权体系）。
 2. 请求携带 `Authorization: Bearer <access>` → gateway 验签（RS256 公钥）→ 校验 Redis 会话未被吊销。
 3. gateway **剥离**入站所有身份头 → 注入可信头 → 转发；`X-User-Source` 由网关按**入口域名/`X-Client-Platform` 头 + 会话属性**判定，**不采信客户端自报**（小程序请求由网关的 `/mp/**` 路由段统一标记为 `miniapp`）。
 4. 下游服务只读可信头，不信任 body/path 中的用户 ID；教师归属、订单归属、会话归属一律用头里的 `X-User-Id` 反查。
@@ -2071,7 +2072,7 @@ DoD：学伴无法回答率 ≤ 30%、找课点击率 +10%、售后 FAQ 命中�
 | 业务-学习 | 63001 | 进度越界 |
 | 业务-内容 | 64001–64002 | 违规/举报目标 |
 | 业务-AI | 65001 | 会话不存在 |
-| 业务-多端 | 66001–66002 | **66001 小程序登录凭证无效**、**66002 微信授权信息缺失** |
+| 业务-多端 | 66001–66003 | **66001 小程序登录凭证无效**、**66002 微信授权信息缺失**、**66003 小程序登录未开启** |
 
 # 附录 B 表清单速查
 

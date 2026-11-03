@@ -1,24 +1,36 @@
 package com.lp.auth.service.impl;
 
+import com.lp.auth.config.MiniappProperties;
 import com.lp.auth.dto.LoginRequest;
 import com.lp.auth.dto.LoginResponse;
 import com.lp.auth.dto.LoginUser;
 import com.lp.auth.dto.LogoutRequest;
 import com.lp.auth.dto.MeResponse;
+import com.lp.auth.dto.MiniappLoginRequest;
+import com.lp.auth.dto.MiniappLoginResponse;
 import com.lp.auth.dto.RefreshRequest;
 import com.lp.auth.dto.RefreshResponse;
 import com.lp.auth.dto.RegisterRequest;
 import com.lp.auth.entity.UserAccount;
+import com.lp.auth.entity.UserWechat;
 import com.lp.auth.mapper.AuthUserMapper;
 import com.lp.auth.security.AuthTokens;
 import com.lp.auth.security.JwtTokenService;
 import com.lp.auth.security.RefreshSession;
 import com.lp.auth.security.RefreshTokenStore;
+import com.lp.auth.security.WechatMiniappClient;
+import com.lp.auth.security.WechatSession;
 import com.lp.auth.service.AuthService;
 import com.lp.common.exception.BizException;
 import com.lp.common.exception.ErrorCode;
+import com.lp.common.identity.IdentityHeaders;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
+import java.util.HexFormat;
 import java.util.List;
+import java.util.UUID;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -53,6 +65,10 @@ public class AuthServiceImpl implements AuthService {
 
     private final PasswordEncoder passwordEncoder;
 
+    private final MiniappProperties miniappProperties;
+
+    private final WechatMiniappClient wechatMiniappClient;
+
     /**
      * Creates the service with its collaborators.
      *
@@ -60,6 +76,8 @@ public class AuthServiceImpl implements AuthService {
      * @param jwtTokenService token issuer
      * @param refreshTokenStore refresh session whitelist
      * @param passwordEncoder BCrypt verifier
+     * @param miniappProperties miniapp feature switch and credentials
+     * @param wechatMiniappClient miniapp code exchange client
      * @author Caspian
      * @since 0.1.0
      */
@@ -67,11 +85,15 @@ public class AuthServiceImpl implements AuthService {
             AuthUserMapper authUserMapper,
             JwtTokenService jwtTokenService,
             RefreshTokenStore refreshTokenStore,
-            PasswordEncoder passwordEncoder) {
+            PasswordEncoder passwordEncoder,
+            MiniappProperties miniappProperties,
+            WechatMiniappClient wechatMiniappClient) {
         this.authUserMapper = authUserMapper;
         this.jwtTokenService = jwtTokenService;
         this.refreshTokenStore = refreshTokenStore;
         this.passwordEncoder = passwordEncoder;
+        this.miniappProperties = miniappProperties;
+        this.wechatMiniappClient = wechatMiniappClient;
     }
 
     /**
@@ -172,6 +194,54 @@ public class AuthServiceImpl implements AuthService {
     }
 
     /**
+     * Exchanges a miniapp code for a token pair, creating a student account on first login.
+     *
+     * <p>The switch is checked before any upstream call, so a deployment without an AppSecret
+     * answers {@code 66003} instead of failing inside WeChat. A known openid signs in the existing
+     * account; an unknown one creates an account whose login name is derived from the openid hash,
+     * grants {@code STUDENT} and stores the binding in the same transaction. The refresh session
+     * always records {@code miniapp} as its source, and the WeChat session key stays server side.
+     *
+     * @param request validated miniapp login body
+     * @return tokens, the new-user flag and the user summary
+     * @throws BizException {@code 66003} when the feature is disabled, {@code 66001} when WeChat
+     *     rejects the code, {@code 40101} when a bound account disappeared, {@code 40301} when the
+     *     bound account is disabled, {@code 50001} when the default role or the refresh store is
+     *     unavailable
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Override
+    @Transactional
+    public MiniappLoginResponse miniappLogin(MiniappLoginRequest request) {
+        if (!miniappProperties.isEnabled()) {
+            throw new BizException(ErrorCode.MINIAPP_LOGIN_DISABLED);
+        }
+
+        WechatSession session = wechatMiniappClient.exchange(request.getCode());
+        UserWechat binding = authUserMapper.selectByOpenid(session.getOpenid());
+        if (binding != null) {
+            UserAccount account = authUserMapper.selectById(binding.getUserId());
+            if (account == null) {
+                throw new BizException(ErrorCode.UNAUTHENTICATED);
+            }
+            if (account.getStatus() == null || account.getStatus() != STATUS_ACTIVE) {
+                throw new BizException(ErrorCode.FORBIDDEN, "account disabled");
+            }
+            return issueMiniappTokens(account, false);
+        }
+
+        UserAccount account = createMiniappAccount(session);
+        UserWechat newBinding = new UserWechat();
+        newBinding.setUserId(account.getId());
+        newBinding.setOpenid(session.getOpenid());
+        newBinding.setUnionid(session.getUnionid());
+        newBinding.setSessionKey(session.getSessionKey());
+        authUserMapper.insertWechatBinding(newBinding);
+        return issueMiniappTokens(account, true);
+    }
+
+    /**
      * Rotates the presented refresh token into a new token pair.
      *
      * @param request the refresh token to consume
@@ -248,6 +318,95 @@ public class AuthServiceImpl implements AuthService {
                 account.getPhone(),
                 authUserMapper.selectRoleCodes(userId),
                 authUserMapper.selectPermissionCodes(userId));
+    }
+
+    /**
+     * Creates an account for a first-time openid and grants the default role.
+     *
+     * <p>The account has no usable password: it receives a BCrypt hash of a random value that is
+     * discarded, so password login is impossible while the column stays non-null.
+     *
+     * @param session resolved WeChat identity
+     * @return inserted account with its generated id and nickname
+     * @throws BizException {@code 50001} when the default role is missing
+     * @author Caspian
+     * @since 0.1.0
+     */
+    private UserAccount createMiniappAccount(WechatSession session) {
+        UserAccount account = new UserAccount();
+        account.setUsername(miniappUsername(session.getOpenid()));
+        account.setPasswordHash(passwordEncoder.encode(UUID.randomUUID().toString()));
+        account.setNickname(miniappNickname(session.getOpenid()));
+        authUserMapper.insertUser(account);
+
+        long userId = account.getId();
+        Long roleId = authUserMapper.selectRoleIdByCode(DEFAULT_ROLE_CODE);
+        if (roleId == null) {
+            throw new BizException(ErrorCode.INTERNAL_ERROR, "default role is not configured");
+        }
+        authUserMapper.insertUserRole(userId, roleId);
+        return account;
+    }
+
+    /**
+     * Issues a token pair for a miniapp account and records the refresh session.
+     *
+     * @param account bound account
+     * @param newUser whether this call created the account
+     * @return response carrying tokens, the new-user flag and the user summary
+     * @throws BizException {@code 50001} when the refresh store is unreachable
+     * @author Caspian
+     * @since 0.1.0
+     */
+    private MiniappLoginResponse issueMiniappTokens(UserAccount account, boolean newUser) {
+        List<String> roles = authUserMapper.selectRoleCodes(account.getId());
+        List<String> permissions = authUserMapper.selectPermissionCodes(account.getId());
+        authUserMapper.touchLastLogin(account.getId());
+        AuthTokens tokens = jwtTokenService.issue(account.getId(), roles, permissions);
+        refreshTokenStore.store(
+                tokens.getRefreshToken(),
+                new RefreshSession(account.getId(), Instant.now(), IdentityHeaders.SOURCE_MINIAPP));
+        LoginUser user =
+                new LoginUser(
+                        account.getId(), account.getNickname(), account.getAvatarUrl(), roles);
+        return new MiniappLoginResponse(
+                tokens.getAccessToken(),
+                tokens.getRefreshToken(),
+                tokens.getExpiresInSeconds(),
+                newUser,
+                user);
+    }
+
+    /**
+     * Derives a stable login name from the openid without exposing it.
+     *
+     * @param openid WeChat openid
+     * @return {@code mp_} plus 16 hex characters of the SHA-256 digest
+     * @author Caspian
+     * @since 0.1.0
+     */
+    private static String miniappUsername(String openid) {
+        try {
+            byte[] digest =
+                    MessageDigest.getInstance("SHA-256")
+                            .digest(openid.getBytes(StandardCharsets.UTF_8));
+            return "mp_" + HexFormat.of().formatHex(digest, 0, 8);
+        } catch (NoSuchAlgorithmException ex) {
+            throw new IllegalStateException("SHA-256 is required", ex);
+        }
+    }
+
+    /**
+     * Builds a friendly default nickname from the openid suffix.
+     *
+     * @param openid WeChat openid
+     * @return nickname no longer than 32 characters
+     * @author Caspian
+     * @since 0.1.0
+     */
+    private static String miniappNickname(String openid) {
+        String suffix = openid.length() <= 4 ? openid : openid.substring(openid.length() - 4);
+        return "微信用户" + suffix;
     }
 
     /**

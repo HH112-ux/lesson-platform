@@ -15,14 +15,14 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 /**
  * Wires password hashing and token issuance beans.
  *
- * <p>Startup fails when the private key path is blank or unreadable, so a service that cannot
- * sign tokens never accepts traffic.</p>
+ * <p>Startup fails when the private key path is blank or unreadable, so a service that cannot sign
+ * tokens never accepts traffic.
  *
  * @author Caspian
  * @since 0.1.0
  */
 @Configuration
-@EnableConfigurationProperties(JwtProperties.class)
+@EnableConfigurationProperties({JwtProperties.class, MiniappProperties.class})
 public class AuthConfiguration {
 
     /**
@@ -56,7 +56,9 @@ public class AuthConfiguration {
         if (!(key instanceof RSAPrivateKey rsaPrivateKey)) {
             throw new IllegalStateException("lp.auth.jwt.private-key-path must be an RSA key");
         }
-        return new JwtTokenService(rsaPrivateKey, properties.getIssuer(),
+        return new JwtTokenService(
+                rsaPrivateKey,
+                properties.getIssuer(),
                 Duration.ofSeconds(properties.getAccessTokenTtlSeconds()),
                 Duration.ofSeconds(properties.getRefreshTokenTtlSeconds()));
     }

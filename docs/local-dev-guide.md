@@ -185,9 +185,36 @@ curl -s -X POST http://localhost:8080/api/v1/auth/logout \
 curl -s http://localhost:8080/api/v1/courses
 ```
 
-- 账号需先写入 `lp_ums.sys_user`（密码为 BCrypt 哈希）；M1 当前已实现登录、刷新与退出，注册、找回密码与第三方登录在后续切片。
+- 账号需先写入 `lp_ums.sys_user`（密码为 BCrypt 哈希）；M1 当前已实现注册、登录、刷新、退出与小程序 code 登录（默认关闭），找回密码与更多第三方登录在后续切片。
 - 登录、刷新与退出依赖 Redis：key 为 `lp:auth:refresh:{sha256(token)}`，TTL 与 refresh 有效期一致（7 天），不落明文 token；Redis 不可用返回 `50001`，不会放行未校验的 token。
 - `lp.auth.jwt.private-key-path` 或 `lp.identity.jwt.public-key-path` 为空时服务启动失败，属于预期的保护行为。
+
+### 4.2 小程序 code 登录（M1，默认关闭）
+
+开关关闭时 `POST /api/v1/auth/miniapp-login` 一律返回 `66003`，不需要任何微信配置即可安全启动。
+
+```bash
+# 有 AppSecret 时：secret 只经环境变量下发，禁止写入 application.yml 或仓库
+export LP_MINIAPP_APP_ID="<小程序 AppID>"
+export LP_MINIAPP_APP_SECRET="<小程序 AppSecret>"
+export LP_MINIAPP_LOGIN_ENABLED=true
+export LP_MINIAPP_LOGIN_MOCK_ENABLED=false
+```
+
+```bash
+# 无 AppSecret 的本地联调：用 mock 客户端，同一 code 始终映射同一 openid
+export LP_MINIAPP_LOGIN_ENABLED=true
+export LP_MINIAPP_LOGIN_MOCK_ENABLED=true
+./mvnw -q -pl lp-auth-service spring-boot:run
+
+# 首次登录 isNewUser=true，重复登录同一 code 时 isNewUser=false
+curl -s -X POST http://localhost:8080/api/v1/auth/miniapp-login \
+  -H 'Content-Type: application/json' -d '{"code":"local-code"}'
+```
+
+- 配置项：`lp.auth.miniapp.enabled`（默认 `false`）、`mock-enabled`（默认 `false`）、`app-id`（占位符 `${LP_MINIAPP_APP_ID}`）、`app-secret`（占位符 `${LP_MINIAPP_APP_SECRET}`）。
+- `session_key` 只落库供服务端使用，不写日志、不回传；`mock-enabled` 禁止用于 staging/prod。
+- 真实 `jscode2session` 联调待 AppSecret 到位后进行。
 
 ## 5. Web 前端
 
