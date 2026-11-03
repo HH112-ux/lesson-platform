@@ -11,7 +11,8 @@ msg_file="${1:-}"
 [ -z "$msg_file" ] && { echo "FAIL missing commit message file argument"; exit 1; }
 [ -f "$msg_file" ] || { echo "FAIL commit message file not found: $msg_file"; exit 1; }
 
-subject="$(head -n 1 "$msg_file" | sed -E 's/^\s+|\s+$//g')"
+# POSIX character classes keep BSD sed (macOS) and GNU sed (CI) identical; \s is not portable.
+subject="$(head -n 1 "$msg_file" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
 [ -z "$subject" ] && { echo "FAIL empty first line in commit message"; exit 1; }
 
 # Merge commits are produced by git itself, never by a person or an agent.
