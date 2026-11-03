@@ -149,6 +149,35 @@ curl http://localhost:8080/actuator/health
 - 七个下游服务已在 8101–8107 提供 `/actuator/health`，但业务接口尚未实现；访问对应业务路由返回 404 属预期，不影响本地起停验证。
 - 端口被占用时用 `lsof -i :8080` 定位后释放。
 
+### 4.1 认证密钥与登录链路（M1）
+
+```bash
+# 生成 RS256 密钥对，写入 infra/jwt（已被 .gitignore 忽略，禁止提交）
+bash scripts/gen-jwt-keys.sh
+
+# 认证服务与网关读取同一对密钥，按脚本输出的 export 行配置
+export LP_JWT_PRIVATE_KEY_PATH="$PWD/infra/jwt/jwt-private.pem"
+export LP_JWT_PUBLIC_KEY_PATH="$PWD/infra/jwt/jwt-public.pem"
+
+# 认证服务（8101）与网关（8080）各起一个终端
+./mvnw -q -pl lp-auth-service spring-boot:run
+./mvnw -q -pl lp-gateway spring-boot:run
+```
+
+登录与鉴权验证：
+
+```bash
+curl -s -X POST http://localhost:8080/api/v1/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"account":"alice","password":"secret123"}'
+
+# 受保护路径缺少 token 返回 40101，token 过期返回 40102
+curl -s http://localhost:8080/api/v1/courses
+```
+
+- 账号需先写入 `lp_ums.sys_user`（密码为 BCrypt 哈希）；M1 第一个里程碑只做登录，不含注册、找回密码与第三方登录。
+- `lp.auth.jwt.private-key-path` 或 `lp.identity.jwt.public-key-path` 为空时服务启动失败，属于预期的保护行为。
+
 ## 5. Web 前端
 
 ```bash
