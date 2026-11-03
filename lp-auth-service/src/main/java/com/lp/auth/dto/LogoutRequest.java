@@ -5,8 +5,8 @@ import jakarta.validation.constraints.NotBlank;
 /**
  * Request body of {@code POST /api/v1/auth/logout}.
  *
- * <p>The refresh token is the credential, so logout works even after the access token expired.
- * The endpoint is idempotent: revoking an unknown or already revoked token still succeeds.</p>
+ * <p>The refresh token is the credential, so logout works even after the access token expired. The
+ * endpoint is idempotent: revoking an unknown or already revoked token still succeeds.
  *
  * @author Caspian
  * @since 0.1.0
