@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# MySQL smoke check: container state, host port reachability, and the six business databases.
+# MySQL smoke check: container state, host port reachability, and the seven business databases.
 set -uo pipefail
 
 # shellcheck source=common.sh
@@ -19,20 +19,20 @@ if ! port_open 127.0.0.1 "$port"; then
 fi
 
 if ! command -v mysql >/dev/null 2>&1; then
-  say_fail "$name" "mysql client not found in PATH; cannot verify the six databases"
+  say_fail "$name" "mysql client not found in PATH; cannot verify the seven databases"
   exit 1
 fi
 
-output="$(MYSQL_PWD="$password" mysql --connect-timeout=5 -h127.0.0.1 -P"$port" -u"$user" -N -B -e "SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name IN ('lp_ums','lp_cms','lp_oms','lp_lms','lp_ugc','lp_ai');" 2>&1)"
+output="$(MYSQL_PWD="$password" mysql --connect-timeout=5 -h127.0.0.1 -P"$port" -u"$user" -N -B -e "SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name IN ('lp_ums','lp_cms','lp_oms','lp_lms','lp_ugc','lp_ai','lp_ops');" 2>&1)"
 status=$?
 if [ "$status" -ne 0 ]; then
   say_fail "$name" "cannot connect as ${user} to 127.0.0.1:${port}: ${output}"
   exit 1
 fi
 
-if [ "$output" -ne 6 ]; then
-  say_fail "$name" "expected 6 business databases, found ${output}; run infra/mysql/init/00-create-databases.sql"
+if [ "$output" -ne 7 ]; then
+  say_fail "$name" "expected 7 business databases, found ${output}; run infra/mysql/init/00-create-databases.sql"
   exit 1
 fi
 
-say_pass "$name" "127.0.0.1:${port} reachable, login ok, 6 business databases present"
+say_pass "$name" "127.0.0.1:${port} reachable, login ok, 7 business databases present"
