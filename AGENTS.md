@@ -149,7 +149,7 @@ git remote -v
 
 - `type` 白名单（不得自创）：`feat`、`fix`、`docs`、`style`、`refactor`、`perf`、`test`、`chore`、`revert`。CI 与构建统一用 `chore`。
 - `scope`：见第五节的模块清单；无法归类时省略，写作 `feat: xxx`。
-- `subject`：**英文**、祈使句动词原形、全小写、≤ 50 字符、结尾不加句号、不得与 scope 重复、不得重复 type 动词。
+- `subject`：**英文**、祈使句动词原形、全小写、≤ 60 字符、结尾不加句号、不得与 scope 重复、不得重复 type 动词。
 - `body`：写"为什么"而不是"改了什么"，每行 ≤ 72 字符。
 - `footer`：破坏性变更写 `BREAKING CHANGE: <说明>`，header 的 type 后加 `!`；关联工单写 `Closes #123`（必须落在 footer）。
 
@@ -203,7 +203,7 @@ chore(deps): upgrade wechatpay-java to 0.2.12
 
 ## 八、PR 评审、合并与发布版本
 
-**PR 标题**：与 commit header 同格式（squash 后该标题即进入 `main`）。**标题本身也计入长度约束**：squash 合并时 GitHub 会在标题后追加 ` (#<PR号>)`，因此 PR 标题**建议 ≤ 45 字符**，为后缀留出余量，避免合并后撞 50 字符上限；校验脚本会先剥离该后缀再判定格式与长度。
+**PR 标题**：与 commit header 同格式（squash 后该标题即进入 `main`）。**标题本身也计入长度约束**：squash 合并时 GitHub 会在标题后追加 ` (#<PR号>)`，因此 PR 标题**建议 ≤ 55 字符**，为后缀留出余量，避免合并后撞 60 字符上限；校验脚本会先剥离该后缀再判定格式与长度。
 
 **PR 正文六段（缺一不可）**：变更说明 / 自测情况（命令与结果）/ 关联工单 / 风险点 / 数据库变更说明（是否含迁移、能否回滚）/ 回滚方案。
 

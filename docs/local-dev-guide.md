@@ -194,7 +194,7 @@ node apps/miniapp/scripts/check.mjs
 | 范围 | 命令 | 备注 |
 |---|---|---|
 | 文档 | `bash scripts/check-docs.sh` | 文件名、相对链接、HTML 标签、旧命名 |
-| 提交信息 | `bash scripts/check-commit-msg.sh /tmp/msg` | 英文祈使句、全小写、不超过 50 字符 |
+| 提交信息 | `bash scripts/check-commit-msg.sh /tmp/msg` | 英文祈使句、全小写、不超过 60 字符 |
 | 后端 | `./mvnw -B test` | 不含打包 |
 | Web | `pnpm -C apps/web lint` 与 `typecheck` 与 `test` 与 `build` | 与 CI 的 `web-build` 一致 |
 | 小程序 | `node apps/miniapp/scripts/check.mjs` | 与 CI 的 `miniapp-check` 一致 |
