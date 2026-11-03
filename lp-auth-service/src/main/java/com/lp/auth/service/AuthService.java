@@ -4,6 +4,8 @@ import com.lp.auth.dto.LoginRequest;
 import com.lp.auth.dto.LoginResponse;
 import com.lp.auth.dto.LogoutRequest;
 import com.lp.auth.dto.MeResponse;
+import com.lp.auth.dto.MiniappLoginRequest;
+import com.lp.auth.dto.MiniappLoginResponse;
 import com.lp.auth.dto.RefreshRequest;
 import com.lp.auth.dto.RefreshResponse;
 import com.lp.auth.dto.RegisterRequest;
@@ -37,6 +39,16 @@ public interface AuthService {
      * @since 0.1.0
      */
     LoginResponse register(RegisterRequest request, String source);
+
+    /**
+     * Exchanges a miniapp code for a token pair, creating the account on first login.
+     *
+     * @param request validated miniapp login body
+     * @return tokens, whether the account is new, and the user summary with roles
+     * @author Caspian
+     * @since 0.1.0
+     */
+    MiniappLoginResponse miniappLogin(MiniappLoginRequest request);
 
     /**
      * Rotates a refresh token into a new token pair.

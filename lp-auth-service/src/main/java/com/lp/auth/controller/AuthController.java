@@ -4,6 +4,8 @@ import com.lp.auth.dto.LoginRequest;
 import com.lp.auth.dto.LoginResponse;
 import com.lp.auth.dto.LogoutRequest;
 import com.lp.auth.dto.MeResponse;
+import com.lp.auth.dto.MiniappLoginRequest;
+import com.lp.auth.dto.MiniappLoginResponse;
 import com.lp.auth.dto.RefreshRequest;
 import com.lp.auth.dto.RefreshResponse;
 import com.lp.auth.dto.RegisterRequest;
@@ -64,6 +66,23 @@ public class AuthController {
         return Result.ok(
                 authService.register(request, sourceOf(httpRequest)),
                 TraceIds.resolve(httpRequest));
+    }
+
+    /**
+     * Logs a miniapp user in with a {@code wx.login} code.
+     *
+     * @param request validated miniapp login body
+     * @param httpRequest current request, used for the trace id
+     * @return successful envelope carrying tokens, the new-user flag and the user summary
+     * @throws BizException {@code 66003} when miniapp login is disabled, {@code 66001} when WeChat
+     *     rejects the code
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @PostMapping("/miniapp-login")
+    public Result<MiniappLoginResponse> miniappLogin(
+            @Valid @RequestBody MiniappLoginRequest request, HttpServletRequest httpRequest) {
+        return Result.ok(authService.miniappLogin(request), TraceIds.resolve(httpRequest));
     }
 
     /**
