@@ -1,8 +1,10 @@
 package com.lp.auth;
 
+import com.lp.common.web.GlobalExceptionHandler;
 import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.annotation.Import;
 
 /**
  * Auth domain service entry point on port 8101.
@@ -17,6 +19,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  */
 @SpringBootApplication
 @MapperScan("com.lp.auth.mapper")
+@Import(GlobalExceptionHandler.class)
 public class AuthServiceApplication {
 
     /**
