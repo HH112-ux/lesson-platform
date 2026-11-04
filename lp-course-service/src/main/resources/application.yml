@@ -4,6 +4,16 @@ server:
 spring:
   application:
     name: course-service
+  # The course domain owns lp_cms. Local defaults match infra/docker-compose.yml (host port 3307).
+  datasource:
+    url: ${LP_COURSE_DB_URL:jdbc:mysql://127.0.0.1:3307/lp_cms?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false}
+    username: ${LP_COURSE_DB_USERNAME:lp_app}
+    password: ${LP_COURSE_DB_PASSWORD:lp_app_dev}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 5
+      minimum-idle: 1
+  # Schema history is managed by the flyway CLI (scripts/flyway.sh), not at application startup.
   # Nacos config centre placeholder. The client is not on the classpath yet, so these keys are
   # inert and the service always starts with the local defaults below. Once M1 adds
   # spring-cloud-alibaba-nacos-config, dataId lp-course-service-{env}.yaml (group lp-group)

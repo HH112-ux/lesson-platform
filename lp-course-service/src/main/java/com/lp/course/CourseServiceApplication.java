@@ -1,21 +1,26 @@
 package com.lp.course;
 
+import com.lp.common.web.GlobalExceptionHandler;
+import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.annotation.Import;
 
 /**
  * Course domain service entry point on port 8102.
  *
- * <p>Owns categories, courses, chapters, lessons, publishing and search. Teacher facing
- * operations under {@code /api/v1/teacher/**} also belong to this service because they act on
- * course content. The skeleton exposes health only; runtime configuration comes from Nacos once
- * the config centre client is wired in, and from the local defaults in {@code application.yml}
- * until then.</p>
+ * <p>Owns categories, courses, chapters, lessons, publishing and search. Teacher facing operations
+ * under {@code /api/v1/teacher/**} also belong to this service because they act on course content.
+ * Service-to-service reads live under {@code /internal/v1/**} and bypass the gateway. Runtime
+ * configuration comes from Nacos once the config centre client is wired in, and from the local
+ * defaults in {@code application.yml} until then.
  *
  * @author Caspian
  * @since 0.1.0
  */
 @SpringBootApplication
+@MapperScan("com.lp.course.mapper")
+@Import(GlobalExceptionHandler.class)
 public class CourseServiceApplication {
 
     /**
