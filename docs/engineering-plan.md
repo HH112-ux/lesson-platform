@@ -1012,9 +1012,14 @@ erDiagram
 | GET | `/api/v1/courses/{courseId}/comments` | 评论分页 | query:`pageNum,pageSize` | 分页 `{records:[{id,nickname,avatarUrl,content,likeCount,createdAt,replies[]}]}` | 40401 |
 | POST | `/api/v1/courses/{courseId}/favorite` | 收藏课程 | `{}` | `{favorited:true}` | 40101,40401 |
 | DELETE | `/api/v1/courses/{courseId}/favorite` | 取消收藏 | — | `{favorited:false}` | 40101 |
+| GET | `/internal/v1/courses/{courseId}` | 内部接口，不经网关对外：课程详情（`price` 单位分，含上下架状态与课时数） | — | `{courseId,title,price,status,teacherId,lessonCount}` | 40401 |
+| GET | `/internal/v1/courses` | 内部接口，不经网关对外：批量课程摘要（交易校验与下单取价） | query:`ids`（逗号分隔，必填） | `[{courseId,title,price,status,teacherId,lessonCount}]` | 40001 |
+| GET | `/internal/v1/courses/{courseId}/lessons` | 内部接口，不经网关对外：课时列表（`free` 为试看标记） | — | `[{lessonId,chapterId,title,free,sort}]` | 40401 |
 | POST | `/api/v1/comments` | 发评论 | `{courseId,lessonId?,parentId?,content}` | `{id,status:0}` | 40001,40301(未购),64001 |
 | DELETE | `/api/v1/comments/{commentId}` | 删本人评论（逻辑删） | — | `{deleted:true}` | 40301,40401 |
 | POST | `/api/v1/reports` | 举报 | `{targetType,targetId,reasonType,content}` | `{id}` | 40001,64002 |
+
+**内部接口（不经网关对外）**：`/internal/v1/**` 仅供服务间调用，trade-service 用它校验课程可售与下单取价；网关只路由 `/api/v1/**`，内部接口不得加入网关白名单。`status` 语义固定为 0 草稿 / 1 待审核 / 2 已上架 / 3 已下架，内部接口对已下架课程返回 `status=3` 而不是 `40401`，由调用方判定是否可售。
 
 **CourseCard**：`{id,title,subtitle,coverUrl,price,originalPrice,instructorName,level,salesCount}`。
 
