@@ -2,14 +2,16 @@ package com.lp.course;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.ActiveProfiles;
 
 /**
- * Verifies that the course service context loads without any infrastructure dependency.
+ * Verifies that the course service context loads against an in-memory H2 database.
  *
  * @author Caspian
  * @since 0.1.0
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)
+@ActiveProfiles("test")
 class CourseServiceApplicationTest {
 
     /**
@@ -19,6 +21,5 @@ class CourseServiceApplicationTest {
      * @since 0.1.0
      */
     @Test
-    void contextLoads() {
-    }
+    void contextLoads() {}
 }
