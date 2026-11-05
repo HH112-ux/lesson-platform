@@ -68,4 +68,20 @@ public interface CourseMapper {
                     + "WHERE course_id = #{courseId} AND deleted = 0 AND status = 1 "
                     + "ORDER BY chapter_id, sort, id")
     List<CourseLesson> selectLessons(@Param("courseId") long courseId);
+
+    /**
+     * Finds one playable lesson by id.
+     *
+     * @param lessonId lesson primary key
+     * @return lesson including its video object key and duration, or {@code null} when absent,
+     *     hidden or deleted
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Select(
+            "SELECT id, course_id AS courseId, chapter_id AS chapterId, title, "
+                    + "is_free AS isFree, sort, video_url AS videoUrl, "
+                    + "video_duration_sec AS videoDurationSec FROM course_lesson "
+                    + "WHERE id = #{lessonId} AND deleted = 0 AND status = 1 LIMIT 1")
+    CourseLesson selectPlayableById(@Param("lessonId") long lessonId);
 }

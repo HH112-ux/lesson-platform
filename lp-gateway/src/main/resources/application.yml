@@ -27,7 +27,7 @@ spring:
         - id: learn-service
           uri: ${LP_LEARN_SERVICE_URI:http://localhost:8104}
           predicates:
-            - Path=/api/v1/learn/**,/api/v1/entitlements/**,/api/v1/progress/**,/api/v1/play/**
+            - Path=/api/v1/learning/**,/api/v1/lessons/**
         - id: ugc-service
           uri: ${LP_UGC_SERVICE_URI:http://localhost:8105}
           predicates:
