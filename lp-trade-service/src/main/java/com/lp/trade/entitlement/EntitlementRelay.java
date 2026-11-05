@@ -65,9 +65,7 @@ public class EntitlementRelay {
      * @author Caspian
      * @since 0.1.0
      */
-    @Scheduled(
-            fixedDelayString = "${lp.trade.outbox-relay-delay-ms:5000}",
-            initialDelay = 10000)
+    @Scheduled(fixedDelayString = "${lp.trade.outbox-relay-delay-ms:5000}", initialDelay = 10000)
     public void relay() {
         List<EntitlementOutbox> pending;
         try {
