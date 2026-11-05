@@ -2,11 +2,13 @@ package com.lp.trade.mapper;
 
 import com.lp.trade.entity.TradeOrder;
 import com.lp.trade.entity.TradeOrderItem;
+import java.time.LocalDateTime;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Options;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 
 /**
  * Reads and writes orders in {@code trade_order} and {@code trade_order_item}.
@@ -58,6 +60,51 @@ public interface TradeOrderMapper {
                     + "AND deleted = 0 LIMIT 1")
     TradeOrder selectByUserAndIdempotencyKey(
             @Param("userId") long userId, @Param("idempotencyKey") String idempotencyKey);
+
+    /**
+     * Finds an order by its business number.
+     *
+     * @param orderNo business order number
+     * @return order, or {@code null} when absent
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Select(
+            "SELECT id, order_no AS orderNo, user_id AS userId, "
+                    + "total_amount AS totalAmount, discount_amount AS discountAmount, "
+                    + "pay_amount AS payAmount, status, coupon_id AS couponId, channel, "
+                    + "pay_expire_at AS payExpireAt, paid_at AS paidAt, closed_at AS closedAt, "
+                    + "idempotency_key AS idempotencyKey FROM trade_order "
+                    + "WHERE order_no = #{orderNo} AND deleted = 0 LIMIT 1")
+    TradeOrder selectByOrderNo(@Param("orderNo") String orderNo);
+
+    /**
+     * Marks a pending order as paid.
+     *
+     * @param id order primary key
+     * @param paidAt payment time
+     * @return affected rows, {@code 0} when the order is no longer pending
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Update(
+            "UPDATE trade_order SET status = 1, paid_at = #{paidAt} "
+                    + "WHERE id = #{id} AND status = 0")
+    int markPaid(@Param("id") long id, @Param("paidAt") LocalDateTime paidAt);
+
+    /**
+     * Marks a pending order as closed.
+     *
+     * @param id order primary key
+     * @param closedAt close time
+     * @return affected rows, {@code 0} when the order is no longer pending
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Update(
+            "UPDATE trade_order SET status = 3, closed_at = #{closedAt} "
+                    + "WHERE id = #{id} AND status = 0")
+    int markClosed(@Param("id") long id, @Param("closedAt") LocalDateTime closedAt);
 
     /**
      * Loads the first line of an order.

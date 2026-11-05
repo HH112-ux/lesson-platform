@@ -1,0 +1,238 @@
+package com.lp.trade.service.impl;
+
+import com.lp.common.exception.BizException;
+import com.lp.common.exception.ErrorCode;
+import com.lp.common.identity.IdentityHeaders;
+import com.lp.trade.domain.OrderStatus;
+import com.lp.trade.domain.PaymentChannel;
+import com.lp.trade.domain.PaymentStatus;
+import com.lp.trade.dto.PayView;
+import com.lp.trade.dto.PaymentNotification;
+import com.lp.trade.dto.PrepayResult;
+import com.lp.trade.entitlement.EntitlementService;
+import com.lp.trade.entity.PaymentRecord;
+import com.lp.trade.entity.TradeOrder;
+import com.lp.trade.entity.TradeOrderItem;
+import com.lp.trade.mapper.PaymentMapper;
+import com.lp.trade.mapper.TradeOrderMapper;
+import com.lp.trade.payment.PaymentGateway;
+import com.lp.trade.payment.SignatureVerifier;
+import com.lp.trade.service.PaymentService;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.Map;
+import java.util.concurrent.ThreadLocalRandom;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+/**
+ * Default {@link PaymentService} implementation.
+ *
+ * <p>Payment initiation never fakes a payable payload: while the gateway is unconfigured, prepay
+ * fails with {@code 50205}. Callback handling is transactional and guarded twice, first by the
+ * unique channel trade number and then by a conditional status update, so duplicated notifications
+ * grant ownership only once.
+ *
+ * @author Caspian
+ * @since 0.1.0
+ */
+@Service
+public class PaymentServiceImpl implements PaymentService {
+
+    private static final int MAX_PAY_NO_RANDOM = 10000;
+
+    private static final DateTimeFormatter PAY_NO_TIME =
+            DateTimeFormatter.ofPattern("yyyyMMddHHmmssSSS");
+
+    private final TradeOrderMapper tradeOrderMapper;
+
+    private final PaymentMapper paymentMapper;
+
+    private final PaymentGateway paymentGateway;
+
+    private final SignatureVerifier signatureVerifier;
+
+    private final EntitlementService entitlementService;
+
+    /**
+     * Creates the service with its dependencies.
+     *
+     * @param tradeOrderMapper order persistence
+     * @param paymentMapper payment persistence
+     * @param paymentGateway channel prepay port
+     * @param signatureVerifier callback verification port
+     * @param entitlementService ownership port
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public PaymentServiceImpl(
+            TradeOrderMapper tradeOrderMapper,
+            PaymentMapper paymentMapper,
+            PaymentGateway paymentGateway,
+            SignatureVerifier signatureVerifier,
+            EntitlementService entitlementService) {
+        this.tradeOrderMapper = tradeOrderMapper;
+        this.paymentMapper = paymentMapper;
+        this.paymentGateway = paymentGateway;
+        this.signatureVerifier = signatureVerifier;
+        this.entitlementService = entitlementService;
+    }
+
+    /**
+     * Creates or reuses a payment attempt and requests a prepay payload.
+     *
+     * @param userId authenticated buyer id
+     * @param source trusted request source
+     * @param orderNo business order number
+     * @return prepay payload
+     * @throws BizException when the order is missing, not payable, expired, or misconfigured
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Override
+    public PayView initiate(long userId, String source, String orderNo) {
+        int channel = resolveChannel(source);
+        String trimmedOrderNo = requireOrderNo(orderNo);
+        TradeOrder order = tradeOrderMapper.selectByOrderNo(trimmedOrderNo);
+        if (order == null || order.getUserId() == null || order.getUserId() != userId) {
+            throw new BizException(ErrorCode.NOT_FOUND, "order not found");
+        }
+        if (order.getStatus() == OrderStatus.PAID) {
+            throw new BizException(ErrorCode.TRADE_BIZ_ERROR, "order already paid");
+        }
+        if (order.getStatus() != OrderStatus.PENDING) {
+            throw new BizException(ErrorCode.TRADE_BIZ_ERROR, "order is not payable");
+        }
+        if (order.getChannel() != channel) {
+            throw new BizException(ErrorCode.TRADE_CHANNEL_SOURCE_MISMATCH);
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        if (order.getPayExpireAt() != null && now.isAfter(order.getPayExpireAt())) {
+            paymentMapper.closePendingByOrderId(order.getId());
+            tradeOrderMapper.markClosed(order.getId(), now);
+            throw new BizException(ErrorCode.ORDER_EXPIRED);
+        }
+
+        PaymentRecord payment = paymentMapper.selectLatestByOrderId(order.getId());
+        if (payment == null || payment.getStatus() != PaymentStatus.PENDING) {
+            payment = newPayment(order, channel);
+            paymentMapper.insertPayment(payment);
+        }
+        PrepayResult prepay = paymentGateway.prepay(payment);
+        return new PayView(prepay.getPayNo(), prepay.getChannel(), prepay.getPayParams());
+    }
+
+    /**
+     * Verifies and applies one callback exactly once.
+     *
+     * @param channel channel of the callback endpoint
+     * @param headers HTTP headers carrying the channel signature
+     * @param rawBody raw callback body
+     * @param notification parsed callback fields
+     * @throws BizException when verification fails, the channel or amount mismatches, or the order
+     *     is no longer payable
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void handleNotify(
+            int channel,
+            Map<String, String> headers,
+            String rawBody,
+            PaymentNotification notification) {
+        signatureVerifier.verify(channel, headers, rawBody, notification);
+        requireNotification(notification, channel);
+        String tradeNo = notification.getChannelTradeNo().trim();
+        if (paymentMapper.selectByChannelTradeNo(channel, tradeNo) != null) {
+            return;
+        }
+
+        TradeOrder order = tradeOrderMapper.selectByOrderNo(notification.getOrderNo().trim());
+        if (order == null) {
+            throw new BizException(ErrorCode.NOT_FOUND, "order not found");
+        }
+        if (order.getChannel() != channel) {
+            throw new BizException(ErrorCode.PAYMENT_CHANNEL_MISMATCH);
+        }
+        PaymentRecord payment = paymentMapper.selectLatestByOrderId(order.getId());
+        if (payment == null || payment.getChannel() != channel) {
+            throw new BizException(ErrorCode.NOT_FOUND, "payment not found");
+        }
+        if (payment.getAmount().compareTo(notification.getAmount()) != 0) {
+            throw new BizException(ErrorCode.PAYMENT_AMOUNT_MISMATCH);
+        }
+
+        LocalDateTime paidAt = LocalDateTime.now();
+        int updated = paymentMapper.markSuccess(payment.getId(), tradeNo, paidAt);
+        if (updated == 0) {
+            // Another callback already recorded success; ownership was granted there.
+            return;
+        }
+        int orderUpdated = tradeOrderMapper.markPaid(order.getId(), paidAt);
+        if (orderUpdated == 0) {
+            throw new BizException(ErrorCode.TRADE_BIZ_ERROR, "order is not payable");
+        }
+        TradeOrderItem item = tradeOrderMapper.selectFirstItem(order.getId());
+        if (item == null) {
+            throw new BizException(ErrorCode.TRADE_BIZ_ERROR, "order has no item");
+        }
+        entitlementService.grant(order.getUserId(), item.getCourseId(), order.getOrderNo());
+    }
+
+    private PaymentRecord newPayment(TradeOrder order, int channel) {
+        PaymentRecord payment = new PaymentRecord();
+        payment.setOrderId(order.getId());
+        payment.setPayNo(generatePayNo());
+        payment.setChannel(channel);
+        payment.setPayScene(
+                channel == PaymentChannel.ALIPAY
+                        ? PaymentChannel.SCENE_WEB
+                        : PaymentChannel.SCENE_MINIAPP);
+        payment.setAmount(order.getPayAmount());
+        payment.setStatus(PaymentStatus.PENDING);
+        return payment;
+    }
+
+    private void requireNotification(PaymentNotification notification, int channel) {
+        if (notification == null) {
+            throw new BizException(ErrorCode.PARAM_INVALID, "notification is required");
+        }
+        if (notification.getChannel() != channel) {
+            throw new BizException(ErrorCode.PAYMENT_CHANNEL_MISMATCH);
+        }
+        if (notification.getOrderNo() == null || notification.getOrderNo().isBlank()) {
+            throw new BizException(ErrorCode.PARAM_INVALID, "orderNo is required");
+        }
+        if (notification.getChannelTradeNo() == null
+                || notification.getChannelTradeNo().isBlank()) {
+            throw new BizException(ErrorCode.PARAM_INVALID, "channel trade number is required");
+        }
+        if (notification.getAmount() == null) {
+            throw new BizException(ErrorCode.PARAM_INVALID, "amount is required");
+        }
+    }
+
+    private int resolveChannel(String source) {
+        if (IdentityHeaders.SOURCE_WEB.equals(source)) {
+            return PaymentChannel.ALIPAY;
+        }
+        if (IdentityHeaders.SOURCE_MINIAPP.equals(source)) {
+            return PaymentChannel.WXPAY;
+        }
+        throw new BizException(ErrorCode.PARAM_INVALID, "request source must be web or miniapp");
+    }
+
+    private String requireOrderNo(String orderNo) {
+        if (orderNo == null || orderNo.isBlank()) {
+            throw new BizException(ErrorCode.PARAM_INVALID, "orderNo is required");
+        }
+        return orderNo.trim();
+    }
+
+    private String generatePayNo() {
+        int random = ThreadLocalRandom.current().nextInt(MAX_PAY_NO_RANDOM);
+        return "PY" + LocalDateTime.now().format(PAY_NO_TIME) + String.format("%04d", random);
+    }
+}
