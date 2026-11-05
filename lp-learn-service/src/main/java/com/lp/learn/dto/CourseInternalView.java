@@ -17,6 +17,8 @@ public class CourseInternalView {
 
     private String coverUrl;
 
+    private int lessonCount;
+
     /**
      * Returns the course id.
      *
@@ -81,5 +83,27 @@ public class CourseInternalView {
      */
     public void setCoverUrl(String coverUrl) {
         this.coverUrl = coverUrl;
+    }
+
+    /**
+     * Returns the live lesson count of the course.
+     *
+     * @return lesson count
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public int getLessonCount() {
+        return lessonCount;
+    }
+
+    /**
+     * Sets the live lesson count of the course.
+     *
+     * @param lessonCount lesson count
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public void setLessonCount(int lessonCount) {
+        this.lessonCount = lessonCount;
     }
 }

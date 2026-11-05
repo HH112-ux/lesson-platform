@@ -16,19 +16,23 @@ public class CourseSnapshot {
 
     private final String coverUrl;
 
+    private final int lessonCount;
+
     /**
      * Creates one projection.
      *
      * @param courseId course id
      * @param title course title
      * @param coverUrl cover image URL
+     * @param lessonCount live lesson count, used as the progress denominator
      * @author Caspian
      * @since 0.1.0
      */
-    public CourseSnapshot(long courseId, String title, String coverUrl) {
+    public CourseSnapshot(long courseId, String title, String coverUrl, int lessonCount) {
         this.courseId = courseId;
         this.title = title;
         this.coverUrl = coverUrl;
+        this.lessonCount = lessonCount;
     }
 
     /**
@@ -62,5 +66,16 @@ public class CourseSnapshot {
      */
     public String getCoverUrl() {
         return coverUrl;
+    }
+
+    /**
+     * Returns the live lesson count of the course.
+     *
+     * @return lesson count, {@code 0} when the course has no visible lesson
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public int getLessonCount() {
+        return lessonCount;
     }
 }

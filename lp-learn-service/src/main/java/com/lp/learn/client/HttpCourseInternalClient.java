@@ -90,7 +90,8 @@ public class HttpCourseInternalClient implements CourseInternalClient {
                                     new CourseSnapshot(
                                             view.getCourseId(),
                                             view.getTitle(),
-                                            view.getCoverUrl()))
+                                            view.getCoverUrl(),
+                                            view.getLessonCount()))
                     .toList();
         } catch (RestClientException exception) {
             throw new BizException(ErrorCode.CHANNEL_UPSTREAM_ERROR);
