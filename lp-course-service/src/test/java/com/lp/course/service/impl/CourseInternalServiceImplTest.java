@@ -48,6 +48,7 @@ class CourseInternalServiceImplTest {
 
         assertEquals(7L, view.getCourseId());
         assertEquals("Course 7", view.getTitle());
+        assertEquals("cover-7", view.getCoverUrl());
         assertEquals(9900L, view.getPrice());
         assertEquals(2, view.getStatus());
         assertEquals(3L, view.getTeacherId());
@@ -128,6 +129,7 @@ class CourseInternalServiceImplTest {
         Course course = new Course();
         course.setId(courseId);
         course.setTitle("Course " + courseId);
+        course.setCoverUrl("cover-" + courseId);
         course.setPrice(new BigDecimal(price));
         course.setStatus(status);
         course.setOwnerTeacherId(teacherId);

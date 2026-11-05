@@ -29,7 +29,8 @@ public interface CourseMapper {
      * @since 0.1.0
      */
     @Select(
-            "SELECT c.id, c.title, c.price, c.status, c.owner_teacher_id AS ownerTeacherId, "
+            "SELECT c.id, c.title, c.cover_url AS coverUrl, c.price, c.status, "
+                    + "c.owner_teacher_id AS ownerTeacherId, "
                     + "(SELECT COUNT(*) FROM course_lesson l "
                     + "WHERE l.course_id = c.id AND l.deleted = 0) AS lessonCount "
                     + "FROM course c WHERE c.id = #{courseId} AND c.deleted = 0 LIMIT 1")
@@ -44,7 +45,7 @@ public interface CourseMapper {
      * @since 0.1.0
      */
     @Select(
-            "<script>SELECT c.id, c.title, c.price, c.status, "
+            "<script>SELECT c.id, c.title, c.cover_url AS coverUrl, c.price, c.status, "
                     + "c.owner_teacher_id AS ownerTeacherId, "
                     + "(SELECT COUNT(*) FROM course_lesson l "
                     + "WHERE l.course_id = c.id AND l.deleted = 0) AS lessonCount "

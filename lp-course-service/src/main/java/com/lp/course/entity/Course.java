@@ -18,6 +18,8 @@ public class Course {
 
     private String title;
 
+    private String coverUrl;
+
     private BigDecimal price;
 
     private Integer status;
@@ -68,6 +70,28 @@ public class Course {
      */
     public void setTitle(String title) {
         this.title = title;
+    }
+
+    /**
+     * Returns the cover image URL.
+     *
+     * @return cover URL
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public String getCoverUrl() {
+        return coverUrl;
+    }
+
+    /**
+     * Sets the cover image URL.
+     *
+     * @param coverUrl cover URL
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public void setCoverUrl(String coverUrl) {
+        this.coverUrl = coverUrl;
     }
 
     /**

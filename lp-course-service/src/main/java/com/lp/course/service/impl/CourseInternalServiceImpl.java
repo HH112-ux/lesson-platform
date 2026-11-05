@@ -92,6 +92,7 @@ public class CourseInternalServiceImpl implements CourseInternalService {
         return new CourseInternalView(
                 course.getId(),
                 course.getTitle(),
+                course.getCoverUrl(),
                 course.getPrice().movePointRight(2).longValueExact(),
                 course.getStatus(),
                 course.getOwnerTeacherId(),
