@@ -170,6 +170,8 @@ stateDiagram-v2
     已退款 --> [*]: 权益失效；优惠券不退回（15.2 D6）
 ```
 
+> **0 元订单**：`pay_amount=0`（0 元课程或券后应付为 0）时，订单在创建时直接进入已支付并发放权益，不进入支付渠道，`pay_expire_at` 为空。
+
 **支付单状态**（`payment_record.status`）：`0 待支付 / 1 成功 / 2 已关闭 / 3 已退款 / 4 退款中 / 5 退款失败`。
 
 **退款单状态**（`refund_request.status`）：`0 待审核 / 1 审核通过（调渠道中）/ 2 已退款 / 3 驳回 / 4 退款失败`。
@@ -508,7 +510,7 @@ erDiagram
 | subtitle | VARCHAR(200) | NULL | 副标题/卖点 |
 | cover_url | VARCHAR(255) | NOT NULL | 封面 |
 | description | TEXT | NULL | 详情正文 |
-| price | DECIMAL(10,2) | NOT NULL DEFAULT 0 | 售价（运营定价，教师不可改）；首版约束 `price>0`，0 元课程不支持下单，免费内容由运营直接发放权益（15.2 D9） |
+| price | DECIMAL(10,2) | NOT NULL DEFAULT 0 | 售价（运营定价，教师不可改）；0 元课程允许下单，`pay_amount=0` 时订单即时完成并发放权益，不走支付（2026-11-05 变更，覆盖 D9 原暂定结论） |
 | original_price | DECIMAL(10,2) | NULL | 划线价 |
 | instructor_id | BIGINT UNSIGNED | NOT NULL | 主讲 `teacher_profile.id`（通常 = owner_teacher_id） |
 | level | TINYINT | NOT NULL DEFAULT 1 | 1 入门/2 进阶/3 高级 |
@@ -646,8 +648,10 @@ erDiagram
 | status | TINYINT | NOT NULL DEFAULT 0 | 0 待支付/1 已支付/2 已取消/3 已关闭/4 退款中/5 已退款 |
 | coupon_id | BIGINT UNSIGNED | NULL | 使用的券 |
 | channel | TINYINT | NOT NULL | 渠道由来源端固定：1 支付宝（Web）/2 微信（小程序），下单时写入且不可变更（07 §6.6） |
-| pay_expire_at | DATETIME(3) | NOT NULL | 支付截止（下单后 30 分钟，15.2 D11），超时由 job-worker 定时关单 |
-| paid_at | DATETIME(3) | NULL | — |
+| pay_expire_at | DATETIME(3) | NULL | 支付截止（下单后 30 分钟，15.2 D11），超时由 job-worker 定时关单；0 元订单即时完成，该列为空 |
+| paid_at | DATETIME(3) | NULL | 支付时间 |
+| closed_at | DATETIME(3) | NULL | 关闭时间（取消或超时关单） |
+| idempotency_key | VARCHAR(64) | NOT NULL | 客户端幂等键；唯一 `uk_idempotency(user_id, idempotency_key)` |
 | cancel_reason | VARCHAR(200) | NULL | — |
 | 公共字段 | — | — | — |
 
@@ -899,7 +903,7 @@ erDiagram
 
 | 场景 | 方案 |
 |---|---|
-| 下单 | 单库事务：校验券 → 建 trade_order + trade_order_item（含 `owner_teacher_id` 冗余）→ 锁券（`user_coupon` 条件更新）→ 删购物车 |
+| 下单 | 单库事务：校验课程可售与已购 → 校验券 → 建 trade_order + trade_order_item → 锁券（`user_coupon` 条件更新）；删购物车随购物车接口后续补齐 |
 | 支付回调 | 以 `uk_pay_no` + `uk_channel_trade(channel, channel_trade_no)` 双唯一约束保证幂等；事务内更新 `payment_record` → `trade_order` → 写权益 → 发 MQ（事务消息或本地消息表）；重复回调直接返回渠道要求的成功应答 |
 | 发放权益 | 消费 MQ 幂等：`uk_user_course` 唯一约束 + 重复消费直接忽略 |
 | 退款 | 准入校验（付款后 7 天内且学习进度 ≤ 20%，15.2 D6）→ 审核通过 → 按 `payment_record.channel` 调对应渠道退款（仅全额）→ 成功后置订单 `已退款` + `payment_record.status=3` + 权益失效（优惠券不退回，视为已使用）；渠道失败置 `refund_request.status=4` 并告警人工介入 |
@@ -971,7 +975,7 @@ erDiagram
 | 62005 | 支付渠道与来源端不匹配 | 小程序请求支付宝 / Web 请求微信 JSAPI |
 | 62006 | 订单已有进行中的支付单 | 重新发起支付前未关闭原支付单（关闭后仅限原渠道重付，15.2 D11 不涉及跨渠道） |
 | 62007 | 退款准入不满足 | 超过付款后 7 天或学习进度 > 20%（15.2 D6） |
-| 62008 | 0 元课程不支持下单 | 课程 `price=0`，免费内容由运营发放权益（15.2 D9） |
+| 62008 | ~~0 元课程不支持下单~~ | 已废弃：0 元课程允许下单并即时完成（2026-11-05 变更） |
 | 63001 | 学习进度越界 | 超出视频时长 |
 | 64001 | 内容含违规信息 | 本地关键词兜底 |
 | 64002 | 举报目标不存在 | — |
@@ -1033,7 +1037,7 @@ erDiagram
 | GET | `/api/v1/coupons/available` | 可用券 | query:`amount` | `[{id,name,type,threshold,value}]` | — |
 | POST | `/api/v1/coupons/{couponId}/receive` | 领券 | `{}` | `{received:true}` | 40901(重复领),62003 |
 | GET | `/api/v1/coupons/mine` | 我的券 | query:`status` | `[{id,couponId,name,status,expireAt}]` | 40101 |
-| POST | `/api/v1/orders` | 创建订单（幂等） | `{courseIds[],couponId?}` + `Idempotency-Key`；`channel` 由服务端按 `X-User-Source` 固定（web→alipay，miniapp→wxpay），不接受前端传参 | `{orderId,orderNo,payAmount,payExpireAt,channel}` | 40001,61001,61002,62003,62005,62008 |
+| POST | `/api/v1/orders` | 创建订单（幂等） | `{courseId,idempotencyKey,couponId?}`；`idempotencyKey` ≤ 64 字符；`channel` 由服务端按 `X-User-Source` 固定（web→alipay，miniapp→wxpay），不接受前端传参 | `{orderNo,status,channel,totalAmount,discountAmount,payAmount,courseId,payExpireAt,paidAt}` | 40001,40401,61002,62003 |
 | GET | `/api/v1/orders` | 我的订单 | query:`status,pageNum,pageSize` | 分页 `{records:[{orderId,orderNo,payAmount,channel,status,createdAt,items[]}]}` | 40101 |
 | GET | `/api/v1/orders/{orderId}` | 订单详情 | — | `{orderId,orderNo,totalAmount,discountAmount,payAmount,channel,status,payExpireAt,items:[{courseId,title,price}]}` | 40301,40401 |
 | POST | `/api/v1/orders/{orderId}/cancel` | 取消（同时关闭进行中的支付单） | `{reason?}` | `{status:2}` | 40301,62001 |
@@ -1046,6 +1050,8 @@ erDiagram
 | POST | `/api/v1/reconcile/{reconcileId}/recheck` | 重跑对账（运营/管理员） | `{}` | `{status,diffCount,diffAmount}` | 40301,40401,50204 |
 
 > **购物车规则**：课程类商品数量固定为 1，`cart_item` 不设数量字段；同用户同课程唯一（`uk_user_course`），重复加购与并发加购都幂等；已购课程加购返回 `61002`，已下架课程返回 `62003`，课程不存在返回 `40401`；删除不存在的条目同样返回成功。
+
+> **下单规则**：首版一次下单仅一门课程；同一用户同一 `idempotencyKey` 重放返回原订单，`uk_idempotency` 兜底并发；已购返回 `61002`，课程不存在 `40401`，已下架或券不可用 `62003`；优惠券在订单金额上一次性核销（`user_coupon` 条件更新 `status=0`），核销失败回滚整单；`pay_amount=0` 时订单创建即完成并发放权益，不进入支付渠道。
 
 > **两套回调的幂等与应答差异**：支付宝要求返回纯文本 `success`（否则会重试 8 次，间隔 4m/10m/10m/1h/2h/6h/15h）；微信要求返回 `{"code":"SUCCESS"}`（否则按 15s/15s/30s/3m/10m/20m/30m/30m/30m/60m/3h/3h/3h/6h/6h 重试）。两者都必须**先落库再应答**，且重复回调直接返回成功。
 
@@ -2051,7 +2057,7 @@ DoD：学伴无法回答率 ≤ 30%、找课点击率 +10%、售后 FAQ 命中�
 | **D6** | **退款政策** | **已决策（暂定，M1 前可复议）**：首版仅全额退款、人工审核；付款后 7 天内可申请；学习进度 > 20% 不予受理；优惠券不退（视为已使用） | 2.3、4.3.3、4.4、5.5（`62007`）、8.3、12.3、附录 A/C |
 | **D7** | **学习完成判定** | **已决策（暂定，M1 前可复议）**：播放进度 ≥ 90% 且有效观看时长 ≥ 课时时长 90% 才记完成；拖动跳过时段不计入有效时长；完成态由服务端重算，客户端不可直接提交 | 4.3.4、5.6、10.2、11.1、13.4–13.5 |
 | **D8** | **账号合并与注销** | **已决策（暂定，M1 前可复议）**：不做自动合并；小程序绑定手机号冲突时提示登录原账号；注销走 7 天冷静期 + 人工确认；法定交易记录保留不可删 | 4.3.1、5.3、6.5、8.1、8.6、8.7、附录 C |
-| **D9** | **0 元课程** | **已决策（暂定，M1 前可复议）**：首版不支持 0 元下单（`price>0`）；免费内容由运营直接发放权益（`source_type=2`），不产生订单（`62008`） | 4.3.2、4.3.4、5.4、5.5、5.9 |
+| **D9** | **0 元课程** | **已决策（2026-11-05 变更）**：0 元课程允许下单，`pay_amount=0` 时订单创建即完成并发放权益，不进入支付渠道；原 `62008` 不再使用 | 4.3.2、4.3.4、5.4、5.5、5.9 |
 | **D10** | **指标口径** | **已决策（暂定，M1 前可复议）**：学习会话按 15 分钟切分统计；跨端属性 `source` 仅 `web/miniapp`；事件名与漏斗按 07 第 10 章 | 1.4、10.2、11.2、12.4 |
 | **D11** | **支付截止** | **已决策（暂定，M1 前可复议）**：下单后 30 分钟未支付自动关单；重付前先关原支付单，仅限原渠道 | 2.3、4.3.3、5.2（`62006`）、5.5 |
 | **D12** | **首发课程规模** | **已决策（暂定，M1 前可复议）**：保持基线 20 门课 / 约 200 课时 / 视频 100–200GB，标注 TBD，上线后按真实数据校准；调整时同步第 10.3、11.1、14 章三处 | 10.3、11.1、13.2、14 |
@@ -2075,7 +2081,7 @@ DoD：学伴无法回答率 ≤ 30%、找课点击率 +10%、售后 FAQ 命中�
 | 限流 | 42901 | — |
 | 服务端 | 50001、50201–50306 | 50001 系统异常、50201 下游失败、**50202 支付宝渠道失败**、**50203 微信支付渠道失败**、**50204 对账存在未处理差异**、50301/50302 AI 不可用、**50303 模型未配置**、**50304 密钥无效**、**50305 配额用尽**、**50306 上游超时/限流** |
 | 业务-课程 | 61001–61004 | 61001 未上架、61002 已购、**61003 视频上传校验未通过**、**61004 播放并发超限** |
-| 业务-订单 | 62001–62008 | 62001 状态不允许、62002 已过期、62003 券不可用、62004 退款不可申请、**62005 渠道与来源端不匹配**、**62006 订单已有进行中的支付单**、**62007 退款准入不满足（15.2 D6）**、**62008 0 元课程不支持下单（15.2 D9）** |
+| 业务-订单 | 62001–62008 | 62001 状态不允许、62002 已过期、62003 券不可用、62004 退款不可申请、**62005 渠道与来源端不匹配**、**62006 订单已有进行中的支付单**、**62007 退款准入不满足（15.2 D6）** |
 | 业务-学习 | 63001 | 进度越界 |
 | 业务-内容 | 64001–64002 | 违规/举报目标 |
 | 业务-AI | 65001 | 会话不存在 |
