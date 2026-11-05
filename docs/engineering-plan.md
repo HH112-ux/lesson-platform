@@ -966,7 +966,7 @@ erDiagram
 | 61004 | 播放并发超限 | 同一用户同一课时并发 > 2 路 |
 | 62001 | 订单状态不允许 | 取消/支付/退款 |
 | 62002 | 订单已过期 | 超时关单 |
-| 62003 | 优惠券不可用 | 门槛/有效期/已用 |
+| 62003 | 业务不可用（课程已下架 / 优惠券不可用） | 加购、下单、领券 |
 | 62004 | 退款金额超限 | 超过实付 |
 | 62005 | 支付渠道与来源端不匹配 | 小程序请求支付宝 / Web 请求微信 JSAPI |
 | 62006 | 订单已有进行中的支付单 | 重新发起支付前未关闭原支付单（关闭后仅限原渠道重付，15.2 D11 不涉及跨渠道） |
@@ -1012,8 +1012,8 @@ erDiagram
 | GET | `/api/v1/courses/{courseId}/comments` | 评论分页 | query:`pageNum,pageSize` | 分页 `{records:[{id,nickname,avatarUrl,content,likeCount,createdAt,replies[]}]}` | 40401 |
 | POST | `/api/v1/courses/{courseId}/favorite` | 收藏课程 | `{}` | `{favorited:true}` | 40101,40401 |
 | DELETE | `/api/v1/courses/{courseId}/favorite` | 取消收藏 | — | `{favorited:false}` | 40101 |
-| GET | `/internal/v1/courses/{courseId}` | 内部接口，不经网关对外：课程详情（`price` 单位分，含上下架状态与课时数） | — | `{courseId,title,price,status,teacherId,lessonCount}` | 40401 |
-| GET | `/internal/v1/courses` | 内部接口，不经网关对外：批量课程摘要（交易校验与下单取价） | query:`ids`（逗号分隔，必填） | `[{courseId,title,price,status,teacherId,lessonCount}]` | 40001 |
+| GET | `/internal/v1/courses/{courseId}` | 内部接口，不经网关对外：课程详情（`price` 单位分，含上下架状态与课时数） | — | `{courseId,title,coverUrl,price,status,teacherId,lessonCount}` | 40401 |
+| GET | `/internal/v1/courses` | 内部接口，不经网关对外：批量课程摘要（交易校验与下单取价） | query:`ids`（逗号分隔，必填） | `[{courseId,title,coverUrl,price,status,teacherId,lessonCount}]` | 40001 |
 | GET | `/internal/v1/courses/{courseId}/lessons` | 内部接口，不经网关对外：课时列表（`free` 为试看标记） | — | `[{lessonId,chapterId,title,free,sort}]` | 40401 |
 | POST | `/api/v1/comments` | 发评论 | `{courseId,lessonId?,parentId?,content}` | `{id,status:0}` | 40001,40301(未购),64001 |
 | DELETE | `/api/v1/comments/{commentId}` | 删本人评论（逻辑删） | — | `{deleted:true}` | 40301,40401 |
@@ -1028,7 +1028,7 @@ erDiagram
 | 方法 | 路径 | 用途 | 请求 | 响应 | 主要错误码 |
 |---|---|---|---|---|---|
 | GET | `/api/v1/cart` | 购物车 | — | `{items:[{courseId,title,coverUrl,price}]}` | 40101 |
-| POST | `/api/v1/cart/items` | 加购 | `{courseId}` | `{added:true}` | 40401,61001,40901 |
+| POST | `/api/v1/cart/items` | 加购 | `{courseId}` | `{added:true}` | 40401,61002,62003 |
 | DELETE | `/api/v1/cart/items/{courseId}` | 移除 | — | `{removed:true}` | — |
 | GET | `/api/v1/coupons/available` | 可用券 | query:`amount` | `[{id,name,type,threshold,value}]` | — |
 | POST | `/api/v1/coupons/{couponId}/receive` | 领券 | `{}` | `{received:true}` | 40901(重复领),62003 |
@@ -1044,6 +1044,8 @@ erDiagram
 | GET | `/api/v1/refunds/{refundId}` | 退款进度（用户自查） | — | `{refundNo,channel,amount,status,refundedAt,failReason?}` | 40301,40401 |
 | GET | `/api/v1/reconcile/daily` | 分渠道对账查询（运营/管理员） | query:`channel(1\|2),date,pageNum` | 分页 `{records:[{id,channel,billDate,billType,channelCount,channelAmount,localCount,localAmount,diffCount,diffAmount,status}]}` | 40101,40301 |
 | POST | `/api/v1/reconcile/{reconcileId}/recheck` | 重跑对账（运营/管理员） | `{}` | `{status,diffCount,diffAmount}` | 40301,40401,50204 |
+
+> **购物车规则**：课程类商品数量固定为 1，`cart_item` 不设数量字段；同用户同课程唯一（`uk_user_course`），重复加购与并发加购都幂等；已购课程加购返回 `61002`，已下架课程返回 `62003`，课程不存在返回 `40401`；删除不存在的条目同样返回成功。
 
 > **两套回调的幂等与应答差异**：支付宝要求返回纯文本 `success`（否则会重试 8 次，间隔 4m/10m/10m/1h/2h/6h/15h）；微信要求返回 `{"code":"SUCCESS"}`（否则按 15s/15s/30s/3m/10m/20m/30m/30m/30m/60m/3h/3h/3h/6h/6h 重试）。两者都必须**先落库再应答**，且重复回调直接返回成功。
 
