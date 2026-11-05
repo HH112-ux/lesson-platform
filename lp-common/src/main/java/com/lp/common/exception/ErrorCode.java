@@ -52,11 +52,17 @@ public enum ErrorCode {
     /** AI pipeline unavailable or not configured. */
     AI_PIPELINE_UNAVAILABLE(50301, "ai pipeline unavailable"),
 
-    /** Course domain failure. */
-    COURSE_BIZ_ERROR(61001, "course operation failed"),
+    /** Course is missing, offline or otherwise not purchasable. */
+    COURSE_NOT_ON_SALE(61001, "course is not on sale"),
+
+    /** The user already owns the course. */
+    COURSE_ALREADY_OWNED(61002, "course already owned"),
 
     /** Trade domain failure. */
     TRADE_BIZ_ERROR(62001, "trade operation failed"),
+
+    /** Trade-side goods unavailable: a course went offline or a coupon is unusable. */
+    TRADE_UNAVAILABLE(62003, "trade item unavailable"),
 
     /** Payment channel does not match the request source platform. */
     TRADE_CHANNEL_SOURCE_MISMATCH(62005, "payment channel does not match request source"),
