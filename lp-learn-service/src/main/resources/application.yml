@@ -33,6 +33,12 @@ lp:
     # course-service internal read API; it is never routed through the gateway.
     course-base-url: ${LP_COURSE_SERVICE_BASE_URL:http://127.0.0.1:8102}
     course-read-timeout: ${LP_COURSE_SERVICE_READ_TIMEOUT:2s}
+    # Playback URLs are signed by learn-service; the client never receives the object key.
+    play-token-ttl: ${LP_PLAY_TOKEN_TTL:10m}
+    minio-endpoint: ${LP_MINIO_ENDPOINT:http://127.0.0.1:9000}
+    minio-access-key: ${LP_MINIO_ACCESS_KEY:}
+    minio-secret-key: ${LP_MINIO_SECRET_KEY:}
+    minio-bucket: ${LP_MINIO_BUCKET:lp-media}
 
 management:
   endpoints:

@@ -22,6 +22,10 @@ public class CourseLesson {
 
     private Integer sort;
 
+    private String videoUrl;
+
+    private Integer videoDurationSec;
+
     /**
      * Returns the lesson id.
      *
@@ -152,5 +156,49 @@ public class CourseLesson {
      */
     public void setSort(Integer sort) {
         this.sort = sort;
+    }
+
+    /**
+     * Returns the MinIO object key of the lesson video.
+     *
+     * @return object key, never a public URL
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public String getVideoUrl() {
+        return videoUrl;
+    }
+
+    /**
+     * Sets the MinIO object key of the lesson video.
+     *
+     * @param videoUrl object key
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public void setVideoUrl(String videoUrl) {
+        this.videoUrl = videoUrl;
+    }
+
+    /**
+     * Returns the video duration.
+     *
+     * @return duration in seconds, {@code 0} when unknown
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public Integer getVideoDurationSec() {
+        return videoDurationSec;
+    }
+
+    /**
+     * Sets the video duration.
+     *
+     * @param videoDurationSec duration in seconds
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public void setVideoDurationSec(Integer videoDurationSec) {
+        this.videoDurationSec = videoDurationSec;
     }
 }

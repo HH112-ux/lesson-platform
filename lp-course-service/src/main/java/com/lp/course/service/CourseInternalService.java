@@ -2,6 +2,7 @@ package com.lp.course.service;
 
 import com.lp.course.dto.CourseInternalView;
 import com.lp.course.dto.LessonInternalView;
+import com.lp.course.dto.LessonPlayView;
 import java.util.List;
 
 /**
@@ -44,4 +45,15 @@ public interface CourseInternalService {
      * @since 0.1.0
      */
     List<LessonInternalView> lessons(long courseId);
+
+    /**
+     * Loads one playable lesson for URL signing.
+     *
+     * @param lessonId lesson primary key
+     * @return lesson with media key and duration
+     * @throws com.lp.common.exception.BizException with {@code 40401} when the lesson is absent
+     * @author Caspian
+     * @since 0.1.0
+     */
+    LessonPlayView lessonForPlay(long lessonId);
 }

@@ -34,6 +34,9 @@ public enum ErrorCode {
     /** Authenticated but not allowed to perform the action. */
     FORBIDDEN(40301, "access denied"),
 
+    /** The student has no active entitlement for the requested course. */
+    LEARN_NOT_ENTITLED(40302, "course entitlement required"),
+
     /** Requested resource does not exist. */
     NOT_FOUND(40401, "resource not found"),
 
@@ -51,6 +54,9 @@ public enum ErrorCode {
 
     /** Payment credentials or signature verifier are not configured on this deployment. */
     PAYMENT_NOT_CONFIGURED(50205, "payment channel is not configured"),
+
+    /** MinIO credentials are absent or the presigned URL could not be produced. */
+    LEARN_STORAGE_ERROR(50206, "object storage unavailable or not configured"),
 
     /** AI pipeline unavailable or not configured. */
     AI_PIPELINE_UNAVAILABLE(50301, "ai pipeline unavailable"),

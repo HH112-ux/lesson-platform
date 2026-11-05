@@ -9,13 +9,13 @@ import java.util.function.Predicate;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.context.properties.bind.Binder;
+import org.springframework.boot.env.YamlPropertySourceLoader;
 import org.springframework.cloud.gateway.config.GatewayProperties;
 import org.springframework.cloud.gateway.handler.predicate.PathRoutePredicateFactory;
 import org.springframework.cloud.gateway.route.RouteDefinition;
 import org.springframework.context.support.GenericApplicationContext;
 import org.springframework.core.env.PropertySource;
 import org.springframework.core.io.ClassPathResource;
-import org.springframework.boot.env.YamlPropertySourceLoader;
 import org.springframework.mock.http.server.reactive.MockServerHttpRequest;
 import org.springframework.mock.web.server.MockServerWebExchange;
 import org.springframework.web.server.ServerWebExchange;
@@ -25,7 +25,7 @@ import org.springframework.web.server.ServerWebExchange;
  *
  * <p>Routes are bound exactly as Spring Cloud Gateway binds them, then each Path predicate is
  * evaluated against sample requests. This covers both configuration wiring and matching, so a
- * renamed prefix or a dropped route fails the build.</p>
+ * renamed prefix or a dropped route fails the build.
  *
  * @author Caspian
  * @since 0.1.0
@@ -33,14 +33,15 @@ import org.springframework.web.server.ServerWebExchange;
 class GatewayRouteConfigurationTest {
 
     /** Domain prefix and sample path expected to be routed to each domain service. */
-    private static final Map<String, String> DOMAIN_SAMPLES = Map.of(
-            "auth-service", "/api/v1/user/profile",
-            "course-service", "/api/v1/course/lessons/1",
-            "trade-service", "/api/v1/trade/orders/1",
-            "learn-service", "/api/v1/learn/progress/1",
-            "ugc-service", "/api/v1/ugc/comments/1",
-            "admin-service", "/api/v1/admin/audits/1",
-            "ai-service", "/api/v1/ai/status");
+    private static final Map<String, String> DOMAIN_SAMPLES =
+            Map.of(
+                    "auth-service", "/api/v1/user/profile",
+                    "course-service", "/api/v1/course/lessons/1",
+                    "trade-service", "/api/v1/trade/orders/1",
+                    "learn-service", "/api/v1/learning/my-courses",
+                    "ugc-service", "/api/v1/ugc/comments/1",
+                    "admin-service", "/api/v1/admin/audits/1",
+                    "ai-service", "/api/v1/ai/status");
 
     /** Expected route count: seven domain services plus the miniapp segment. */
     private static final int EXPECTED_ROUTE_COUNT = 8;
@@ -58,13 +59,17 @@ class GatewayRouteConfigurationTest {
     static void loadRoutes() throws IOException {
         GenericApplicationContext context = new GenericApplicationContext();
         YamlPropertySourceLoader loader = new YamlPropertySourceLoader();
-        for (PropertySource<?> source : loader.load("application.yml",
-                new ClassPathResource("application.yml"))) {
+        for (PropertySource<?> source :
+                loader.load("application.yml", new ClassPathResource("application.yml"))) {
             context.getEnvironment().getPropertySources().addLast(source);
         }
-        properties = Binder.get(context.getEnvironment())
-                .bind("spring.cloud.gateway", GatewayProperties.class)
-                .orElseThrow(() -> new IllegalStateException("gateway routes are not configured"));
+        properties =
+                Binder.get(context.getEnvironment())
+                        .bind("spring.cloud.gateway", GatewayProperties.class)
+                        .orElseThrow(
+                                () ->
+                                        new IllegalStateException(
+                                                "gateway routes are not configured"));
     }
 
     /**
@@ -150,9 +155,11 @@ class GatewayRouteConfigurationTest {
     private static List<String> pathPatterns(RouteDefinition route) {
         return route.getPredicates().stream()
                 .filter(predicate -> "Path".equalsIgnoreCase(predicate.getName()))
-                .flatMap(predicate -> predicate.getArgs().entrySet().stream()
-                        .sorted(Map.Entry.comparingByKey())
-                        .map(Map.Entry::getValue))
+                .flatMap(
+                        predicate ->
+                                predicate.getArgs().entrySet().stream()
+                                        .sorted(Map.Entry.comparingByKey())
+                                        .map(Map.Entry::getValue))
                 .toList();
     }
 

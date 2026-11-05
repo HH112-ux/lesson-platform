@@ -19,6 +19,16 @@ public class LearnProperties {
 
     private Duration courseReadTimeout = Duration.ofSeconds(2);
 
+    private Duration playTokenTtl = Duration.ofMinutes(10);
+
+    private String minioEndpoint = "http://127.0.0.1:9000";
+
+    private String minioAccessKey = "";
+
+    private String minioSecretKey = "";
+
+    private String minioBucket = "lp-media";
+
     /**
      * Returns the base URL of the course-service internal API.
      *
@@ -61,5 +71,115 @@ public class LearnProperties {
      */
     public void setCourseReadTimeout(Duration courseReadTimeout) {
         this.courseReadTimeout = courseReadTimeout;
+    }
+
+    /**
+     * Returns the lifetime of a playback URL.
+     *
+     * @return presigned URL lifetime, defaults to ten minutes
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public Duration getPlayTokenTtl() {
+        return playTokenTtl;
+    }
+
+    /**
+     * Sets the lifetime of a playback URL.
+     *
+     * @param playTokenTtl presigned URL lifetime, must be positive
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public void setPlayTokenTtl(Duration playTokenTtl) {
+        this.playTokenTtl = playTokenTtl;
+    }
+
+    /**
+     * Returns the MinIO endpoint.
+     *
+     * @return endpoint URL
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public String getMinioEndpoint() {
+        return minioEndpoint;
+    }
+
+    /**
+     * Sets the MinIO endpoint.
+     *
+     * @param minioEndpoint endpoint URL
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public void setMinioEndpoint(String minioEndpoint) {
+        this.minioEndpoint = minioEndpoint;
+    }
+
+    /**
+     * Returns the MinIO access key.
+     *
+     * @return access key, empty when not configured
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public String getMinioAccessKey() {
+        return minioAccessKey;
+    }
+
+    /**
+     * Sets the MinIO access key.
+     *
+     * @param minioAccessKey access key, empty when unknown
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public void setMinioAccessKey(String minioAccessKey) {
+        this.minioAccessKey = minioAccessKey;
+    }
+
+    /**
+     * Returns the MinIO secret key.
+     *
+     * @return secret key, empty when not configured
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public String getMinioSecretKey() {
+        return minioSecretKey;
+    }
+
+    /**
+     * Sets the MinIO secret key.
+     *
+     * @param minioSecretKey secret key, empty when unknown
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public void setMinioSecretKey(String minioSecretKey) {
+        this.minioSecretKey = minioSecretKey;
+    }
+
+    /**
+     * Returns the bucket holding lesson videos.
+     *
+     * @return bucket name
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public String getMinioBucket() {
+        return minioBucket;
+    }
+
+    /**
+     * Sets the bucket holding lesson videos.
+     *
+     * @param minioBucket bucket name
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public void setMinioBucket(String minioBucket) {
+        this.minioBucket = minioBucket;
     }
 }

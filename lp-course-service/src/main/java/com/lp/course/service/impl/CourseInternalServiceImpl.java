@@ -4,6 +4,7 @@ import com.lp.common.exception.BizException;
 import com.lp.common.exception.ErrorCode;
 import com.lp.course.dto.CourseInternalView;
 import com.lp.course.dto.LessonInternalView;
+import com.lp.course.dto.LessonPlayView;
 import com.lp.course.entity.Course;
 import com.lp.course.entity.CourseLesson;
 import com.lp.course.mapper.CourseMapper;
@@ -85,6 +86,29 @@ public class CourseInternalServiceImpl implements CourseInternalService {
             throw new BizException(ErrorCode.NOT_FOUND);
         }
         return courseMapper.selectLessons(courseId).stream().map(this::toView).toList();
+    }
+
+    /**
+     * Loads one playable lesson or fails with {@code 40401}.
+     *
+     * @param lessonId lesson primary key
+     * @return lesson with media key and duration
+     * @throws BizException when the lesson is absent, hidden or deleted
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Override
+    public LessonPlayView lessonForPlay(long lessonId) {
+        CourseLesson lesson = courseMapper.selectPlayableById(lessonId);
+        if (lesson == null) {
+            throw new BizException(ErrorCode.NOT_FOUND);
+        }
+        return new LessonPlayView(
+                lesson.getId(),
+                lesson.getCourseId(),
+                lesson.getVideoUrl(),
+                lesson.getVideoDurationSec() == null ? 0 : lesson.getVideoDurationSec(),
+                lesson.getIsFree() != null && lesson.getIsFree() == 1);
     }
 
     private CourseInternalView toView(Course course) {
