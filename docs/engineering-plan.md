@@ -947,7 +947,7 @@ erDiagram
 | 40101 | 未登录或凭证无效 | 无 Token/签名失败 |
 | 40102 | 凭证已过期 | access token 过期，或 refresh 无效/已吊销/已被轮换使用 |
 | 40301 | 无权限 | 角色/归属校验失败 |
-| 40302 | 未购买该课程 | 权益校验失败 |
+| 40302 | 未购买该课程 | 播放签名与学习接口校验权益失败 |
 | 40303 | 非本人课程 | 教师访问他人课程（`owner_teacher_id` 不匹配） |
 | 40401 | 资源不存在 | — |
 | 40901 | 状态冲突 | 重复购买、订单状态不允许、课程状态不允许、注册账号重复 |
@@ -958,6 +958,7 @@ erDiagram
 | 50203 | 微信支付渠道失败 | 微信下单/退款返回失败、openid 缺失 |
 | 50204 | 对账存在未处理差异 | 查询/结算前置校验 |
 | 50205 | 支付渠道或验签未配置 | 未配置密钥时发起支付与回调，禁止伪造成功 |
+| 50206 | 对象存储未配置或签名失败 | 播放签名缺少 MinIO 凭据时显式失败，禁止伪造 URL |
 | 50301 | AI 服务暂不可用 | 熔断/内部错误，AI 入口整体不可用 |
 | 50302 | AI 输出未通过安全校验 | 后置过滤 |
 | 50303 | 模型未配置或已停用 | `ai_model_config` 无启用记录，AI 入口隐藏 |
@@ -1064,7 +1065,7 @@ erDiagram
 | 方法 | 路径 | 用途 | 请求 | 响应 | 主要错误码 |
 |---|---|---|---|---|---|
 | GET | `/api/v1/learning/my-courses` | 我的课程 | query:`pageNum,pageSize` | 分页 `{records:[{courseId,title,coverUrl,progressPercent,lastLessonId}]}` | 40101 |
-| GET | `/api/v1/lessons/{lessonId}/play-token` | 获取签名播放地址 | — | `{playUrl,expiresAt}` | 40302,40401,61001 |
+| GET | `/api/v1/lessons/{lessonId}/play-token` | 获取签名播放地址（有效期 10 分钟，`expiresAt` 为 epoch 秒） | — | `{playUrl,expiresIn,expiresAt}` | 40302,40401,50206 |
 | POST | `/api/v1/learning/progress` | 上报进度（完成态由服务端按播放进度 ≥ 90% 且有效观看 ≥ 课时时长 90% 重算，请求不可直接置完成，15.2 D7） | `{lessonId,positionSec,watchedSec}` | `{saved:true,completed}` | 40302,63001 |
 | GET | `/api/v1/learning/progress` | 课程进度 | query:`courseId` | `{courseId,lessons:[{lessonId,positionSec,watchedSec,completed,lastLearnedAt}]}` | 40101,40401 |
 
