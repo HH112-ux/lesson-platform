@@ -1064,13 +1064,17 @@ erDiagram
 | 方法 | 路径 | 用途 | 请求 | 响应 | 主要错误码 |
 |---|---|---|---|---|---|
 | GET | `/api/v1/learning/my-courses` | 我的课程 | query:`pageNum,pageSize` | 分页 `{records:[{courseId,title,coverUrl,progressPercent,lastLessonId}]}` | 40101 |
-| GET | `/api/v1/lessons/{lessonId}/play-token` | 获取签名播放地址（有效期 10 分钟，`expiresAt` 为 epoch 秒） | — | `{playUrl,expiresIn,expiresAt}` | 40302,40401,50206 |
+| GET | `/api/v1/lessons/{lessonId}/play-token` | 获取签名播放地址（有效期 10 分钟，`expiresAt` 为 epoch 秒；签名失效后 MinIO 返回 403 `AccessDenied`/`SignatureDoesNotMatch`） | — | `{playUrl,expiresIn,expiresAt}` | 40302,40401,50206 |
 | POST | `/api/v1/learning/progress` | 上报进度（完成态由服务端按 `max_position_seconds ≥ 课时时长 90%` 重算，请求不可直接置完成，15.2 D7） | `{lessonId,positionSeconds}` | `{lessonId,positionSeconds,maxPositionSeconds,completed,updatedAt}` | 40302,40401,63001 |
 | GET | `/api/v1/learning/progress` | 课程进度 | query:`courseId` | `{courseId,lessons:[{lessonId,positionSeconds,maxPositionSeconds,completed,updatedAt}]}` | 40302,40401 |
 
 **权益一致性（trade → learn）**：`trade_order` 与 `user_entitlement` 分属 `lp_oms` / `lp_lms`。下单与支付回调事务内**不跨服务 HTTP**，而是在同一事务写入本地消息表 `entitlement_outbox`（唯一 `uk_order_course(order_id, course_id)`）；`trade-service` 的定时中继（默认 5 秒延迟、失败指数退避、最多 10 次）调用 `POST /internal/v1/entitlements` 投递给 `learn-service`，由 `uk_user_course(user_id, course_id)` 吸收重复投递。投递为**最终一致、至少一次**：学习权益可见最多滞后一个中继周期；中继放弃（`status=2`）的记录需人工对账补发。
 
-> **内部接口（不经网关对外）**：`POST /internal/v1/entitlements`，请求 `{userId,courseId,orderId?,source}`，响应 `{granted:true}`；重复投递返回成功。`my-courses` 的 `progressPercent` 与 `lastLessonId` 尚未接入 `learning_progress`，当前固定为 0 / null。
+> **内部接口（不经网关对外）**：`POST /internal/v1/entitlements`，请求 `{userId,courseId,orderId?,source}`，响应 `{granted:true}`；重复投递返回成功。
+
+> **我的课程进度口径**：`progressPercent = 该课程 completed=1 的课时数 ÷ 课程当前可见课时数 × 100`，按整数**四舍五入**（`.5` 向上），上限 100；课程课时数为 0 时取 0。`lastLessonId` 取该课程 `learning_progress.updated_at` 最新一条的 `lesson_id`（同秒冲突时取较大的 `lesson_id`），无进度记录时为 `null`。进度数据只统计当前页课程，跨课程不串数据。
+
+> **MinIO 配置项（learn-service）**：`lp.learn.minio-endpoint`（`LP_MINIO_ENDPOINT`，默认 `http://127.0.0.1:9000`）、`lp.learn.minio-bucket`（`LP_MINIO_BUCKET`，默认 `lp-media`）、`lp.learn.minio-access-key`（`LP_MINIO_ACCESS_KEY`，缺省回落到容器变量 `LP_MINIO_ROOT_USER`）、`lp.learn.minio-secret-key`（`LP_MINIO_SECRET_KEY`，缺省回落到 `LP_MINIO_ROOT_PASSWORD`）。凭据只经环境变量/Secret 注入，代码与配置不含任何生产密钥；本地默认值与 `infra/.env.example` 的占位值一致。签名有效期由 `lp.learn.play-token-ttl`（`LP_PLAY_TOKEN_TTL`，默认 `10m`）控制，调短可用于验证过期行为。
 
 ## 5.7 互动域（ugc-service）
 
