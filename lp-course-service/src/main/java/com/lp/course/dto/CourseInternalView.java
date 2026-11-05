@@ -16,6 +16,8 @@ public class CourseInternalView {
 
     private final String title;
 
+    private final String coverUrl;
+
     private final long price;
 
     private final int status;
@@ -29,6 +31,7 @@ public class CourseInternalView {
      *
      * @param courseId course primary key
      * @param title course title
+     * @param coverUrl cover image URL
      * @param price price in fen
      * @param status 0 draft, 1 pending review, 2 published, 3 offline
      * @param teacherId owning teacher id
@@ -37,9 +40,16 @@ public class CourseInternalView {
      * @since 0.1.0
      */
     public CourseInternalView(
-            long courseId, String title, long price, int status, long teacherId, long lessonCount) {
+            long courseId,
+            String title,
+            String coverUrl,
+            long price,
+            int status,
+            long teacherId,
+            long lessonCount) {
         this.courseId = courseId;
         this.title = title;
+        this.coverUrl = coverUrl;
         this.price = price;
         this.status = status;
         this.teacherId = teacherId;
@@ -66,6 +76,17 @@ public class CourseInternalView {
      */
     public String getTitle() {
         return title;
+    }
+
+    /**
+     * Returns the cover image URL.
+     *
+     * @return cover URL
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public String getCoverUrl() {
+        return coverUrl;
     }
 
     /**
