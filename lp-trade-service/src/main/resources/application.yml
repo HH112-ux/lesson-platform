@@ -33,6 +33,12 @@ lp:
     # course-service internal read API; it is never routed through the gateway.
     course-base-url: ${LP_COURSE_SERVICE_BASE_URL:http://127.0.0.1:8102}
     course-read-timeout: ${LP_COURSE_SERVICE_READ_TIMEOUT:2s}
+    # learn-service internal entitlement API, called only by the outbox relay.
+    learn-base-url: ${LP_LEARN_SERVICE_BASE_URL:http://127.0.0.1:8104}
+    learn-read-timeout: ${LP_LEARN_SERVICE_READ_TIMEOUT:2s}
+    # Eventual consistency window: a pending grant is delivered within one relay delay.
+    outbox-relay-delay-ms: ${LP_ENTITLEMENT_RELAY_DELAY_MS:5000}
+    outbox-max-retries: ${LP_ENTITLEMENT_MAX_RETRIES:10}
 
 management:
   endpoints:

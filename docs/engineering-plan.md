@@ -736,14 +736,13 @@ erDiagram
 | id | BIGINT UNSIGNED | PK | — |
 | user_id | BIGINT UNSIGNED | NOT NULL | — |
 | course_id | BIGINT UNSIGNED | NOT NULL | — |
-| source_type | TINYINT | NOT NULL | 1 购买/2 运营发放/3 兑换（运营发放用于免费课开通与客诉补偿，不产生订单，15.2 D9） |
-| source_order_id | BIGINT UNSIGNED | NULL | — |
-| start_at | DATETIME(3) | NOT NULL | — |
+| order_id | BIGINT UNSIGNED | NULL | `trade_order.id`；运营发放或兑换为空 |
+| source | TINYINT | NOT NULL DEFAULT 1 | 1 购买/2 运营发放/3 兑换（运营发放用于免费课开通与客诉补偿，不产生订单，15.2 D9） |
+| granted_at | DATETIME(3) | NOT NULL | 发放时间 |
 | expire_at | DATETIME(3) | NULL | 空=永久 |
-| status | TINYINT | NOT NULL DEFAULT 1 | 1 有效/0 失效 |
 | 公共字段 | — | — | — |
 
-唯一 `uk_user_course(user_id, course_id)`；索引 `idx_course(course_id)`、`idx_user_status(user_id, status)`。
+唯一 `uk_user_course(user_id, course_id)`；索引 `idx_course(course_id)`、`idx_user_granted(user_id, granted_at)`。
 
 **learning_progress 学习进度**
 
@@ -1068,6 +1067,10 @@ erDiagram
 | GET | `/api/v1/lessons/{lessonId}/play-token` | 获取签名播放地址 | — | `{playUrl,expiresAt}` | 40302,40401,61001 |
 | POST | `/api/v1/learning/progress` | 上报进度（完成态由服务端按播放进度 ≥ 90% 且有效观看 ≥ 课时时长 90% 重算，请求不可直接置完成，15.2 D7） | `{lessonId,positionSec,watchedSec}` | `{saved:true,completed}` | 40302,63001 |
 | GET | `/api/v1/learning/progress` | 课程进度 | query:`courseId` | `{courseId,lessons:[{lessonId,positionSec,watchedSec,completed,lastLearnedAt}]}` | 40101,40401 |
+
+**权益一致性（trade → learn）**：`trade_order` 与 `user_entitlement` 分属 `lp_oms` / `lp_lms`。下单与支付回调事务内**不跨服务 HTTP**，而是在同一事务写入本地消息表 `entitlement_outbox`（唯一 `uk_order_course(order_id, course_id)`）；`trade-service` 的定时中继（默认 5 秒延迟、失败指数退避、最多 10 次）调用 `POST /internal/v1/entitlements` 投递给 `learn-service`，由 `uk_user_course(user_id, course_id)` 吸收重复投递。投递为**最终一致、至少一次**：学习权益可见最多滞后一个中继周期；中继放弃（`status=2`）的记录需人工对账补发。
+
+> **内部接口（不经网关对外）**：`POST /internal/v1/entitlements`，请求 `{userId,courseId,orderId?,source}`，响应 `{granted:true}`；重复投递返回成功。`learn-service` 的 `my-courses` 在进度子片上线前 `progressPercent` 固定为 0、`lastLessonId` 为 null。
 
 ## 5.7 互动域（ugc-service）
 

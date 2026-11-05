@@ -178,7 +178,8 @@ public class PaymentServiceImpl implements PaymentService {
         if (item == null) {
             throw new BizException(ErrorCode.TRADE_BIZ_ERROR, "order has no item");
         }
-        entitlementService.grant(order.getUserId(), item.getCourseId(), order.getOrderNo());
+        entitlementService.grant(
+                order.getUserId(), item.getCourseId(), order.getId(), order.getOrderNo());
     }
 
     private PaymentRecord newPayment(TradeOrder order, int channel) {

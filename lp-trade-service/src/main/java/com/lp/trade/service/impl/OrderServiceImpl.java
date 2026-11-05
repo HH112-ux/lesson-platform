@@ -147,7 +147,7 @@ public class OrderServiceImpl implements OrderService {
         insertItem(order.getId(), course, total, discount, payAmount);
         consumeCoupon(selection, order.getId(), now);
         if (completed) {
-            entitlementService.grant(userId, courseId, order.getOrderNo());
+            entitlementService.grant(userId, courseId, order.getId(), order.getOrderNo());
         }
         return buildView(order, courseId);
     }

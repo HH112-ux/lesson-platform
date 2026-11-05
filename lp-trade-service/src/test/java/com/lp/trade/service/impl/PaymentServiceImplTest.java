@@ -106,7 +106,7 @@ class PaymentServiceImplTest {
         paymentService.handleNotify(PaymentChannel.ALIPAY, Map.of(), "body", notification("99.00"));
         paymentService.handleNotify(PaymentChannel.ALIPAY, Map.of(), "body", notification("99.00"));
 
-        verify(entitlementService, times(1)).grant(USER_ID, COURSE_ID, ORDER_NO);
+        verify(entitlementService, times(1)).grant(USER_ID, COURSE_ID, ORDER_ID, ORDER_NO);
         verify(paymentMapper, times(1)).markSuccess(eq(1L), eq(TRADE_NO), any(LocalDateTime.class));
     }
 
@@ -136,7 +136,7 @@ class PaymentServiceImplTest {
         assertEquals(62009, exception.getCode());
         verify(paymentMapper, never())
                 .markSuccess(anyLong(), anyString(), any(LocalDateTime.class));
-        verify(entitlementService, never()).grant(anyLong(), anyLong(), anyString());
+        verify(entitlementService, never()).grant(anyLong(), anyLong(), anyLong(), anyString());
     }
 
     /**
