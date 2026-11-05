@@ -7,6 +7,7 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Import;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
  * Trade domain service entry point on port 8103.
@@ -22,6 +23,7 @@ import org.springframework.context.annotation.Import;
 @SpringBootApplication
 @MapperScan("com.lp.trade.mapper")
 @EnableConfigurationProperties(TradeProperties.class)
+@EnableScheduling
 @Import(GlobalExceptionHandler.class)
 public class TradeServiceApplication {
 

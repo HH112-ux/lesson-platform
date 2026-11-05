@@ -88,7 +88,7 @@ class OrderServiceImplTest {
         assertNull(view.getPaidAt());
         assertTrue(view.getOrderNo().startsWith("LP"));
         verify(tradeOrderMapper).insertItem(any(TradeOrderItem.class));
-        verify(entitlementService, never()).grant(anyLong(), eq(COURSE_ID), anyString());
+        verify(entitlementService, never()).grant(anyLong(), eq(COURSE_ID), anyLong(), anyString());
     }
 
     /**
@@ -155,7 +155,7 @@ class OrderServiceImplTest {
         assertEquals(PaymentChannel.WXPAY, view.getChannel());
         assertNotNull(view.getPaidAt());
         assertNull(view.getPayExpireAt());
-        verify(entitlementService).grant(eq(USER_ID), eq(COURSE_ID), anyString());
+        verify(entitlementService).grant(eq(USER_ID), eq(COURSE_ID), anyLong(), anyString());
     }
 
     /**
@@ -186,7 +186,7 @@ class OrderServiceImplTest {
 
         assertEquals(62003, exception.getCode());
         assertEquals("coupon already used", exception.getMessage());
-        verify(entitlementService, never()).grant(anyLong(), eq(COURSE_ID), anyString());
+        verify(entitlementService, never()).grant(anyLong(), eq(COURSE_ID), anyLong(), anyString());
     }
 
     /**

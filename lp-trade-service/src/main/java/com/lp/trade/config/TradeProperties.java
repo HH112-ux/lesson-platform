@@ -19,6 +19,78 @@ public class TradeProperties {
 
     private Duration courseReadTimeout = Duration.ofSeconds(2);
 
+    private String learnBaseUrl = "http://127.0.0.1:8104";
+
+    private Duration learnReadTimeout = Duration.ofSeconds(2);
+
+    private int outboxMaxRetries = 10;
+
+    /**
+     * Returns the base URL of the learn-service internal API.
+     *
+     * @return scheme, host and port without a trailing slash
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public String getLearnBaseUrl() {
+        return learnBaseUrl;
+    }
+
+    /**
+     * Sets the base URL of the learn-service internal API.
+     *
+     * @param learnBaseUrl scheme, host and port without a trailing slash
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public void setLearnBaseUrl(String learnBaseUrl) {
+        this.learnBaseUrl = learnBaseUrl;
+    }
+
+    /**
+     * Returns the read timeout applied to learn-service calls.
+     *
+     * @return read timeout, defaults to two seconds
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public Duration getLearnReadTimeout() {
+        return learnReadTimeout;
+    }
+
+    /**
+     * Sets the read timeout applied to learn-service calls.
+     *
+     * @param learnReadTimeout read timeout, must be positive
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public void setLearnReadTimeout(Duration learnReadTimeout) {
+        this.learnReadTimeout = learnReadTimeout;
+    }
+
+    /**
+     * Returns how many delivery attempts the outbox relay makes before giving up.
+     *
+     * @return attempt limit, defaults to ten
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public int getOutboxMaxRetries() {
+        return outboxMaxRetries;
+    }
+
+    /**
+     * Sets how many delivery attempts the outbox relay makes before giving up.
+     *
+     * @param outboxMaxRetries attempt limit, must be at least one
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public void setOutboxMaxRetries(int outboxMaxRetries) {
+        this.outboxMaxRetries = outboxMaxRetries;
+    }
+
     /**
      * Returns the base URL of the course-service internal API.
      *
