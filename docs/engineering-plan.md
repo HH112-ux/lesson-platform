@@ -958,6 +958,7 @@ erDiagram
 | 50202 | 支付宝渠道失败 | 支付宝下单/退款返回失败 |
 | 50203 | 微信支付渠道失败 | 微信下单/退款返回失败、openid 缺失 |
 | 50204 | 对账存在未处理差异 | 查询/结算前置校验 |
+| 50205 | 支付渠道或验签未配置 | 未配置密钥时发起支付与回调，禁止伪造成功 |
 | 50301 | AI 服务暂不可用 | 熔断/内部错误，AI 入口整体不可用 |
 | 50302 | AI 输出未通过安全校验 | 后置过滤 |
 | 50303 | 模型未配置或已停用 | `ai_model_config` 无启用记录，AI 入口隐藏 |
@@ -976,6 +977,8 @@ erDiagram
 | 62006 | 订单已有进行中的支付单 | 重新发起支付前未关闭原支付单（关闭后仅限原渠道重付，15.2 D11 不涉及跨渠道） |
 | 62007 | 退款准入不满足 | 超过付款后 7 天或学习进度 > 20%（15.2 D6） |
 | 62008 | ~~0 元课程不支持下单~~ | 已废弃：0 元课程允许下单并即时完成（2026-11-05 变更） |
+| 62009 | 支付金额不一致 | 回调金额与订单应付金额不一致，拒绝并保留待人工核对 |
+| 62010 | 回调渠道不匹配 | 回调渠道与订单固定渠道不一致 |
 | 63001 | 学习进度越界 | 超出视频时长 |
 | 64001 | 内容含违规信息 | 本地关键词兜底 |
 | 64002 | 举报目标不存在 | — |
@@ -1041,9 +1044,9 @@ erDiagram
 | GET | `/api/v1/orders` | 我的订单 | query:`status,pageNum,pageSize` | 分页 `{records:[{orderId,orderNo,payAmount,channel,status,createdAt,items[]}]}` | 40101 |
 | GET | `/api/v1/orders/{orderId}` | 订单详情 | — | `{orderId,orderNo,totalAmount,discountAmount,payAmount,channel,status,payExpireAt,items:[{courseId,title,price}]}` | 40301,40401 |
 | POST | `/api/v1/orders/{orderId}/cancel` | 取消（同时关闭进行中的支付单） | `{reason?}` | `{status:2}` | 40301,62001 |
-| POST | `/api/v1/orders/{orderId}/pay` | 发起支付（幂等；渠道由订单固定，请求不传 `channel`） | `{payScene:1\|2,openid?}` + `Idempotency-Key`；微信 JSAPI 必须带 `openid`（服务端按 `X-User-Id` 查 `sys_user_wechat`，不接受前端随意传） | 支付宝：`{payNo,channel:1,payUrl,expireAt}`；微信：`{payNo,channel:2,jsapi:{appId,timeStamp,nonceStr,package,paySign}}` | 62001,62002,62005,62006,50202,50203 |
-| POST | `/api/v1/payments/callback/alipay` | 支付宝异步通知（公开，RSA2 验签） | `application/x-www-form-urlencoded` 原文 | 纯文本 `success`/`failure` | 50202 |
-| POST | `/api/v1/payments/callback/wxpay` | 微信支付回调（公开，APIv3 验签 + AES-GCM 解密） | JSON：`{id,event_type,resource:{ciphertext,nonce,associated_data}}` + 头 `Wechatpay-Signature/-Serial/-Timestamp/-Nonce` | JSON `{"code":"SUCCESS","message":"成功"}`；失败返回 4xx + `{code:"FAIL"}` | 50203 |
+| POST | `/api/v1/payments/{orderNo}/pay` | 发起支付（幂等；渠道由订单与 `X-User-Source` 固定，请求不传 `channel`） | `{}` | `{payNo,channel,payParams}`；未配置渠道密钥时返回 `50205`，不返回伪造的支付参数 | 40001,40401,62001,62002,62005,50205 |
+| POST | `/api/v1/payments/alipay/notify` | 支付宝异步通知（公开，RSA2 验签） | `application/x-www-form-urlencoded` 原文 | 纯文本 `success`/`failure`；验签未配置时返回 `failure` | 50205 |
+| POST | `/api/v1/payments/wxpay/notify` | 微信支付回调（公开，APIv3 验签 + AES-GCM 解密） | JSON 原文 + 头 `Wechatpay-Signature/-Serial/-Timestamp/-Nonce` | JSON `{"code":"SUCCESS"}`；失败返回 4xx + `{"code":"FAIL"}` | 50205 |
 | POST | `/api/v1/orders/{orderId}/refund` | 申请全额退款（付款后 7 天内且学习进度 ≤ 20%，15.2 D6） | `{reason}` + `Idempotency-Key` | `{refundId,refundNo,channel,status:0}` | 40301,62001,62004,62007 |
 | GET | `/api/v1/refunds/{refundId}` | 退款进度（用户自查） | — | `{refundNo,channel,amount,status,refundedAt,failReason?}` | 40301,40401 |
 | GET | `/api/v1/reconcile/daily` | 分渠道对账查询（运营/管理员） | query:`channel(1\|2),date,pageNum` | 分页 `{records:[{id,channel,billDate,billType,channelCount,channelAmount,localCount,localAmount,diffCount,diffAmount,status}]}` | 40101,40301 |
@@ -1052,6 +1055,8 @@ erDiagram
 > **购物车规则**：课程类商品数量固定为 1，`cart_item` 不设数量字段；同用户同课程唯一（`uk_user_course`），重复加购与并发加购都幂等；已购课程加购返回 `61002`，已下架课程返回 `62003`，课程不存在返回 `40401`；删除不存在的条目同样返回成功。
 
 > **下单规则**：首版一次下单仅一门课程；同一用户同一 `idempotencyKey` 重放返回原订单，`uk_idempotency` 兜底并发；已购返回 `61002`，课程不存在 `40401`，已下架或券不可用 `62003`；优惠券在订单金额上一次性核销（`user_coupon` 条件更新 `status=0`），核销失败回滚整单；`pay_amount=0` 时订单创建即完成并发放权益，不进入支付渠道。
+
+> **支付骨架**：渠道由 `X-User-Source` 与订单固定，发起支付与回调都通过 `PaymentGateway` / `SignatureVerifier` 端口；未配置密钥时统一返回 `50205`，回调不会伪造 `success`。逻辑状态映射：`created/paying` → `payment_record.status=0`，`paid` → `status=1` 且订单 `status=1`，`closed` → `status=2` 且订单 `status=3`；重复回调按渠道交易号唯一幂等。
 
 > **两套回调的幂等与应答差异**：支付宝要求返回纯文本 `success`（否则会重试 8 次，间隔 4m/10m/10m/1h/2h/6h/15h）；微信要求返回 `{"code":"SUCCESS"}`（否则按 15s/15s/30s/3m/10m/20m/30m/30m/30m/60m/3h/3h/3h/6h/6h 重试）。两者都必须**先落库再应答**，且重复回调直接返回成功。
 
@@ -2079,9 +2084,9 @@ DoD：学伴无法回答率 ≤ 30%、找课点击率 +10%、售后 FAQ 命中�
 | 资源 | 40401 | 不存在 |
 | 冲突 | 40901 | 重复/状态不允许（注册账号重复走此码） |
 | 限流 | 42901 | — |
-| 服务端 | 50001、50201–50306 | 50001 系统异常、50201 下游失败、**50202 支付宝渠道失败**、**50203 微信支付渠道失败**、**50204 对账存在未处理差异**、50301/50302 AI 不可用、**50303 模型未配置**、**50304 密钥无效**、**50305 配额用尽**、**50306 上游超时/限流** |
+| 服务端 | 50001、50201–50306 | 50001 系统异常、50201 下游失败、**50202 支付宝渠道失败**、**50203 微信支付渠道失败**、**50204 对账存在未处理差异**、**50205 支付渠道/验签未配置**、50301/50302 AI 不可用、**50303 模型未配置**、**50304 密钥无效**、**50305 配额用尽**、**50306 上游超时/限流** |
 | 业务-课程 | 61001–61004 | 61001 未上架、61002 已购、**61003 视频上传校验未通过**、**61004 播放并发超限** |
-| 业务-订单 | 62001–62008 | 62001 状态不允许、62002 已过期、62003 券不可用、62004 退款不可申请、**62005 渠道与来源端不匹配**、**62006 订单已有进行中的支付单**、**62007 退款准入不满足（15.2 D6）** |
+| 业务-订单 | 62001–62010 | 62001 状态不允许、62002 已过期、62003 券不可用、62004 退款不可申请、**62005 渠道与来源端不匹配**、**62006 订单已有进行中的支付单**、**62007 退款准入不满足（15.2 D6）**、**62008 已废弃**、**62009 支付金额不一致**、**62010 回调渠道不匹配** |
 | 业务-学习 | 63001 | 进度越界 |
 | 业务-内容 | 64001–64002 | 违规/举报目标 |
 | 业务-AI | 65001 | 会话不存在 |
