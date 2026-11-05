@@ -752,14 +752,13 @@ erDiagram
 | user_id | BIGINT UNSIGNED | NOT NULL | — |
 | course_id | BIGINT UNSIGNED | NOT NULL | 冗余 |
 | lesson_id | BIGINT UNSIGNED | NOT NULL | — |
-| last_position_sec | INT | NOT NULL DEFAULT 0 | 断点 |
-| max_position_sec | INT | NOT NULL DEFAULT 0 | 历史最大播放位置，用于识别拖动跳过 |
-| watched_sec | INT | NOT NULL DEFAULT 0 | 累计有效观看时长（单调递增；拖动跳过的时段不计入，15.2 D7） |
-| completed | TINYINT | NOT NULL DEFAULT 0 | 1 完成；由服务端判定（播放进度 ≥ 90% 且有效观看时长 ≥ 课时时长 90%），客户端不可直接提交完成态（15.2 D7） |
-| last_learned_at | DATETIME(3) | NOT NULL | — |
+| position_seconds | INT | NOT NULL DEFAULT 0 | 最近播放位置（秒），允许回退 |
+| max_position_seconds | INT | NOT NULL DEFAULT 0 | 历史最大播放位置（秒），只增不减；唯一 `uk_user_lesson(user_id, lesson_id)` |
+| completed | TINYINT | NOT NULL DEFAULT 0 | 1 完成；仅服务端按 `max_position_seconds ≥ 课时时长 90%` 重算，客户端不可提交完成态（15.2 D7）；`watched_sec`（有效观看时长）延后实现 |
+| updated_at | DATETIME(3) | NOT NULL | 最近上报时间 |
 | 公共字段 | — | — | — |
 
-唯一 `uk_user_lesson(user_id, lesson_id)`；索引 `idx_user_course(user_id, course_id, last_learned_at)`。
+唯一 `uk_user_lesson(user_id, lesson_id)`；索引 `idx_user_course(user_id, course_id)`、`idx_course_lesson(course_id, lesson_id)`。
 
 ### 4.3.5 互动（`lp_ugc`）
 
@@ -1066,12 +1065,12 @@ erDiagram
 |---|---|---|---|---|---|
 | GET | `/api/v1/learning/my-courses` | 我的课程 | query:`pageNum,pageSize` | 分页 `{records:[{courseId,title,coverUrl,progressPercent,lastLessonId}]}` | 40101 |
 | GET | `/api/v1/lessons/{lessonId}/play-token` | 获取签名播放地址（有效期 10 分钟，`expiresAt` 为 epoch 秒） | — | `{playUrl,expiresIn,expiresAt}` | 40302,40401,50206 |
-| POST | `/api/v1/learning/progress` | 上报进度（完成态由服务端按播放进度 ≥ 90% 且有效观看 ≥ 课时时长 90% 重算，请求不可直接置完成，15.2 D7） | `{lessonId,positionSec,watchedSec}` | `{saved:true,completed}` | 40302,63001 |
-| GET | `/api/v1/learning/progress` | 课程进度 | query:`courseId` | `{courseId,lessons:[{lessonId,positionSec,watchedSec,completed,lastLearnedAt}]}` | 40101,40401 |
+| POST | `/api/v1/learning/progress` | 上报进度（完成态由服务端按 `max_position_seconds ≥ 课时时长 90%` 重算，请求不可直接置完成，15.2 D7） | `{lessonId,positionSeconds}` | `{lessonId,positionSeconds,maxPositionSeconds,completed,updatedAt}` | 40302,40401,63001 |
+| GET | `/api/v1/learning/progress` | 课程进度 | query:`courseId` | `{courseId,lessons:[{lessonId,positionSeconds,maxPositionSeconds,completed,updatedAt}]}` | 40302,40401 |
 
 **权益一致性（trade → learn）**：`trade_order` 与 `user_entitlement` 分属 `lp_oms` / `lp_lms`。下单与支付回调事务内**不跨服务 HTTP**，而是在同一事务写入本地消息表 `entitlement_outbox`（唯一 `uk_order_course(order_id, course_id)`）；`trade-service` 的定时中继（默认 5 秒延迟、失败指数退避、最多 10 次）调用 `POST /internal/v1/entitlements` 投递给 `learn-service`，由 `uk_user_course(user_id, course_id)` 吸收重复投递。投递为**最终一致、至少一次**：学习权益可见最多滞后一个中继周期；中继放弃（`status=2`）的记录需人工对账补发。
 
-> **内部接口（不经网关对外）**：`POST /internal/v1/entitlements`，请求 `{userId,courseId,orderId?,source}`，响应 `{granted:true}`；重复投递返回成功。`learn-service` 的 `my-courses` 在进度子片上线前 `progressPercent` 固定为 0、`lastLessonId` 为 null。
+> **内部接口（不经网关对外）**：`POST /internal/v1/entitlements`，请求 `{userId,courseId,orderId?,source}`，响应 `{granted:true}`；重复投递返回成功。`my-courses` 的 `progressPercent` 与 `lastLessonId` 尚未接入 `learning_progress`，当前固定为 0 / null。
 
 ## 5.7 互动域（ugc-service）
 
@@ -1172,7 +1171,7 @@ erDiagram
 | `teacher.courses.status/reviewRemark` | `course.status / review_remark` |
 | `teacher.dashboard.trend` | `course_daily_stat.*` |
 | `courses.{id,price,...}` | `course.price` 等 |
-| `learning.progress.positionSec` | `learning_progress.last_position_sec` |
+| `learning.progress.positionSec` | `learning_progress.position_seconds` |
 | `ai profile.objectives/outline` | `ai_course_profile.objectives/outline` |
 | `admin.ai.moderation.snapshot` | `ai_moderation_record.content_snapshot` |
 | `admin.ai.modelConfig.baseUrl/modelName` | `ai_model_config.base_url / model_name` |
