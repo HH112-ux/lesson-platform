@@ -4,9 +4,12 @@ import com.lp.learn.client.CourseInternalClient;
 import com.lp.learn.client.CourseSnapshot;
 import com.lp.learn.dto.MyCourseView;
 import com.lp.learn.dto.PageView;
+import com.lp.learn.entity.LearningProgress;
 import com.lp.learn.entity.UserEntitlement;
+import com.lp.learn.mapper.LearningProgressMapper;
 import com.lp.learn.mapper.UserEntitlementMapper;
 import com.lp.learn.service.MyCourseService;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -20,6 +23,11 @@ import org.springframework.stereotype.Service;
  * course-service internal batch API. Entitlements whose course disappeared are skipped instead of
  * failing the whole page.
  *
+ * <p>{@code progressPercent} is the completed lesson count divided by the live lesson count and
+ * rounded half up to an integer, capped at 100. A course without live lessons reports 0. {@code
+ * lastLessonId} is the lesson of the most recently updated progress row, or {@code null} before the
+ * first report.
+ *
  * @author Caspian
  * @since 0.1.0
  */
@@ -30,7 +38,11 @@ public class MyCourseServiceImpl implements MyCourseService {
 
     private static final int MAX_PAGE_SIZE = 100;
 
+    private static final int FULL_PERCENT = 100;
+
     private final UserEntitlementMapper userEntitlementMapper;
+
+    private final LearningProgressMapper learningProgressMapper;
 
     private final CourseInternalClient courseInternalClient;
 
@@ -38,14 +50,17 @@ public class MyCourseServiceImpl implements MyCourseService {
      * Creates the service with its dependencies.
      *
      * @param userEntitlementMapper entitlement persistence
+     * @param learningProgressMapper progress reader
      * @param courseInternalClient course display reader
      * @author Caspian
      * @since 0.1.0
      */
     public MyCourseServiceImpl(
             UserEntitlementMapper userEntitlementMapper,
+            LearningProgressMapper learningProgressMapper,
             CourseInternalClient courseInternalClient) {
         this.userEntitlementMapper = userEntitlementMapper;
+        this.learningProgressMapper = learningProgressMapper;
         this.courseInternalClient = courseInternalClient;
     }
 
@@ -81,6 +96,15 @@ public class MyCourseServiceImpl implements MyCourseService {
                 courseInternalClient.courses(courseIds).stream()
                         .collect(
                                 Collectors.toMap(CourseSnapshot::getCourseId, Function.identity()));
+        Map<Long, Integer> completedCounts = new HashMap<>();
+        Map<Long, Long> lastLessonIds = new HashMap<>();
+        for (LearningProgress progress :
+                learningProgressMapper.selectByUserCourses(userId, courseIds)) {
+            lastLessonIds.putIfAbsent(progress.getCourseId(), progress.getLessonId());
+            if (progress.getCompleted() != null && progress.getCompleted() == 1) {
+                completedCounts.merge(progress.getCourseId(), 1, Integer::sum);
+            }
+        }
         List<MyCourseView> records =
                 entitlements.stream()
                         .map(
@@ -93,11 +117,22 @@ public class MyCourseServiceImpl implements MyCourseService {
                                             course.getCourseId(),
                                             course.getTitle(),
                                             course.getCoverUrl(),
-                                            0,
-                                            null);
+                                            percent(
+                                                    completedCounts.getOrDefault(
+                                                            course.getCourseId(), 0),
+                                                    course.getLessonCount()),
+                                            lastLessonIds.get(course.getCourseId()));
                                 })
                         .filter(view -> view != null)
                         .toList();
         return new PageView<>(safePageNum, safePageSize, total, records);
+    }
+
+    private static int percent(int completedLessons, int lessonCount) {
+        if (lessonCount <= 0) {
+            return 0;
+        }
+        long rounded = Math.round(completedLessons * (double) FULL_PERCENT / lessonCount);
+        return (int) Math.min(rounded, FULL_PERCENT);
     }
 }

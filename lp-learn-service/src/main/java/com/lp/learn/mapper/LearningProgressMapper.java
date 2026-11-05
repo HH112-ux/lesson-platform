@@ -73,4 +73,28 @@ public interface LearningProgressMapper {
                     + "ORDER BY lesson_id")
     List<LearningProgress> selectByUserCourse(
             @Param("userId") long userId, @Param("courseId") long courseId);
+
+    /**
+     * Loads every reported lesson of one student across a page of courses.
+     *
+     * <p>Rows are ordered by course and by latest report first, so the caller can take the first
+     * row of each course as the resume point without a second query.
+     *
+     * @param userId student user id
+     * @param courseIds course ids of the current page, must not be empty
+     * @return rows ordered by {@code course_id, updated_at DESC, lesson_id DESC}, possibly empty
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Select(
+            "<script>SELECT id, user_id AS userId, course_id AS courseId, lesson_id AS lessonId, "
+                    + "position_seconds AS positionSeconds, "
+                    + "max_position_seconds AS maxPositionSeconds, completed, "
+                    + "updated_at AS updatedAt FROM learning_progress "
+                    + "WHERE user_id = #{userId} AND deleted = 0 AND course_id IN "
+                    + "<foreach collection='courseIds' item='id' open='(' separator=',' close=')'>"
+                    + "#{id}</foreach> "
+                    + "ORDER BY course_id, updated_at DESC, lesson_id DESC</script>")
+    List<LearningProgress> selectByUserCourses(
+            @Param("userId") long userId, @Param("courseIds") List<Long> courseIds);
 }

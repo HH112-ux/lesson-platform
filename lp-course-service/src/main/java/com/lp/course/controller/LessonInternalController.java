@@ -45,7 +45,8 @@ public class LessonInternalController {
      * @since 0.1.0
      */
     @GetMapping("/{lessonId}")
-    public Result<LessonPlayView> play(@PathVariable long lessonId, HttpServletRequest request) {
+    public Result<LessonPlayView> play(
+            @PathVariable("lessonId") long lessonId, HttpServletRequest request) {
         return Result.ok(courseInternalService.lessonForPlay(lessonId), TraceIds.resolve(request));
     }
 }

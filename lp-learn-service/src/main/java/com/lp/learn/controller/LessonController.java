@@ -53,7 +53,7 @@ public class LessonController {
      */
     @GetMapping("/{lessonId}/play-token")
     public Result<PlayTokenView> playToken(
-            @PathVariable long lessonId,
+            @PathVariable("lessonId") long lessonId,
             @RequestHeader(value = IdentityHeaders.USER_ID, required = false) Long userId,
             HttpServletRequest request) {
         if (userId == null || userId <= 0) {
