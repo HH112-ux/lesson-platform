@@ -16,7 +16,9 @@ import com.lp.common.exception.BizException;
 import com.lp.trade.domain.OrderStatus;
 import com.lp.trade.domain.PaymentChannel;
 import com.lp.trade.domain.PaymentStatus;
+import com.lp.trade.dto.PayView;
 import com.lp.trade.dto.PaymentNotification;
+import com.lp.trade.dto.PrepayResult;
 import com.lp.trade.entitlement.EntitlementService;
 import com.lp.trade.entity.PaymentRecord;
 import com.lp.trade.entity.TradeOrder;
@@ -25,6 +27,7 @@ import com.lp.trade.mapper.PaymentMapper;
 import com.lp.trade.mapper.TradeOrderMapper;
 import com.lp.trade.payment.PaymentGateway;
 import com.lp.trade.payment.SignatureVerifier;
+import com.lp.trade.payment.UnconfiguredPaymentGateway;
 import com.lp.trade.payment.UnconfiguredSignatureVerifier;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -206,6 +209,78 @@ class PaymentServiceImplTest {
                         () -> paymentService.initiate(USER_ID, "web", ORDER_NO));
 
         assertEquals(40401, exception.getCode());
+        verifyNoInteractions(paymentMapper, paymentGateway);
+    }
+
+    /**
+     * A payable order receives the gateway payload and a new payment attempt is persisted.
+     *
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Test
+    void initiateReturnsGatewayPrepayPayload() {
+        when(tradeOrderMapper.selectByOrderNo(ORDER_NO)).thenReturn(order());
+        when(paymentMapper.selectLatestByOrderId(ORDER_ID)).thenReturn(null);
+        when(paymentMapper.insertPayment(any(PaymentRecord.class))).thenReturn(1);
+        when(paymentGateway.prepay(any(PaymentRecord.class)))
+                .thenReturn(
+                        new PrepayResult(
+                                "PY1", PaymentChannel.ALIPAY, Map.of("orderInfo", "form")));
+
+        PayView view = paymentService.initiate(USER_ID, "web", ORDER_NO);
+
+        assertEquals("PY1", view.getPayNo());
+        assertEquals(PaymentChannel.ALIPAY, view.getChannel());
+        assertEquals("form", view.getPayParams().get("orderInfo"));
+        verify(paymentMapper, times(1)).insertPayment(any(PaymentRecord.class));
+    }
+
+    /**
+     * Without configured credentials payment initiation fails explicitly, never with a payload.
+     *
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Test
+    void unconfiguredGatewayFailsExplicitly() {
+        PaymentServiceImpl unconfiguredGateway =
+                new PaymentServiceImpl(
+                        tradeOrderMapper,
+                        paymentMapper,
+                        new UnconfiguredPaymentGateway(),
+                        signatureVerifier,
+                        entitlementService);
+        when(tradeOrderMapper.selectByOrderNo(ORDER_NO)).thenReturn(order());
+        when(paymentMapper.selectLatestByOrderId(ORDER_ID)).thenReturn(null);
+        when(paymentMapper.insertPayment(any(PaymentRecord.class))).thenReturn(1);
+
+        BizException exception =
+                assertThrows(
+                        BizException.class,
+                        () -> unconfiguredGateway.initiate(USER_ID, "web", ORDER_NO));
+
+        assertEquals(50205, exception.getCode());
+    }
+
+    /**
+     * A closed order cannot start a new payment.
+     *
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Test
+    void rejectsClosedOrder() {
+        TradeOrder closedOrder = order();
+        closedOrder.setStatus(OrderStatus.CLOSED);
+        when(tradeOrderMapper.selectByOrderNo(ORDER_NO)).thenReturn(closedOrder);
+
+        BizException exception =
+                assertThrows(
+                        BizException.class,
+                        () -> paymentService.initiate(USER_ID, "web", ORDER_NO));
+
+        assertEquals(62001, exception.getCode());
         verifyNoInteractions(paymentMapper, paymentGateway);
     }
 
