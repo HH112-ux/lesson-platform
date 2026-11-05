@@ -49,6 +49,9 @@ public enum ErrorCode {
     /** Third-party channel failure, for example a payment provider. */
     CHANNEL_UPSTREAM_ERROR(50201, "upstream channel error"),
 
+    /** Payment credentials or signature verifier are not configured on this deployment. */
+    PAYMENT_NOT_CONFIGURED(50205, "payment channel is not configured"),
+
     /** AI pipeline unavailable or not configured. */
     AI_PIPELINE_UNAVAILABLE(50301, "ai pipeline unavailable"),
 
@@ -66,6 +69,15 @@ public enum ErrorCode {
 
     /** Payment channel does not match the request source platform. */
     TRADE_CHANNEL_SOURCE_MISMATCH(62005, "payment channel does not match request source"),
+
+    /** The order has passed its payment deadline and was closed. */
+    ORDER_EXPIRED(62002, "order has expired"),
+
+    /** The amount reported by the channel differs from the amount fixed on the order. */
+    PAYMENT_AMOUNT_MISMATCH(62009, "payment amount mismatch"),
+
+    /** The callback channel differs from the channel fixed on the order. */
+    PAYMENT_CHANNEL_MISMATCH(62010, "payment channel mismatch"),
 
     /** Learning domain failure. */
     LEARN_BIZ_ERROR(63001, "learning operation failed"),
