@@ -61,6 +61,9 @@ lp:
       - /api/v1/auth/login
       - /api/v1/auth/refresh
       - /api/v1/auth/logout
+      # Local mock payment provider callback: opened by the browser as a redirect, so it carries
+      # no access token. The HMAC signature is the credential and is verified by trade-service.
+      - /api/v1/payments/mock/callback
       - /actuator/**
       - /error
     # Catalog pages are readable without a token; a valid token is still verified so the
