@@ -69,6 +69,26 @@ gh auth setup-git            # 注册 gh auth git-credential 作为凭据助手
 
 Node 与 pnpm 版本以根目录 `package.json` 的 `packageManager` 字段为准，Node 版本同时写入 `.nvmrc`（22），与 CI 的 `actions/setup-node` 保持一致。
 
+### 1.1 第一天：启用仓库钩子（必做一次）
+
+```bash
+bash scripts/install-hooks.sh   # 等价于 git config core.hooksPath .githooks
+```
+
+启用后每次 `git commit` 会执行：
+
+| 钩子 | 行为 |
+|---|---|
+| `pre-commit` | 始终跑 `scripts/check-docs.sh`；**暂存区含 `*.java` 时**再跑 `timeout 180 ./mvnw -B -q spotless:check` |
+| `commit-msg` | 跑 `scripts/check-commit-msg.sh` 校验提交信息格式 |
+
+要点：
+
+- Java 格式门禁的 ratchet 基线是 `origin/develop`，钩子会先 `git fetch --quiet origin develop`；fetch 失败只打印一行警告、不阻断提交，CI 仍会做最终判定。
+- 校验只检查不修改：失败时列出本次暂存的 Java 文件并提示 `./mvnw spotless:apply`，修完必须重新 `git add` 再提交；钩子不会自动格式化，也不会自动暂存。
+- 只暂存 `*.md` 或前端文件时立即通过，不触发 Maven。
+- `--no-verify` 属于需要说明理由的例外，不能作为常态；钩子未启用也不能作为跳过 CI 的理由。
+
 ## 2. 仓库结构与当前状态
 
 ```text
@@ -294,7 +314,7 @@ node apps/miniapp/scripts/check.mjs
 | 共享包 | `pnpm -C packages/shared lint` 与 `typecheck` 与 `test` | `@lp/shared` 类型与常量 |
 | 本地依赖 | `bash scripts/smoke/run-all.sh` | MySQL / Redis / RocketMQ / MinIO / Nacos 逐项通过或失败 |
 | 迁移 | `bash scripts/flyway.sh info all`（或 `migrate all`） | 七库封装，目标库或迁移目录名均可 |
-| 钩子 | `bash scripts/install-hooks.sh` | 设置 `core.hooksPath=.githooks` 并打印验证结果 |
+| 钩子 | `bash scripts/install-hooks.sh` | 设置 `core.hooksPath=.githooks`；启用后 `pre-commit` 含 Java 格式门禁 |
 | 小程序 | `node apps/miniapp/scripts/check.mjs` | 与 CI 的 `miniapp-check` 一致 |
 
 ## 8. 常见问题
