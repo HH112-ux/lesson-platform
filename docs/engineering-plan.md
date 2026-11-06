@@ -1028,6 +1028,35 @@ erDiagram
 
 **内部接口（不经网关对外）**：`/internal/v1/**` 仅供服务间调用，trade-service 用它校验课程可售与下单取价；网关只路由 `/api/v1/**`，内部接口不得加入网关白名单。`status` 语义固定为 0 草稿 / 1 待审核 / 2 已上架 / 3 已下架，内部接口对已下架课程返回 `status=3` 而不是 `40401`，由调用方判定是否可售。
 
+**内部接口鉴权（X-Internal-Token）**：course / learn / trade 的 `/internal/v1/**` 统一校验请求头 `X-Internal-Token`。期望值只来自环境变量 `LP_INTERNAL_TOKEN`（配置项 `lp.internal.token` 无默认值），缺失时服务**启动失败**而不是以开放状态运行；缺失或不匹配的请求返回 HTTP `401` 与错误码 `40101`，比较使用常量时间算法避免时序泄露。调用方（trade → course/learn、learn → course）在 `RestClient` 上统一设置该 header。token 禁止写入 `application.yml`、代码、日志与镜像，生产值由 K8s Secret 注入。
+
+**K8s NetworkPolicy 示例（仅示意，未部署）**：NetworkPolicy 只能按 Pod/端口隔离，无法识别路径，因此它是纵深防御的第二层，不能替代 `X-Internal-Token`。
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: course-service-internal-ingress
+  namespace: lp
+spec:
+  podSelector:
+    matchLabels:
+      app: course-service
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: trade-service
+        - podSelector:
+            matchLabels:
+              app: learn-service
+      ports:
+        - protocol: TCP
+          port: 8102
+```
+
+
 **CourseCard**：`{id,title,subtitle,coverUrl,price,originalPrice,instructorName,level,salesCount}`。
 
 ## 5.5 交易域（trade-service）

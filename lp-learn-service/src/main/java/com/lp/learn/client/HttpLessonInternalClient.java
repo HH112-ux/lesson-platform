@@ -2,9 +2,11 @@ package com.lp.learn.client;
 
 import com.lp.common.exception.BizException;
 import com.lp.common.exception.ErrorCode;
+import com.lp.common.internal.InternalHeaders;
 import com.lp.common.result.Result;
 import com.lp.learn.config.LearnProperties;
 import com.lp.learn.dto.LessonPlayInfo;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
@@ -32,15 +34,18 @@ public class HttpLessonInternalClient implements LessonInternalClient {
      * Creates the client from learn configuration.
      *
      * @param learnProperties course-service address and read timeout
+     * @param internalToken shared secret required by the course-service internal API
      * @author Caspian
      * @since 0.1.0
      */
-    public HttpLessonInternalClient(LearnProperties learnProperties) {
+    public HttpLessonInternalClient(
+            LearnProperties learnProperties, @Value("${lp.internal.token}") String internalToken) {
         JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory();
         factory.setReadTimeout(learnProperties.getCourseReadTimeout());
         this.restClient =
                 RestClient.builder()
                         .baseUrl(learnProperties.getCourseBaseUrl())
+                        .defaultHeader(InternalHeaders.INTERNAL_TOKEN, internalToken)
                         .requestFactory(factory)
                         .build();
     }

@@ -1,5 +1,6 @@
 package com.lp.learn;
 
+import com.lp.common.internal.InternalTokenConfig;
 import com.lp.common.web.GlobalExceptionHandler;
 import com.lp.learn.config.LearnProperties;
 import org.mybatis.spring.annotation.MapperScan;
@@ -22,7 +23,7 @@ import org.springframework.context.annotation.Import;
 @SpringBootApplication
 @MapperScan("com.lp.learn.mapper")
 @EnableConfigurationProperties(LearnProperties.class)
-@Import(GlobalExceptionHandler.class)
+@Import({GlobalExceptionHandler.class, InternalTokenConfig.class})
 public class LearnServiceApplication {
 
     /**

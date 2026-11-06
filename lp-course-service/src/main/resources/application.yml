@@ -28,6 +28,11 @@ spring:
         import-check:
           enabled: false
 
+lp:
+  internal:
+    # Shared secret for /internal/v1/**; no default, so a missing LP_INTERNAL_TOKEN fails startup.
+    token: ${LP_INTERNAL_TOKEN}
+
 management:
   endpoints:
     web:

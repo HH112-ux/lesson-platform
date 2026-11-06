@@ -40,6 +40,9 @@ lp:
     minio-access-key: ${LP_MINIO_ACCESS_KEY:${LP_MINIO_ROOT_USER:lpminio}}
     minio-secret-key: ${LP_MINIO_SECRET_KEY:${LP_MINIO_ROOT_PASSWORD:lp_minio_dev}}
     minio-bucket: ${LP_MINIO_BUCKET:lp-media}
+  internal:
+    # Shared secret for /internal/v1/**; no default, so a missing LP_INTERNAL_TOKEN fails startup.
+    token: ${LP_INTERNAL_TOKEN}
 
 management:
   endpoints:

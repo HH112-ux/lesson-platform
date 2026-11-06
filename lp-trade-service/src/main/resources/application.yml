@@ -39,6 +39,9 @@ lp:
     # Eventual consistency window: a pending grant is delivered within one relay delay.
     outbox-relay-delay-ms: ${LP_ENTITLEMENT_RELAY_DELAY_MS:5000}
     outbox-max-retries: ${LP_ENTITLEMENT_MAX_RETRIES:10}
+  internal:
+    # Shared secret for /internal/v1/**; no default, so a missing LP_INTERNAL_TOKEN fails startup.
+    token: ${LP_INTERNAL_TOKEN}
 
 management:
   endpoints:
