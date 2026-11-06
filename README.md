@@ -50,6 +50,16 @@ bash scripts/dev-down.sh --volumes   # 连数据卷一起清空
 
 数据库端口沿用 `infra/.env` 的 `LP_MYSQL_PORT`（本机为 3307），容器内服务通过 `mysql:3306` 互访。
 
+## 一条命令验收
+
+```bash
+bash scripts/verify-all.sh
+```
+
+依次执行：起栈（`dev-up.sh`）→ 冒烟（`smoke.sh`）→ outbox 故障演练 → 退款闭环演练 → 清理演练数据，最后输出每一步的 `PASS` / `FAIL` / `SKIPPED` 与总耗时。任一步失败立即停止，打印失败步骤的日志路径与末尾 40 行，并保留演练数据供排查；全部通过则删除演练创建的课程、订单、支付、退款、权益、进度与审计行，可重复执行。
+
+日志写入 `logs/verify-<时间戳>/<步骤>.log`（已被 `.gitignore` 忽略）。栈已在运行时可用 `LP_VERIFY_SKIP_UP=1 bash scripts/verify-all.sh` 跳过起栈，`dev-up` 一步记为 `SKIPPED`。
+
 ## 冒烟
 
 ```bash
