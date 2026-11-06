@@ -26,6 +26,8 @@ public class CourseInternalView {
 
     private final long lessonCount;
 
+    private final String instructorName;
+
     /**
      * Creates a fully populated projection.
      *
@@ -36,6 +38,7 @@ public class CourseInternalView {
      * @param status 0 draft, 1 pending review, 2 published, 3 offline
      * @param teacherId owning teacher id
      * @param lessonCount number of live lessons
+     * @param instructorName instructor display name, may be {@code null}
      * @author Caspian
      * @since 0.1.0
      */
@@ -46,7 +49,8 @@ public class CourseInternalView {
             long price,
             int status,
             long teacherId,
-            long lessonCount) {
+            long lessonCount,
+            String instructorName) {
         this.courseId = courseId;
         this.title = title;
         this.coverUrl = coverUrl;
@@ -54,6 +58,7 @@ public class CourseInternalView {
         this.status = status;
         this.teacherId = teacherId;
         this.lessonCount = lessonCount;
+        this.instructorName = instructorName;
     }
 
     /**
@@ -131,5 +136,16 @@ public class CourseInternalView {
      */
     public long getLessonCount() {
         return lessonCount;
+    }
+
+    /**
+     * Returns the instructor display name.
+     *
+     * @return display name, {@code null} when no profile is linked
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public String getInstructorName() {
+        return instructorName;
     }
 }

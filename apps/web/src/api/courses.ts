@@ -99,6 +99,9 @@ export interface ChapterLesson {
   title: string
   free?: boolean
   sort?: number
+  durationSec?: number
+  /** False when the backend hides the lesson from the current visitor. */
+  playable?: boolean
 }
 
 /** Chapter with its lessons. */
@@ -110,6 +113,9 @@ export interface ChapterNode {
 
 /** Response of {@code GET /api/v1/courses/{courseId}/chapters}. */
 export interface ChapterList {
+  courseId?: number
+  /** True when the visitor already owns the course. */
+  owned?: boolean
   chapters: ChapterNode[]
 }
 

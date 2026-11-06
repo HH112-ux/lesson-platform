@@ -82,4 +82,22 @@ public interface UserEntitlementMapper {
                     + "AND course_id = #{courseId} AND deleted = 0 "
                     + "AND (expire_at IS NULL OR expire_at > CURRENT_TIMESTAMP(3))")
     long countActive(@Param("userId") long userId, @Param("courseId") long courseId);
+
+    /**
+     * Returns the subset of the given course ids the user actively owns.
+     *
+     * @param userId student user id
+     * @param courseIds candidate course ids, must not be empty
+     * @return owned course ids
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Select(
+            "<script>SELECT course_id FROM user_entitlement WHERE user_id = #{userId} "
+                    + "AND deleted = 0 AND (expire_at IS NULL OR expire_at > CURRENT_TIMESTAMP(3)) "
+                    + "AND course_id IN "
+                    + "<foreach collection='courseIds' item='id' open='(' separator=',' close=')'>"
+                    + "#{id}</foreach></script>")
+    List<Long> selectActiveCourseIds(
+            @Param("userId") long userId, @Param("courseIds") List<Long> courseIds);
 }

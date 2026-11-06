@@ -6,6 +6,7 @@ import com.lp.learn.entity.UserEntitlement;
 import com.lp.learn.mapper.UserEntitlementMapper;
 import com.lp.learn.service.EntitlementService;
 import java.time.LocalDateTime;
+import java.util.List;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -78,5 +79,22 @@ public class EntitlementServiceImpl implements EntitlementService {
     @Override
     public boolean hasEntitlement(long userId, long courseId) {
         return userEntitlementMapper.countActive(userId, courseId) > 0;
+    }
+
+    /**
+     * Returns the subset of the given course ids the student actively owns.
+     *
+     * @param userId student user id
+     * @param courseIds candidate course ids
+     * @return owned ids, empty when the input is empty or nothing matches
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Override
+    public List<Long> ownedCourseIds(long userId, List<Long> courseIds) {
+        if (courseIds == null || courseIds.isEmpty()) {
+            return List.of();
+        }
+        return userEntitlementMapper.selectActiveCourseIds(userId, courseIds);
     }
 }

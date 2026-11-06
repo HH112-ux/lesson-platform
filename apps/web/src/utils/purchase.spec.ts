@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { ApiError } from '../api/client'
-import { describePurchaseError, readTicket } from './purchase'
+import { describePurchaseError, formatPrice, readTicket } from './purchase'
 
 describe('readTicket', () => {
   it('reads a ticket from the query string', () => {
@@ -38,5 +38,12 @@ describe('describePurchaseError', () => {
       '网络连接失败，请检查网络后重试',
     )
     expect(describePurchaseError(new Error('boom'))).toBe('boom')
+  })
+})
+
+describe('formatPrice', () => {
+  it('formats yuan with two decimals', () => {
+    expect(formatPrice(99)).toBe('99.00')
+    expect(formatPrice(undefined)).toBe('--')
   })
 })

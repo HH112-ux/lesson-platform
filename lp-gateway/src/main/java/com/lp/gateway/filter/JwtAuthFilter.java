@@ -102,10 +102,14 @@ public class JwtAuthFilter implements GlobalFilter, Ordered {
         if (isWhitelisted(path)) {
             return chain.filter(exchange);
         }
+        boolean optional = isOptionalAuth(path);
 
         String token =
                 bearerToken(exchange.getRequest().getHeaders().getFirst(HttpHeaders.AUTHORIZATION));
         if (token == null) {
+            if (optional) {
+                return chain.filter(exchange);
+            }
             return onFailure(exchange, chain, 40101, "missing credentials or identity", "absent");
         }
 
@@ -113,8 +117,14 @@ public class JwtAuthFilter implements GlobalFilter, Ordered {
         try {
             user = jwtVerifier.verify(token);
         } catch (ExpiredJwtException ex) {
+            if (optional) {
+                return chain.filter(exchange);
+            }
             return onFailure(exchange, chain, 40102, "credential expired", "expired");
         } catch (JwtException | IllegalArgumentException ex) {
+            if (optional) {
+                return chain.filter(exchange);
+            }
             return onFailure(exchange, chain, 40101, "missing credentials or identity", "invalid");
         }
 
@@ -299,6 +309,23 @@ public class JwtAuthFilter implements GlobalFilter, Ordered {
      */
     private boolean isWhitelisted(String path) {
         for (String pattern : properties.getWhitelist()) {
+            if (pathMatcher.match(pattern, path)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Tells whether a path accepts anonymous callers while still honouring a valid token.
+     *
+     * @param path request path
+     * @return {@code true} when an optional-auth pattern matches
+     * @author Caspian
+     * @since 0.1.0
+     */
+    private boolean isOptionalAuth(String path) {
+        for (String pattern : properties.getOptionalAuth()) {
             if (pathMatcher.match(pattern, path)) {
                 return true;
             }
