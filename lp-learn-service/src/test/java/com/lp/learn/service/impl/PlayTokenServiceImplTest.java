@@ -156,6 +156,7 @@ class PlayTokenServiceImplTest {
         info.setVideoObjectKey("media/lesson-5.mp4");
         info.setDurationSec(600);
         info.setFree(free);
+        info.setCourseStatus(2);
         return info;
     }
 }

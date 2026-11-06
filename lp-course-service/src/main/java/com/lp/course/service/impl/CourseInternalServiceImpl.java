@@ -132,7 +132,8 @@ public class CourseInternalServiceImpl implements CourseInternalService {
                 lesson.getCourseId(),
                 lesson.getVideoUrl(),
                 lesson.getVideoDurationSec() == null ? 0 : lesson.getVideoDurationSec(),
-                lesson.getIsFree() != null && lesson.getIsFree() == 1);
+                lesson.getIsFree() != null && lesson.getIsFree() == 1,
+                lesson.getCourseStatus() == null ? STATUS_DRAFT : lesson.getCourseStatus());
     }
 
     /**

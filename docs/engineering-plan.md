@@ -947,7 +947,7 @@ erDiagram
 | 40301 | 无权限 | 角色/归属校验失败 |
 | 40302 | 未购买该课程 | 播放签名与学习接口校验权益失败 |
 | 40303 | 已停用（保留编码） | 教师越权统一返回 `40301`，该码不再下发 |
-| 40401 | 资源不存在 | — |
+| 40401 | 资源不存在（含对无权益用户不可见的已下架课程） | — |
 | 40901 | 状态冲突 | 重复购买、订单状态不允许、课程状态不允许、注册账号重复 |
 | 42901 | 请求过于频繁 | 网关限流 |
 | 50001 | 系统异常 | 未捕获异常 |
@@ -1017,8 +1017,8 @@ erDiagram
 | GET | `/api/v1/categories/tree` | 分类树（后台/运营） | — | `[{id,name,children[]}]` | — |
 | GET | `/api/v1/categories` | 公开分类列表（可选鉴权） | — | `[{categoryId,name,slug}]`，仅 `status=1` 且未删除 | — |
 | GET | `/api/v1/courses` | 公开课程列表（可选鉴权） | query:`category`(分类 id 或 slug)、`keyword`、`page`(默认 1)、`size`(默认 20，上限 100) | `{items:[{courseId,title,coverUrl,price,status,lessonCount,instructorName,owned}],total,page,size}`；仅返回 `status=2`；未登录可访问，登录态 `owned` 标记已购 | 40001 |
-| GET | `/api/v1/courses/{courseId}` | 详情（购买页，可选鉴权） | — | `{courseId,title,coverUrl,price,status,lessonCount,instructorName,owned}`；价格单位分，已下架返回 `status=3`，草稿/待审核返回 `40401`；未登录可访问，不需要 `X-Internal-Token` | 40401 |
-| GET | `/api/v1/courses/{courseId}/chapters` | 章节目录（可选鉴权） | — | `{courseId,owned,chapters:[{chapterId,title,sort,lessons:[{lessonId,title,isFree,durationSec,sort,playable}]}]}`；仅 `status=2` 课程可读，草稿/待审核/已下架返回 `40401`；`playable = owned || isFree`，视频对象键不下发 | 40401 |
+| GET | `/api/v1/courses/{courseId}` | 详情（购买页，可选鉴权） | — | `{courseId,title,coverUrl,price,status,lessonCount,instructorName,owned}`；价格单位分；已下架（`status=3`）对无权益用户返回 `40401`，对已持有权益用户正常返回 `status=3`；草稿/待审核一律 `40401`；未登录可访问，不需要 `X-Internal-Token` | 40401 |
+| GET | `/api/v1/courses/{courseId}/chapters` | 章节目录（可选鉴权） | — | `{courseId,owned,chapters:[{chapterId,title,sort,lessons:[{lessonId,title,isFree,durationSec,sort,playable}]}]}`；仅 `status=2` 课程或本人已持有权益的已下架课程可读，其余（草稿/待审核/无权益的下架课）返回 `40401`；`playable = owned || isFree`，视频对象键不下发 | 40401 |
 | GET | `/api/v1/courses/{courseId}/comments` | 评论分页 | query:`pageNum,pageSize` | 分页 `{records:[{id,nickname,avatarUrl,content,likeCount,createdAt,replies[]}]}` | 40401 |
 | POST | `/api/v1/courses/{courseId}/favorite` | 收藏课程 | `{}` | `{favorited:true}` | 40101,40401 |
 | DELETE | `/api/v1/courses/{courseId}/favorite` | 取消收藏 | — | `{favorited:false}` | 40101 |
@@ -1107,7 +1107,9 @@ spec:
 | POST | `/api/v1/learning/progress` | 上报进度（`watched_sec` 由服务端累加，完成态按 `watched_sec ≥ 课时时长 90%` 重算，请求不可直接置完成，15.2 D7） | `{lessonId,positionSeconds}` | `{lessonId,positionSeconds,maxPositionSeconds,watchedSeconds,completed,truncated,updatedAt}` | 40302,40401,63001 |
 | GET | `/api/v1/learning/progress` | 课程进度 | query:`courseId` | `{courseId,lessons:[{lessonId,positionSeconds,maxPositionSeconds,watchedSeconds,completed,updatedAt}]}` | 40302,40401 |
 
-> **免费试听开关（`lp.learn.free-preview-enabled`，默认 `true`）**：`true` 时 `is_free=1` 的课时未购也可取播放地址与上报进度；置为 `false` 后**所有课时一律校验权益**，免费课时未购同样返回 `40302`，用于试听内容被滥用时的紧急刹车。`is_free` 放行判断收敛在 `LessonAccessGuard` 单一方法中，播放签名与进度上报共用，避免两处逻辑漂移。开关可经环境变量 `LP_FREE_PREVIEW_ENABLED=false` 或配置中心热更新，回滚只需改回 `true`，不涉及数据与迁移。
+> **下架课程可见性（与 5.4 详情/目录同一口径）**：所属课程 `status != 2` 且用户未持有权益时，播放取签名与进度上报一律返回 `40401`，即使该课时 `is_free=1`；已持有权益的用户不受影响，仍可继续学习。判定依据是 `user_entitlement`，与角色无关。
+>
+> **免费试听开关（`lp.learn.free-preview-enabled`，默认 `true`）**：`true` 时 `is_free=1` 的课时未购也可取播放地址与上报进度；置为 `false` 后**所有课时一律校验权益**，免费课时未购同样返回 `40302`，用于试听内容被滥用时的紧急刹车。开关只作用于 `status=2` 的已上架课程，不能绕过上一条下架可见性规则。`is_free` 放行判断收敛在 `LessonAccessGuard` 单一方法中，播放签名与进度上报共用，避免两处逻辑漂移。开关可经环境变量 `LP_FREE_PREVIEW_ENABLED=false` 或配置中心热更新，回滚只需改回 `true`，不涉及数据与迁移。
 
 **权益一致性（trade → learn）**：`trade_order` 与 `user_entitlement` 分属 `lp_oms` / `lp_lms`。下单与支付回调事务内**不跨服务 HTTP**，而是在同一事务写入本地消息表 `entitlement_outbox`（唯一 `uk_order_course(order_id, course_id)`）；`trade-service` 的定时中继（默认 5 秒延迟、失败指数退避、最多 10 次）调用 `POST /internal/v1/entitlements` 投递给 `learn-service`，由 `uk_user_course(user_id, course_id)` 吸收重复投递。投递为**最终一致、至少一次**：学习权益可见最多滞后一个中继周期；中继放弃（`status=2`）的记录需人工对账补发。
 

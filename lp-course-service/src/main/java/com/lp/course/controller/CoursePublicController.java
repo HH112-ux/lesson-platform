@@ -74,8 +74,8 @@ public class CoursePublicController {
      * @param courseId course primary key
      * @param userId gateway injected user id, absent when anonymous
      * @param request current request, used to resolve the trace id
-     * @return public course detail, {@code 40401} when absent; offline courses return {@code
-     *     status=3}
+     * @return public course detail; {@code 40401} when the course is absent, not published, or
+     *     offline and not owned by the caller
      * @author Caspian
      * @since 0.1.0
      */
@@ -93,7 +93,8 @@ public class CoursePublicController {
      * @param courseId course primary key
      * @param userId gateway injected user id, absent when anonymous
      * @param request current request, used to resolve the trace id
-     * @return syllabus, {@code 40401} when the course is absent or not published
+     * @return syllabus; {@code 40401} when the course is absent, not published, or offline and not
+     *     owned by the caller
      * @author Caspian
      * @since 0.1.0
      */

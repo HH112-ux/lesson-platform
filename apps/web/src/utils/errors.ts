@@ -59,3 +59,18 @@ export function describeError(error: unknown, fallback = '操作失败，请稍�
 export function isUnauthorized(error: unknown): boolean {
   return error instanceof ApiError && (error.code === 40101 || error.code === 40102)
 }
+
+/**
+ * Tells whether the failure means the resource must be treated as absent.
+ *
+ * <p>The course detail endpoint returns {@code 40401} for a course that was taken offline and is
+ * not owned by the caller, so the page shows a dedicated empty state instead of a generic error.</p>
+ *
+ * @param error thrown value
+ * @returns true for {@code 40401}
+ * @author Caspian
+ * @since 0.2.0
+ */
+export function isNotFound(error: unknown): boolean {
+  return error instanceof ApiError && error.code === 40401
+}

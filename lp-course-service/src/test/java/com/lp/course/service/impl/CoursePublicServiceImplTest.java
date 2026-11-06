@@ -98,21 +98,60 @@ class CoursePublicServiceImplTest {
     }
 
     /**
-     * An offline course is returned with {@code status=3} instead of a not-found error.
+     * An offline course looks missing to an anonymous caller.
      *
      * @author Caspian
      * @since 0.1.0
      */
     @Test
-    void keepsOfflineStatusVisible() {
-        when(courseInternalService.course(8L))
-                .thenReturn(
-                        new CourseInternalView(
-                                8L, "Course 8", "cover-8", 19900L, 3, 56L, 6L, "Teacher B"));
+    void hidesOfflineCourseFromAnonymousCaller() {
+        when(courseInternalService.course(8L)).thenReturn(offlineCourse());
 
-        PublicCourseView view = coursePublicService.course(8L, null);
+        BizException exception =
+                assertThrows(BizException.class, () -> coursePublicService.course(8L, null));
+
+        assertEquals(40401, exception.getCode());
+        verify(learnEntitlementClient, never()).ownedCourseIds(anyLong(), anyList());
+    }
+
+    /**
+     * An offline course looks missing to a signed-in caller that does not own it.
+     *
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Test
+    void hidesOfflineCourseFromNonOwner() {
+        when(courseInternalService.course(8L)).thenReturn(offlineCourse());
+        when(learnEntitlementClient.ownedCourseIds(1001L, List.of(8L))).thenReturn(Set.of());
+
+        BizException exception =
+                assertThrows(BizException.class, () -> coursePublicService.course(8L, 1001L));
+
+        assertEquals(40401, exception.getCode());
+    }
+
+    /**
+     * An owner can still open the detail and the outline of an offline course.
+     *
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Test
+    void keepsOfflineCourseReadableForOwner() {
+        when(courseInternalService.course(8L)).thenReturn(offlineCourse());
+        when(learnEntitlementClient.ownedCourseIds(1001L, List.of(8L))).thenReturn(Set.of(8L));
+        when(courseMapper.selectChapters(8L)).thenReturn(List.of(chapter(10L, "Basics", 1)));
+        when(courseMapper.selectLessons(8L))
+                .thenReturn(List.of(lesson(100L, 10L, "Intro", 1, 300, 1)));
+
+        PublicCourseView view = coursePublicService.course(8L, 1001L);
+        CourseSyllabusView syllabus = coursePublicService.syllabus(8L, 1001L);
 
         assertEquals(3, view.getStatus());
+        assertTrue(view.isOwned());
+        assertTrue(syllabus.isOwned());
+        assertEquals(1, syllabus.getChapters().size());
     }
 
     /**
@@ -273,6 +312,17 @@ class CoursePublicServiceImplTest {
         assertEquals(40401, detail.getCode());
         assertEquals(40401, syllabus.getCode());
         verifyNoInteractions(courseMapper);
+    }
+
+    /**
+     * Builds the offline course projection shared by the visibility tests.
+     *
+     * @return course with {@code status=3}
+     * @author Caspian
+     * @since 0.1.0
+     */
+    private CourseInternalView offlineCourse() {
+        return new CourseInternalView(8L, "Course 8", "cover-8", 19900L, 3, 56L, 6L, "Teacher B");
     }
 
     /**

@@ -8,7 +8,7 @@ import {
   type CourseCard,
 } from '../api/courses'
 import { currentRoute, navigate } from '../router'
-import { describeError, isUnauthorized } from '../utils/errors'
+import { describeError, isNotFound, isUnauthorized } from '../utils/errors'
 import { formatCents } from '../utils/format'
 import { isSignedIn } from '../utils/session'
 
@@ -17,6 +17,7 @@ const course = ref<CourseCard | null>(null)
 const loading = ref(true)
 const errorText = ref('')
 const unauthorized = ref(false)
+const notFound = ref(false)
 
 const chapters = ref<ChapterNode[]>([])
 const chaptersError = ref('')
@@ -38,10 +39,12 @@ async function loadCourse(): Promise<void> {
   loading.value = true
   errorText.value = ''
   unauthorized.value = false
+  notFound.value = false
   try {
     course.value = await getCourse(courseId)
   } catch (error) {
     course.value = null
+    notFound.value = isNotFound(error)
     errorText.value = describeError(error)
     unauthorized.value = isUnauthorized(error)
   } finally {
@@ -82,6 +85,14 @@ void loadChapters()
         v-if="loading"
         variant="loading"
         title="正在加载课程…"
+      />
+      <PageState
+        v-else-if="notFound"
+        variant="empty"
+        title="课程已下架或不存在"
+        message="该课程可能已下架，或你没有访问权限。"
+        action-label="返回课程列表"
+        @action="navigate('/courses')"
       />
       <PageState
         v-else-if="errorText"

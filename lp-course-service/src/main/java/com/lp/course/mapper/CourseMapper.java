@@ -244,9 +244,10 @@ public interface CourseMapper {
      * @since 0.1.0
      */
     @Select(
-            "SELECT id, course_id AS courseId, chapter_id AS chapterId, title, "
-                    + "is_free AS isFree, sort, video_url AS videoUrl, "
-                    + "video_duration_sec AS videoDurationSec FROM course_lesson "
-                    + "WHERE id = #{lessonId} AND deleted = 0 AND status = 1 LIMIT 1")
+            "SELECT l.id, l.course_id AS courseId, l.chapter_id AS chapterId, l.title, "
+                    + "l.is_free AS isFree, l.sort, l.video_url AS videoUrl, "
+                    + "l.video_duration_sec AS videoDurationSec, c.status AS courseStatus "
+                    + "FROM course_lesson l JOIN course c ON c.id = l.course_id AND c.deleted = 0 "
+                    + "WHERE l.id = #{lessonId} AND l.deleted = 0 AND l.status = 1 LIMIT 1")
     CourseLesson selectPlayableById(@Param("lessonId") long lessonId);
 }
