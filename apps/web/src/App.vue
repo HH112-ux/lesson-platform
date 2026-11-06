@@ -1,106 +1,56 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import { GATEWAY_HEALTH_PATH } from '@lp/shared'
-import { describeGatewayHealth } from './utils/health'
+import { computed, onMounted, onUnmounted } from 'vue'
+import AppHeader from './components/AppHeader.vue'
+import PageState from './components/PageState.vue'
+import { currentRoute, navigate, syncRoute } from './router'
+import HealthView from './views/HealthView.vue'
+import LoginView from './views/LoginView.vue'
 import PurchaseView from './views/PurchaseView.vue'
 
-// The shell stays dependency free: a single path check is enough while the only real page
-// is the purchase landing opened from the mini program.
-const isPurchaseRoute = window.location.pathname.replace(/\/+$/, '') === '/purchase'
+const focused = computed(() => currentRoute.value.name === 'purchase')
 
-const checking = ref(false)
-const reachable = ref<boolean | null>(null)
-const summary = computed(() =>
-  reachable.value === null ? null : describeGatewayHealth(reachable.value),
-)
-
-// Probes the gateway through the Vite proxy; the timeout keeps the page responsive
-// when the backend is not running yet.
-async function probeGateway(): Promise<void> {
-  checking.value = true
-  try {
-    const response = await fetch(GATEWAY_HEALTH_PATH, {
-      signal: AbortSignal.timeout(5000),
-    })
-    reachable.value = response.ok
-  } catch {
-    reachable.value = false
-  } finally {
-    checking.value = false
-  }
+/** Re-reads the address bar so back and forward keep working without a router library. */
+function onPopState(): void {
+  syncRoute()
 }
+
+onMounted(() => {
+  syncRoute()
+  window.addEventListener('popstate', onPopState)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('popstate', onPopState)
+})
 </script>
 
 <template>
-  <PurchaseView v-if="isPurchaseRoute" />
+  <AppHeader v-if="!focused" />
+
+  <PurchaseView v-if="currentRoute.name === 'purchase'" />
+  <LoginView
+    v-else-if="currentRoute.name === 'login'"
+    mode="login"
+  />
+  <LoginView
+    v-else-if="currentRoute.name === 'register'"
+    mode="register"
+  />
+  <HealthView v-else-if="currentRoute.name === 'health'" />
   <main
     v-else
-    class="page"
+    class="lp-page"
   >
-    <h1>课程平台</h1>
-    <p class="hint">
-      前端骨架已就绪，业务页面待后续批次实现。
-    </p>
-
-    <button
-      type="button"
-      :disabled="checking"
-      @click="probeGateway"
-    >
-      {{ checking ? 'Checking...' : 'Check gateway health' }}
-    </button>
-
-    <p
-      v-if="summary"
-      class="status"
-      :class="{ ok: summary.reachable }"
-    >
-      {{ summary.label }}
-    </p>
+    <div class="lp-container">
+      <section class="lp-card">
+        <PageState
+          variant="empty"
+          title="页面即将上线"
+          message="该页面将在后续批次开放。"
+          action-label="返回首页"
+          @action="navigate('/')"
+        />
+      </section>
+    </div>
   </main>
 </template>
-
-<style scoped>
-.page {
-  max-width: 640px;
-  margin: 96px auto;
-  padding: 0 24px;
-  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
-  color: #1f2329;
-}
-
-h1 {
-  margin: 0 0 12px;
-  font-size: 28px;
-  font-weight: 600;
-}
-
-.hint {
-  margin: 0 0 24px;
-  color: #646a73;
-  line-height: 1.6;
-}
-
-button {
-  padding: 8px 16px;
-  border: 1px solid #d0d3d6;
-  border-radius: 6px;
-  background: #ffffff;
-  font-size: 14px;
-  cursor: pointer;
-}
-
-button:disabled {
-  cursor: progress;
-  color: #8f959e;
-}
-
-.status {
-  margin-top: 16px;
-  color: #8f959e;
-}
-
-.status.ok {
-  color: #1f7a4d;
-}
-</style>
