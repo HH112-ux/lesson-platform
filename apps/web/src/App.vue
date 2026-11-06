@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted } from 'vue'
 import AppHeader from './components/AppHeader.vue'
 import PageState from './components/PageState.vue'
 import { currentRoute, navigate, syncRoute } from './router'
+import CourseListView from './views/CourseListView.vue'
 import HealthView from './views/HealthView.vue'
 import LoginView from './views/LoginView.vue'
 import PurchaseView from './views/PurchaseView.vue'
@@ -37,6 +38,7 @@ onUnmounted(() => {
     mode="register"
   />
   <HealthView v-else-if="currentRoute.name === 'health'" />
+  <CourseListView v-else-if="currentRoute.name === 'home'" />
   <main
     v-else
     class="lp-page"
@@ -44,6 +46,15 @@ onUnmounted(() => {
     <div class="lp-container">
       <section class="lp-card">
         <PageState
+          v-if="currentRoute.name === 'not-found'"
+          variant="empty"
+          title="页面不存在"
+          message="链接可能已失效，请返回首页继续浏览。"
+          action-label="返回首页"
+          @action="navigate('/')"
+        />
+        <PageState
+          v-else
           variant="empty"
           title="页面即将上线"
           message="该页面将在后续批次开放。"
