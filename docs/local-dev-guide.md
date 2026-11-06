@@ -236,6 +236,25 @@ curl -s -X POST http://localhost:8080/api/v1/auth/miniapp-login \
 - `session_key` 只落库供服务端使用，不写日志、不回传；`mock-enabled` 禁止用于 staging/prod。
 - 真实 `jscode2session` 联调待 AppSecret 到位后进行。
 
+### 4.3 交易域 outbox 指标与死信接口（本地）
+
+交易服务（8103）启动后即可查看权益投递积压情况：
+
+```bash
+# 待投递数、放弃数（Gauge，中继每批后与每 15 秒刷新）
+curl -s http://localhost:8103/actuator/prometheus | grep entitlement_outbox
+
+# 列出放弃投递的记录（不经网关，直接打服务端口）
+curl -s 'http://localhost:8103/internal/v1/entitlement-outbox/failed?pageNum=1&pageSize=20'
+
+# 人工重投：复位为待投递，由中继按原退避节奏重新投递
+curl -s -X POST http://localhost:8103/internal/v1/entitlement-outbox/1/retry
+```
+
+- 指标名：`entitlement_outbox_pending`、`entitlement_outbox_failed`；刷新间隔由 `lp.trade.outbox-metrics-delay-ms`（默认 15000）控制。
+- 建议告警：`entitlement_outbox_failed > 0` 持续 5 分钟即处理，说明已放弃投递、需要人工重投或对账。
+- 重投只对 `status=2`（放弃）记录生效，记录不存在或非放弃态返回 `40401`；接口只在内网可达，不经网关转发。
+
 ## 5. Web 前端
 
 ```bash
