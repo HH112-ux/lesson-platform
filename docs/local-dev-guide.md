@@ -211,7 +211,13 @@ curl -s -X POST http://localhost:8080/api/v1/auth/logout \
   -d '{"refreshToken":"<refreshToken>"}'
 
 # 受保护路径缺少 token 返回 40101，token 过期返回 40102
-curl -s http://localhost:8080/api/v1/courses
+curl -s http://localhost:8080/api/v1/orders
+
+# 公开目录：未登录可访问（可选鉴权），带 token 时返回 owned 标记
+curl -s 'http://localhost:8080/api/v1/categories'
+curl -s 'http://localhost:8080/api/v1/courses?category=design&keyword=插画&page=1&size=20'
+curl -s 'http://localhost:8080/api/v1/courses/1' \
+  -H "Authorization: Bearer <accessToken>"
 ```
 
 - 账号需先写入 `lp_ums.sys_user`（密码为 BCrypt 哈希）；M1 当前已实现注册、登录、刷新、退出与小程序 code 登录（默认关闭），找回密码与更多第三方登录在后续切片。
