@@ -687,6 +687,58 @@ class AuthServiceImplTest {
     }
 
     /**
+     * A ticket owner receives a fresh pair without presenting a password.
+     *
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Test
+    void issuesSessionForTicketOwner() {
+        when(authUserMapper.selectById(42L)).thenReturn(account(42L, 1, "unused"));
+
+        RefreshResponse response = authService.issueSession(42L, IdentityHeaders.SOURCE_WEB);
+
+        assertThat(response.getAccessToken()).isNotNull();
+        assertThat(response.getRefreshToken()).isNotNull();
+        assertThat(response.getExpiresIn()).isPositive();
+        assertThat(refreshTokenStore.contains(response.getRefreshToken())).isTrue();
+    }
+
+    /**
+     * A missing account never receives a session.
+     *
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Test
+    void rejectsSessionForUnknownAccount() {
+        when(authUserMapper.selectById(99L)).thenReturn(null);
+
+        assertThatThrownBy(() -> authService.issueSession(99L, IdentityHeaders.SOURCE_WEB))
+                .isInstanceOf(BizException.class)
+                .satisfies(
+                        exception ->
+                                assertThat(((BizException) exception).getCode()).isEqualTo(40101));
+    }
+
+    /**
+     * A disabled account never receives a session.
+     *
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Test
+    void rejectsSessionForDisabledAccount() {
+        when(authUserMapper.selectById(42L)).thenReturn(account(42L, 0, "unused"));
+
+        assertThatThrownBy(() -> authService.issueSession(42L, IdentityHeaders.SOURCE_WEB))
+                .isInstanceOf(BizException.class)
+                .satisfies(
+                        exception ->
+                                assertThat(((BizException) exception).getCode()).isEqualTo(40301));
+    }
+
+    /**
      * Builds an account row.
      *
      * @param id user id
