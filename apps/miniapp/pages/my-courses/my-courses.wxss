@@ -1,7 +1,25 @@
+.title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12rpx;
+}
+
 .name {
+  flex: 1;
   font-size: 30rpx;
   font-weight: 500;
   margin-bottom: 16rpx;
+}
+
+.badge {
+  flex-shrink: 0;
+  margin-bottom: 16rpx;
+  padding: 4rpx 14rpx;
+  border-radius: 999rpx;
+  background: #fff1e8;
+  color: #c2410c;
+  font-size: 22rpx;
 }
 
 .bar {
