@@ -293,6 +293,27 @@ curl -s -X POST http://localhost:8080/api/v1/orders/purchase-ticket/redeem \
 - 兑换成功的响应含 `accessToken/refreshToken/expiresIn/courseId`，浏览器据此建立会话后继续 `POST /api/v1/orders`。
 - 错误码：`62012` 过期、`62013` 已使用、`62014` 不存在、`62015` 归属其他用户；ticket 不会写入日志。
 
+### 4.5 演示种子数据（仅本地演示）
+
+`flyway migrate` 之后执行一次即可得到可端到端演示的数据：3 个分类、3 位讲师、10 门课程（55 章节 / 189 课时，其中 2 门已下架）、3 个账号、2 笔已支付订单与对应权益和进度。
+
+```bash
+bash scripts/flyway.sh migrate all
+bash scripts/seed/seed-demo.sh
+```
+
+- 连接参数沿用 `scripts/flyway.sh` 的默认值（`lp_app` / `lp_app_dev`，端口取 `infra/.env` 的 `LP_MYSQL_PORT`）；需要覆盖时用 `LP_SEED_HOST`、`LP_SEED_USER`、`LP_SEED_PASSWORD`。
+- 脚本幂等：每条业务数据都按自然键做 `NOT EXISTS` 或 `ON DUPLICATE KEY UPDATE` 守卫，重复执行不新增、不删除行；本地实测连续执行两次计数一致。
+- 账号（**仅本地演示，禁止用于任何共享环境**）：
+
+| 账号 | 角色 | 说明 |
+|---|---|---|
+| `demo_admin` | ADMIN | 平台管理员 |
+| `demo_buyer` | STUDENT | 已购课程 1 与课程 7，有学习进度 |
+| `demo_guest` | STUDENT | 未购买任何课程 |
+
+密码统一为 `Demo@123456`（BCrypt 哈希写在 `db/seed/demo-seed.sql`）。种子只插入缺失数据，不会重置既有账号密码；需要恢复账号状态时先在本地清库再重新 `migrate` + seed。
+
 ## 5. Web 前端
 
 ```bash
