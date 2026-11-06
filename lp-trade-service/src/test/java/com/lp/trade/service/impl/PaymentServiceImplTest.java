@@ -284,6 +284,51 @@ class PaymentServiceImplTest {
         verifyNoInteractions(paymentMapper, paymentGateway);
     }
 
+    /**
+     * The retired miniapp channel is refused with a dedicated code, not a configuration error.
+     *
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Test
+    void rejectsMiniappInitiate() {
+        BizException exception =
+                assertThrows(
+                        BizException.class,
+                        () -> paymentService.initiate(USER_ID, "miniapp", ORDER_NO));
+
+        assertEquals(62011, exception.getCode());
+        verifyNoInteractions(paymentMapper, paymentGateway, tradeOrderMapper);
+    }
+
+    /**
+     * Historical WeChat Pay rows stay readable and reconcilable after the channel was removed.
+     *
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Test
+    void reconcilesHistoricalWxpayNotification() {
+        TradeOrder wxpayOrder = order();
+        wxpayOrder.setChannel(PaymentChannel.WXPAY);
+        PaymentRecord wxpayPayment = pendingPayment();
+        wxpayPayment.setChannel(PaymentChannel.WXPAY);
+        PaymentNotification notification = notification("99.00");
+        notification.setChannel(PaymentChannel.WXPAY);
+        when(paymentMapper.selectByChannelTradeNo(PaymentChannel.WXPAY, TRADE_NO)).thenReturn(null);
+        when(tradeOrderMapper.selectByOrderNo(ORDER_NO)).thenReturn(wxpayOrder);
+        when(paymentMapper.selectLatestByOrderId(ORDER_ID)).thenReturn(wxpayPayment);
+        when(paymentMapper.markSuccess(eq(1L), eq(TRADE_NO), any(LocalDateTime.class)))
+                .thenReturn(1);
+        when(tradeOrderMapper.markPaid(eq(ORDER_ID), any(LocalDateTime.class))).thenReturn(1);
+        when(tradeOrderMapper.selectFirstItem(ORDER_ID)).thenReturn(item());
+
+        paymentService.handleNotify(PaymentChannel.WXPAY, Map.of(), "body", notification);
+
+        verify(entitlementService).grant(USER_ID, COURSE_ID, ORDER_ID, ORDER_NO);
+        assertEquals(2, PaymentChannel.WXPAY);
+    }
+
     private PaymentNotification notification(String amount) {
         PaymentNotification notification = new PaymentNotification();
         notification.setOrderNo(ORDER_NO);
