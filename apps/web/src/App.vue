@@ -6,6 +6,7 @@ import { currentRoute, navigate, syncRoute } from './router'
 import CourseListView from './views/CourseListView.vue'
 import CourseDetailView from './views/CourseDetailView.vue'
 import MyCoursesView from './views/MyCoursesView.vue'
+import PlayerView from './views/PlayerView.vue'
 import CheckoutView from './views/CheckoutView.vue'
 import OrderResultView from './views/OrderResultView.vue'
 import HealthView from './views/HealthView.vue'
@@ -45,6 +46,7 @@ onUnmounted(() => {
   <CourseListView v-else-if="currentRoute.name === 'home'" />
   <CourseDetailView v-else-if="currentRoute.name === 'course-detail'" />
   <MyCoursesView v-else-if="currentRoute.name === 'my-courses'" />
+  <PlayerView v-else-if="currentRoute.name === 'player'" />
   <CheckoutView v-else-if="currentRoute.name === 'checkout'" />
   <OrderResultView v-else-if="currentRoute.name === 'order-result'" />
   <main
