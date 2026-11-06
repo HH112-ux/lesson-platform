@@ -1,0 +1,16 @@
+# Build artifacts and local secrets never belong in the Docker build context.
+.git
+.mvn/wrapper/maven-wrapper.jar
+target
+**/target
+node_modules
+**/node_modules
+dist
+**/dist
+.screenshots
+infra/.env
+infra/jwt
+*.pem
+*.key
+*.log
+.DS_Store
