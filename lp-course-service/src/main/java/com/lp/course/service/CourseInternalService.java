@@ -2,6 +2,7 @@ package com.lp.course.service;
 
 import com.lp.course.dto.CourseInternalView;
 import com.lp.course.dto.CourseReviewResultView;
+import com.lp.course.dto.CourseStatsView;
 import com.lp.course.dto.LessonInternalView;
 import com.lp.course.dto.LessonPlayView;
 import com.lp.course.dto.PendingCoursePageView;
@@ -86,4 +87,13 @@ public interface CourseInternalService {
      */
     CourseReviewResultView review(
             long courseId, boolean approved, Long priceFen, String remark, long reviewerId);
+
+    /**
+     * Returns course counts grouped by status for the operations dashboard.
+     *
+     * @return course statistics
+     * @author Caspian
+     * @since 0.1.0
+     */
+    CourseStatsView stats();
 }

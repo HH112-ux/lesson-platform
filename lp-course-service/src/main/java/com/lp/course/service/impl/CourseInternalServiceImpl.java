@@ -4,6 +4,7 @@ import com.lp.common.exception.BizException;
 import com.lp.common.exception.ErrorCode;
 import com.lp.course.dto.CourseInternalView;
 import com.lp.course.dto.CourseReviewResultView;
+import com.lp.course.dto.CourseStatsView;
 import com.lp.course.dto.LessonInternalView;
 import com.lp.course.dto.LessonPlayView;
 import com.lp.course.dto.PendingCoursePageView;
@@ -39,6 +40,9 @@ public class CourseInternalServiceImpl implements CourseInternalService {
 
     /** Resulting status of a rejected course, sent back to draft. */
     private static final int STATUS_DRAFT = 0;
+
+    /** Status of a course taken offline. */
+    private static final int STATUS_OFFLINE = 3;
 
     /** Maximum review page size. */
     private static final int MAX_PAGE_SIZE = 100;
@@ -197,6 +201,23 @@ public class CourseInternalServiceImpl implements CourseInternalService {
                 approved ? STATUS_PUBLISHED : STATUS_DRAFT,
                 effectivePriceFen,
                 reviewedAt);
+    }
+
+    /**
+     * Returns course counts grouped by status for the operations dashboard.
+     *
+     * @return course statistics
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Override
+    public CourseStatsView stats() {
+        return new CourseStatsView(
+                courseMapper.countAll(),
+                courseMapper.countByStatus(STATUS_DRAFT),
+                courseMapper.countByStatus(STATUS_PENDING_REVIEW),
+                courseMapper.countByStatus(STATUS_PUBLISHED),
+                courseMapper.countByStatus(STATUS_OFFLINE));
     }
 
     /**
