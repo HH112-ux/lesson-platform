@@ -1073,6 +1073,8 @@ spec:
 | GET | `/api/v1/orders` | 我的订单 | query:`status,pageNum,pageSize` | 分页 `{records:[{orderId,orderNo,payAmount,channel,status,createdAt,items[]}]}` | 40101 |
 | GET | `/api/v1/orders/{orderId}` | 订单详情 | — | `{orderId,orderNo,totalAmount,discountAmount,payAmount,channel,status,payExpireAt,items:[{courseId,title,price}]}` | 40301,40401 |
 | POST | `/api/v1/orders/{orderId}/cancel` | 取消（同时关闭进行中的支付单） | `{reason?}` | `{status:2}` | 40301,62001 |
+| POST | `/api/v1/orders/purchase-ticket` | 签发网页购买 ticket（小程序调用，需登录） | `{courseId}` | `{url,qrPayload,ticket,expiresAt}`；`url=https://<web-host>/purchase?ticket=<ticket>`，`qrPayload` 与 `url` 相同 | 40001,40101,40401,61001 |
+| POST | `/api/v1/orders/purchase-ticket/redeem` | 兑换 ticket（浏览器，可选鉴权） | `{ticket}` | `{accessToken,refreshToken,expiresIn,courseId}` | 40001,62012,62013,62014,62015,50201 |
 | POST | `/api/v1/payments/{orderNo}/pay` | 发起支付（幂等；渠道由订单与 `X-User-Source` 固定，请求不传 `channel`） | `{}` | `{payNo,channel,payParams}`；未配置渠道密钥时返回 `50205`，不返回伪造的支付参数 | 40001,40401,62001,62002,62005,50205 |
 | POST | `/api/v1/payments/alipay/notify` | 支付宝异步通知（公开，RSA2 验签） | `application/x-www-form-urlencoded` 原文 | 纯文本 `success`/`failure`；验签未配置时返回 `failure` | 50205 |
 | POST | `/api/v1/orders/{orderId}/refund` | 申请全额退款（付款后 7 天内且学习进度 ≤ 20%，15.2 D6） | `{reason}` + `Idempotency-Key` | `{refundId,refundNo,channel,status:0}` | 40301,62001,62004,62007 |
@@ -1083,6 +1085,10 @@ spec:
 > **购物车规则**：课程类商品数量固定为 1，`cart_item` 不设数量字段；同用户同课程唯一（`uk_user_course`），重复加购与并发加购都幂等；已购课程加购返回 `61002`，已下架课程返回 `62003`，课程不存在返回 `40401`；删除不存在的条目同样返回成功。
 
 > **下单规则**：首版一次下单仅一门课程；同一用户同一 `idempotencyKey` 重放返回原订单，`uk_idempotency` 兜底并发；已购返回 `61002`，课程不存在 `40401`，已下架或券不可用 `62003`；优惠券在订单金额上一次性核销（`user_coupon` 条件更新 `status=0`），核销失败回滚整单；`pay_amount=0` 时订单创建即完成并发放权益，不进入支付渠道。
+
+> **小程序网页购买 ticket（方案 C）**：小程序不提供支付。用户在课程详情点「去网页购买」→ 小程序调用 `POST /api/v1/orders/purchase-ticket`（登录态）→ 服务端校验课程 `status=2` 后签发 ticket，返回深链与二维码内容 → 用户扫码/复制到浏览器打开 `https://<web-host>/purchase?ticket=<ticket>` → 浏览器调用 `POST /api/v1/orders/purchase-ticket/redeem` 换取 token 对 → 浏览器以该会话调用 `POST /api/v1/orders` 下单并走支付宝。时序：`小程序签发 → 浏览器打开 → 兑换 → 下单 → 支付宝 → 回跳`。
+>
+> **ticket 规则**：一次性、绑定 `userId + courseId`、有效期 15 分钟、服务端存储；`ticket` 为 32 字节 `SecureRandom` 的 Base64URL（256 bit），不使用签名方案——一次性语义必须依赖服务端状态，随机串已不可猜测且不携带 `userId` 明文。Redis 键：载荷 `lp:trade:purchase-ticket:{sha256(ticket)}`（TTL 15m）、已签发标记 `lp:trade:purchase-ticket:issued:{sha256}`（TTL 24h，用于区分过期与不存在）、已使用标记 `lp:trade:purchase-ticket:used:{sha256}`（TTL 24h，用于区分重复兑换）。兑换用 `GETDEL` 原子消费；已登录但会话用户与 ticket 归属不一致时返回 `62015` 且**不消费** ticket。ticket 不写日志；错误码：`62012` 过期、`62013` 已使用、`62014` 不存在、`62015` 跨用户。
 
 > **支付骨架**：渠道由 `X-User-Source` 与订单固定，发起支付与回调都通过 `PaymentGateway` / `SignatureVerifier` 端口；未配置密钥时统一返回 `50205`，回调不会伪造 `success`。逻辑状态映射：`created/paying` → `payment_record.status=0`，`paid` → `status=1` 且订单 `status=1`，`closed` → `status=2` 且订单 `status=3`；重复回调按渠道交易号唯一幂等。
 
@@ -2121,7 +2127,7 @@ DoD：学伴无法回答率 ≤ 30%、找课点击率 +10%、售后 FAQ 命中�
 | 限流 | 42901 | — |
 | 服务端 | 50001、50201–50306 | 50001 系统异常、50201 下游失败、**50202 支付宝渠道失败**、**50203 已移除（原微信支付渠道失败，编码保留不复用）**、**50204 对账存在未处理差异**、**50205 支付渠道/验签未配置**、50301/50302 AI 不可用、**50303 模型未配置**、**50304 密钥无效**、**50305 配额用尽**、**50306 上游超时/限流** |
 | 业务-课程 | 61001–61004 | 61001 未上架、61002 已购、**61003 视频上传校验未通过**、**61004 播放并发超限** |
-| 业务-订单 | 62001–62011 | 62001 状态不允许、62002 已过期、62003 券不可用、62004 退款不可申请、**62005 渠道与来源端不匹配**、**62006 订单已有进行中的支付单**、**62007 退款准入不满足（15.2 D6）**、**62008 已废弃**、**62009 支付金额不一致**、**62010 回调渠道不匹配**、**62011 支付方式已下线（小程序下单/发起支付）** |
+| 业务-订单 | 62001–62015 | 62001 状态不允许、62002 已过期、62003 券不可用、62004 退款不可申请、**62005 渠道与来源端不匹配**、**62006 订单已有进行中的支付单**、**62007 退款准入不满足（15.2 D6）**、**62008 已废弃**、**62009 支付金额不一致**、**62010 回调渠道不匹配**、**62011 支付方式已下线（小程序下单/发起支付）**、**62012 购买 ticket 已过期**、**62013 购买 ticket 已使用**、**62014 购买 ticket 不存在**、**62015 购买 ticket 归属其他用户** |
 | 业务-学习 | 63001 | 进度越界 |
 | 业务-内容 | 64001–64002 | 违规/举报目标 |
 | 业务-AI | 65001 | 会话不存在 |

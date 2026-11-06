@@ -272,6 +272,27 @@ curl -s -X POST -H "X-Internal-Token: $LP_INTERNAL_TOKEN" \
 - 建议告警：`entitlement_outbox_failed > 0` 持续 5 分钟即处理，说明已放弃投递、需要人工重投或对账。
 - 重投只对 `status=2`（放弃）记录生效，记录不存在或非放弃态返回 `40401`；接口只在内网可达，不经网关转发。
 
+### 4.4 网页购买 ticket（小程序 → 浏览器）
+
+- 依赖：Redis（`LP_REDIS_HOST`/`LP_REDIS_PORT`，默认 `127.0.0.1:6379`）与 auth-service 的内部会话接口。
+- 配置：`LP_WEB_BASE_URL`（默认 `http://127.0.0.1:5173`，用于拼接 `https://<web-host>/purchase?ticket=...`）、`LP_AUTH_SERVICE_BASE_URL`（默认 `http://127.0.0.1:8101`）。
+- 签发要求登录态；兑换接口允许匿名（浏览器首次打开时没有会话），但若浏览器已登录为其他用户，会返回 `62015` 且不消费 ticket。
+- Redis 键与 TTL：`lp:trade:purchase-ticket:{sha256(ticket)}` 15 分钟；`...:issued:{sha256}` 与 `...:used:{sha256}` 各 24 小时，仅用于区分过期/已用/不存在。
+
+```bash
+# 1) 小程序侧签发（需 accessToken）
+curl -s -X POST http://localhost:8080/api/v1/orders/purchase-ticket \
+  -H "Authorization: Bearer $ACCESS_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"courseId":1}'
+
+# 2) 浏览器打开返回的 url，或直接兑换拿 token 对
+curl -s -X POST http://localhost:8080/api/v1/orders/purchase-ticket/redeem \
+  -H 'Content-Type: application/json' -d '{"ticket":"<ticket>"}'
+```
+
+- 兑换成功的响应含 `accessToken/refreshToken/expiresIn/courseId`，浏览器据此建立会话后继续 `POST /api/v1/orders`。
+- 错误码：`62012` 过期、`62013` 已使用、`62014` 不存在、`62015` 归属其他用户；ticket 不会写入日志。
+
 ## 5. Web 前端
 
 ```bash
