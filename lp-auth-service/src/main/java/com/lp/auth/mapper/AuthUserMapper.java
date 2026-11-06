@@ -167,4 +167,14 @@ public interface AuthUserMapper {
      */
     @Update("UPDATE sys_user SET last_login_at = CURRENT_TIMESTAMP(3) WHERE id = #{userId}")
     int touchLastLogin(@Param("userId") long userId);
+
+    /**
+     * Counts every live account.
+     *
+     * @return total accounts that are not logically deleted
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Select("SELECT COUNT(*) FROM sys_user WHERE deleted = 0")
+    long countUsers();
 }

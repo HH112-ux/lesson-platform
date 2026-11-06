@@ -112,6 +112,16 @@ public interface CourseMapper {
             @Param("limit") long limit);
 
     /**
+     * Counts every live course regardless of status.
+     *
+     * @return total live courses
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Select("SELECT COUNT(*) FROM course WHERE deleted = 0")
+    long countAll();
+
+    /**
      * Counts courses in one status.
      *
      * @param status course status

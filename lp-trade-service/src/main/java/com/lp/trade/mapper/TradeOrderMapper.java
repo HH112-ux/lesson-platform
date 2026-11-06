@@ -2,6 +2,7 @@ package com.lp.trade.mapper;
 
 import com.lp.trade.entity.TradeOrder;
 import com.lp.trade.entity.TradeOrderItem;
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import org.apache.ibatis.annotations.Insert;
@@ -251,4 +252,34 @@ public interface TradeOrderMapper {
                     + "#{actualAmount})")
     @Options(useGeneratedKeys = true, keyProperty = "id")
     int insertItem(TradeOrderItem item);
+
+    /**
+     * Counts every live order.
+     *
+     * @return total orders
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Select("SELECT COUNT(*) FROM trade_order WHERE deleted = 0")
+    long countAll();
+
+    /**
+     * Counts settled orders.
+     *
+     * @return orders in paid status
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Select("SELECT COUNT(*) FROM trade_order WHERE deleted = 0 AND status = 1")
+    long countPaid();
+
+    /**
+     * Sums the settled revenue of paid orders.
+     *
+     * @return revenue in yuan, {@code null} when nothing is paid yet
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Select("SELECT SUM(pay_amount) FROM trade_order WHERE deleted = 0 AND status = 1")
+    BigDecimal sumPaidAmount();
 }

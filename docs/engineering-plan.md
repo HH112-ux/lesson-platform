@@ -1008,6 +1008,8 @@ erDiagram
 
 **鉴权边界**：网关白名单只放行 `register`/`login`/`refresh`/`logout`，`/api/v1/auth/me` 必须携带 access token；`/api/v1/admin/**` 由网关做粗粒度角色门禁，角色不含 `ADMIN` 或 `OPS` 时返回 HTTP `403` + `40301`，细粒度权限码由各接口自行校验。角色与权限码来自 `sys_role`/`sys_role_menu`/`sys_menu`，并随 access token 的 `roles`/`permissions` 声明下发、由网关透传为 `X-User-Roles`/`X-User-Permissions`。
 
+**内部接口（不经网关对外）**：`GET /internal/v1/users/stats` 返回 `{totalUsers}`（未删除账号数），供 admin-service 看板聚合，请求头同其他内部接口校验 `X-Internal-Token`。
+
 ## 5.4 课程与内容域（course-service）
 
 | 方法 | 路径 | 用途 | 请求 | 响应 | 主要错误码 |
@@ -1023,6 +1025,7 @@ erDiagram
 | GET | `/internal/v1/courses/{courseId}` | 内部接口，不经网关对外：课程详情（`price` 单位分，含上下架状态与课时数） | — | `{courseId,title,coverUrl,price,status,teacherId,lessonCount}` | 40401 |
 | GET | `/internal/v1/courses` | 内部接口，不经网关对外：批量课程摘要（交易校验与下单取价） | query:`ids`（逗号分隔，必填） | `[{courseId,title,coverUrl,price,status,teacherId,lessonCount}]` | 40001 |
 | GET | `/internal/v1/courses/{courseId}/lessons` | 内部接口，不经网关对外：课时列表（`free` 为试看标记） | — | `[{lessonId,chapterId,title,free,sort}]` | 40401 |
+| GET | `/internal/v1/courses/stats` | 内部接口，不经网关对外：课程按状态计数（运营看板数据源） | — | `{total,draft,pendingReview,published,offline}` | — |
 | POST | `/api/v1/comments` | 发评论 | `{courseId,lessonId?,parentId?,content}` | `{id,status:0}` | 40001,40301(未购),64001 |
 | DELETE | `/api/v1/comments/{commentId}` | 删本人评论（逻辑删） | — | `{deleted:true}` | 40301,40401 |
 | POST | `/api/v1/reports` | 举报 | `{targetType,targetId,reasonType,content}` | `{id}` | 40001,64002 |
@@ -1109,6 +1112,8 @@ spec:
 **权益一致性（trade → learn）**：`trade_order` 与 `user_entitlement` 分属 `lp_oms` / `lp_lms`。下单与支付回调事务内**不跨服务 HTTP**，而是在同一事务写入本地消息表 `entitlement_outbox`（唯一 `uk_order_course(order_id, course_id)`）；`trade-service` 的定时中继（默认 5 秒延迟、失败指数退避、最多 10 次）调用 `POST /internal/v1/entitlements` 投递给 `learn-service`，由 `uk_user_course(user_id, course_id)` 吸收重复投递。投递为**最终一致、至少一次**：学习权益可见最多滞后一个中继周期；中继放弃（`status=2`）的记录需人工对账补发。
 
 > **内部接口（不经网关对外）**：`POST /internal/v1/entitlements`，请求 `{userId,courseId,orderId?,source}`，响应 `{granted:true}`；重复投递返回成功。
+
+> **看板统计内部接口（trade-service，不经网关）**：`GET /internal/v1/orders/stats` 返回 `{totalOrders,paidOrders,paidAmountFen}`——`totalOrders` 为未删除订单总数，`paidOrders` 为 `status=1` 的订单数，`paidAmountFen` 为已支付订单 `pay_amount` 之和（元转分，无已支付订单时为 `0`）；供 admin-service 看板聚合，校验 `X-Internal-Token`。
 
 > **outbox 死信运维接口（trade-service，不经网关）**：`GET /internal/v1/entitlement-outbox/failed?pageNum=1&pageSize=20` 分页列出 `status=2`（放弃）记录，字段 `id/orderId/courseId/userId/retryCount/lastError/updatedAt`；`POST /internal/v1/entitlement-outbox/{id}/retry` 把放弃记录复位为 `status=0`、`retry_count=0`、清空 `last_error`，由中继按原节奏重投，记录不存在或非放弃态返回 `40401`。
 
