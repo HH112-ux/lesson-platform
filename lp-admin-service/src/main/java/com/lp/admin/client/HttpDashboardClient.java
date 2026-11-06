@@ -2,6 +2,8 @@ package com.lp.admin.client;
 
 import com.lp.admin.dto.AdminCourseStats;
 import com.lp.admin.dto.AdminDashboardView;
+import com.lp.admin.dto.AdminMetricsOverviewView;
+import com.lp.admin.dto.AdminOrderMetrics;
 import com.lp.admin.dto.AdminOrderStats;
 import com.lp.admin.dto.AdminUserStats;
 import com.lp.common.exception.BizException;
@@ -37,6 +39,12 @@ public class HttpDashboardClient implements DashboardClient {
 
     private static final ParameterizedTypeReference<Result<AdminUserStats>> USER_TYPE =
             new ParameterizedTypeReference<>() {};
+
+    private static final ParameterizedTypeReference<Result<AdminOrderMetrics>> METRICS_TYPE =
+            new ParameterizedTypeReference<>() {};
+
+    /** Dashboard window in days; the console currently has no date picker. */
+    private static final int OVERVIEW_DAYS = 7;
 
     private final RestClient courseClient;
     private final RestClient tradeClient;
@@ -90,6 +98,38 @@ public class HttpDashboardClient implements DashboardClient {
                     orders.totalOrders(),
                     orders.paidOrders(),
                     orders.paidAmountFen(),
+                    users.totalUsers());
+        } catch (RestClientException exception) {
+            throw new BizException(ErrorCode.CHANNEL_UPSTREAM_ERROR);
+        }
+    }
+
+    /**
+     * Aggregates the overview metrics of the last seven days.
+     *
+     * @return revenue, conversion, signups, best sellers and course counters
+     * @throws BizException when an upstream call fails
+     * @author Caspian
+     * @since 0.2.0
+     */
+    @Override
+    public AdminMetricsOverviewView overview() {
+        try {
+            AdminCourseStats courses = get(courseClient, "/internal/v1/courses/stats", COURSE_TYPE);
+            AdminOrderMetrics orders =
+                    get(
+                            tradeClient,
+                            "/internal/v1/orders/metrics?days=" + OVERVIEW_DAYS,
+                            METRICS_TYPE);
+            AdminUserStats users = get(authClient, "/internal/v1/users/stats", USER_TYPE);
+            return new AdminMetricsOverviewView(
+                    orders.gmv(),
+                    orders.orderCount(),
+                    orders.paidRate(),
+                    users.newUsers(),
+                    orders.courseSalesTop5(),
+                    courses.total(),
+                    courses.pendingReview(),
                     users.totalUsers());
         } catch (RestClientException exception) {
             throw new BizException(ErrorCode.CHANNEL_UPSTREAM_ERROR);

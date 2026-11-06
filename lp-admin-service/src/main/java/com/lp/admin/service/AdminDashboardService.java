@@ -2,6 +2,7 @@ package com.lp.admin.service;
 
 import com.lp.admin.client.DashboardClient;
 import com.lp.admin.dto.AdminDashboardView;
+import com.lp.admin.dto.AdminMetricsOverviewView;
 import org.springframework.stereotype.Service;
 
 /**
@@ -35,5 +36,16 @@ public class AdminDashboardService {
      */
     public AdminDashboardView load() {
         return dashboardClient.load();
+    }
+
+    /**
+     * Loads the seven day overview metrics.
+     *
+     * @return revenue, conversion, signups, best sellers and course counters
+     * @author Caspian
+     * @since 0.2.0
+     */
+    public AdminMetricsOverviewView overview() {
+        return dashboardClient.overview();
     }
 }
