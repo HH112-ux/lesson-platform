@@ -1,13 +1,11 @@
 package com.lp.learn.service.impl;
 
-import com.lp.common.exception.BizException;
-import com.lp.common.exception.ErrorCode;
+import com.lp.learn.access.LessonAccessGuard;
 import com.lp.learn.client.LessonInternalClient;
 import com.lp.learn.config.LearnProperties;
 import com.lp.learn.dto.LessonPlayInfo;
 import com.lp.learn.dto.PlayTokenView;
 import com.lp.learn.playback.PlayUrlSigner;
-import com.lp.learn.service.EntitlementService;
 import com.lp.learn.service.PlayTokenService;
 import java.time.Clock;
 import java.time.Duration;
@@ -26,7 +24,7 @@ import org.springframework.stereotype.Service;
 @Service
 public class PlayTokenServiceImpl implements PlayTokenService {
 
-    private final EntitlementService entitlementService;
+    private final LessonAccessGuard lessonAccessGuard;
 
     private final LessonInternalClient lessonInternalClient;
 
@@ -39,7 +37,7 @@ public class PlayTokenServiceImpl implements PlayTokenService {
     /**
      * Creates the service with its dependencies.
      *
-     * @param entitlementService ownership check
+     * @param lessonAccessGuard entitlement and free preview check
      * @param lessonInternalClient lesson media reader
      * @param playUrlSigner presigned URL producer
      * @param learnProperties playback URL lifetime
@@ -48,12 +46,12 @@ public class PlayTokenServiceImpl implements PlayTokenService {
      * @since 0.1.0
      */
     public PlayTokenServiceImpl(
-            EntitlementService entitlementService,
+            LessonAccessGuard lessonAccessGuard,
             LessonInternalClient lessonInternalClient,
             PlayUrlSigner playUrlSigner,
             LearnProperties learnProperties,
             Clock clock) {
-        this.entitlementService = entitlementService;
+        this.lessonAccessGuard = lessonAccessGuard;
         this.lessonInternalClient = lessonInternalClient;
         this.playUrlSigner = playUrlSigner;
         this.learnProperties = learnProperties;
@@ -73,9 +71,7 @@ public class PlayTokenServiceImpl implements PlayTokenService {
     @Override
     public PlayTokenView issue(long userId, long lessonId) {
         LessonPlayInfo lesson = lessonInternalClient.lesson(lessonId);
-        if (!lesson.isFree() && !entitlementService.hasEntitlement(userId, lesson.getCourseId())) {
-            throw new BizException(ErrorCode.LEARN_NOT_ENTITLED);
-        }
+        lessonAccessGuard.requireAccess(userId, lesson);
         Duration ttl = learnProperties.getPlayTokenTtl();
         String playUrl = playUrlSigner.presign(lesson.getVideoObjectKey(), ttl);
         long expiresAt = clock.instant().plus(ttl).getEpochSecond();
