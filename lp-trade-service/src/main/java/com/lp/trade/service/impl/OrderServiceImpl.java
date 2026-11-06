@@ -273,7 +273,9 @@ public class OrderServiceImpl implements OrderService {
             return PaymentChannel.ALIPAY;
         }
         if (IdentityHeaders.SOURCE_MINIAPP.equals(source)) {
-            return PaymentChannel.WXPAY;
+            throw new BizException(
+                    ErrorCode.PAYMENT_CHANNEL_RETIRED,
+                    "miniapp payments are no longer supported; purchase on the web");
         }
         throw new BizException(ErrorCode.PARAM_INVALID, "request source must be web or miniapp");
     }

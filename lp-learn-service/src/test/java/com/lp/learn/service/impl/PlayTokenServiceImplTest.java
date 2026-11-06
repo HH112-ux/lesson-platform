@@ -4,18 +4,19 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.lp.common.exception.BizException;
 import com.lp.common.exception.ErrorCode;
+import com.lp.learn.access.LessonAccessGuard;
 import com.lp.learn.client.LessonInternalClient;
 import com.lp.learn.config.LearnProperties;
 import com.lp.learn.dto.LessonPlayInfo;
 import com.lp.learn.dto.PlayTokenView;
 import com.lp.learn.playback.PlayUrlSigner;
-import com.lp.learn.service.EntitlementService;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -43,7 +44,7 @@ class PlayTokenServiceImplTest {
 
     private static final Instant NOW = Instant.parse("2026-01-01T00:00:00Z");
 
-    @Mock private EntitlementService entitlementService;
+    @Mock private LessonAccessGuard lessonAccessGuard;
 
     @Mock private LessonInternalClient lessonInternalClient;
 
@@ -65,7 +66,7 @@ class PlayTokenServiceImplTest {
         learnProperties.setPlayTokenTtl(Duration.ofMinutes(10));
         playTokenService =
                 new PlayTokenServiceImpl(
-                        entitlementService,
+                        lessonAccessGuard,
                         lessonInternalClient,
                         playUrlSigner,
                         learnProperties,
@@ -81,7 +82,6 @@ class PlayTokenServiceImplTest {
     @Test
     void issuesTokenForEntitledUser() {
         when(lessonInternalClient.lesson(LESSON_ID)).thenReturn(lesson(false));
-        when(entitlementService.hasEntitlement(USER_ID, COURSE_ID)).thenReturn(true);
         when(playUrlSigner.presign(any(), any())).thenReturn("https://minio.local/lesson.mp4");
 
         PlayTokenView token = playTokenService.issue(USER_ID, LESSON_ID);
@@ -100,8 +100,11 @@ class PlayTokenServiceImplTest {
      */
     @Test
     void rejectsWithoutEntitlement() {
-        when(lessonInternalClient.lesson(LESSON_ID)).thenReturn(lesson(false));
-        when(entitlementService.hasEntitlement(USER_ID, COURSE_ID)).thenReturn(false);
+        LessonPlayInfo lesson = lesson(false);
+        when(lessonInternalClient.lesson(LESSON_ID)).thenReturn(lesson);
+        doThrow(new BizException(ErrorCode.LEARN_NOT_ENTITLED))
+                .when(lessonAccessGuard)
+                .requireAccess(USER_ID, lesson);
 
         BizException exception =
                 assertThrows(BizException.class, () -> playTokenService.issue(USER_ID, LESSON_ID));
@@ -125,7 +128,7 @@ class PlayTokenServiceImplTest {
                 assertThrows(BizException.class, () -> playTokenService.issue(USER_ID, LESSON_ID));
 
         assertEquals(ErrorCode.NOT_FOUND.getCode(), exception.getCode());
-        verify(entitlementService, never()).hasEntitlement(anyLong(), anyLong());
+        verify(lessonAccessGuard, never()).requireAccess(anyLong(), any());
     }
 
     /**
@@ -136,13 +139,14 @@ class PlayTokenServiceImplTest {
      */
     @Test
     void freeLessonIssuesWithoutEntitlement() {
-        when(lessonInternalClient.lesson(LESSON_ID)).thenReturn(lesson(true));
+        LessonPlayInfo lesson = lesson(true);
+        when(lessonInternalClient.lesson(LESSON_ID)).thenReturn(lesson);
         when(playUrlSigner.presign(any(), any())).thenReturn("https://minio.local/free.mp4");
 
         PlayTokenView token = playTokenService.issue(USER_ID, LESSON_ID);
 
         assertEquals("https://minio.local/free.mp4", token.getPlayUrl());
-        verify(entitlementService, never()).hasEntitlement(anyLong(), anyLong());
+        verify(lessonAccessGuard).requireAccess(USER_ID, lesson);
     }
 
     private LessonPlayInfo lesson(boolean free) {

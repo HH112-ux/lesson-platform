@@ -176,6 +176,8 @@ export LP_INTERNAL_TOKEN="local-internal-token"
 
 `/internal/v1/**` 全部要求请求头 `X-Internal-Token` 与该值一致；脚本或手工 curl 调内部接口时需显式带上，例如 `-H "X-Internal-Token: $LP_INTERNAL_TOKEN"`。
 
+- 免费试听开关：`LP_FREE_PREVIEW_ENABLED`（默认 `true`）。设为 `false` 后免费课时也必须先购买，否则播放与进度接口返回 `40302`。
+
 ### 4.1 认证密钥与登录链路（M1）
 
 ```bash
