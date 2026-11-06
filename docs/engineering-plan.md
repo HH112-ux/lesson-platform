@@ -1176,7 +1176,7 @@ spec:
 | GET | `/api/v1/admin/users` | 用户分页（`keyword` 匹配用户名/昵称/手机号） | query:`keyword,status,pageNum,pageSize` | 分页 `{records:[{userId,username,nickname,phone,status,roles[],createdAt}],total,pageNum,pageSize}` | 40301 |
 | PUT | `/api/v1/admin/users/{userId}/status` | 启用/禁用 | `{status}` | `{updated:true}` | 40301 |
 | PUT | `/api/v1/admin/users/{userId}/roles` | 分配角色 | `{roleIds[]}` | `{updated:true}` | 40301 |
-| GET | `/api/v1/admin/orders` | 订单分页 | query:`status,orderNo,userId,dateFrom,dateTo,pageNum` | 分页 | 40301 |
+| GET | `/api/v1/admin/orders` | 订单分页（`orderNo` 模糊，`dateFrom/dateTo` 含首尾） | query:`status,channel,orderNo,userId,dateFrom,dateTo,pageNum,pageSize` | 分页 `{records:[{orderNo,userId,status,payAmount,createdAt}],total,pageNum,pageSize}`；`payAmount` 单位元 | 40301 |
 | GET | `/api/v1/admin/refunds` | 退款列表 | query:`status,pageNum` | 分页 | 40301 |
 | POST | `/api/v1/admin/refunds/{refundId}/review` | 退款审核 | `{approved:bool,rejectReason?}` | `{status}` | 40301,62001 |
 | GET | `/api/v1/admin/comments` | 评论管理 | query:`status,riskLevel,pageNum` | 分页 | 40301 |
