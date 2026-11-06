@@ -1098,6 +1098,8 @@ spec:
 | POST | `/api/v1/learning/progress` | 上报进度（`watched_sec` 由服务端累加，完成态按 `watched_sec ≥ 课时时长 90%` 重算，请求不可直接置完成，15.2 D7） | `{lessonId,positionSeconds}` | `{lessonId,positionSeconds,maxPositionSeconds,watchedSeconds,completed,truncated,updatedAt}` | 40302,40401,63001 |
 | GET | `/api/v1/learning/progress` | 课程进度 | query:`courseId` | `{courseId,lessons:[{lessonId,positionSeconds,maxPositionSeconds,watchedSeconds,completed,updatedAt}]}` | 40302,40401 |
 
+> **免费试听开关（`lp.learn.free-preview-enabled`，默认 `true`）**：`true` 时 `is_free=1` 的课时未购也可取播放地址与上报进度；置为 `false` 后**所有课时一律校验权益**，免费课时未购同样返回 `40302`，用于试听内容被滥用时的紧急刹车。`is_free` 放行判断收敛在 `LessonAccessGuard` 单一方法中，播放签名与进度上报共用，避免两处逻辑漂移。开关可经环境变量 `LP_FREE_PREVIEW_ENABLED=false` 或配置中心热更新，回滚只需改回 `true`，不涉及数据与迁移。
+
 **权益一致性（trade → learn）**：`trade_order` 与 `user_entitlement` 分属 `lp_oms` / `lp_lms`。下单与支付回调事务内**不跨服务 HTTP**，而是在同一事务写入本地消息表 `entitlement_outbox`（唯一 `uk_order_course(order_id, course_id)`）；`trade-service` 的定时中继（默认 5 秒延迟、失败指数退避、最多 10 次）调用 `POST /internal/v1/entitlements` 投递给 `learn-service`，由 `uk_user_course(user_id, course_id)` 吸收重复投递。投递为**最终一致、至少一次**：学习权益可见最多滞后一个中继周期；中继放弃（`status=2`）的记录需人工对账补发。
 
 > **内部接口（不经网关对外）**：`POST /internal/v1/entitlements`，请求 `{userId,courseId,orderId?,source}`，响应 `{granted:true}`；重复投递返回成功。
