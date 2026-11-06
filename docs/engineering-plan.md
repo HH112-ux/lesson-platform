@@ -1014,7 +1014,7 @@ erDiagram
 |---|---|---|---|---|---|
 | GET | `/api/v1/categories/tree` | 分类树 | — | `[{id,name,children[]}]` | — |
 | GET | `/api/v1/courses` | 课程列表/搜索 | query:`keyword,categoryId,level,sort(hot/new),pageNum,pageSize` | 分页 `{records:[CourseCard]}` | 40001 |
-| GET | `/api/v1/courses/{courseId}` | 详情 | — | `{id,title,subtitle,coverUrl,description,price,originalPrice,instructor:{id,displayName},level,salesCount,chapters:[{id,title,lessons:[{id,title,durationSec,isFree,locked}]}],entitled:bool}` | 40401,61001 |
+| GET | `/api/v1/courses/{courseId}` | 详情（购买页） | — | `{courseId,title,coverUrl,price,status,lessonCount}`；价格单位分，已下架返回 `status=3`，需网关登录态，不需要 `X-Internal-Token` | 40401 |
 | GET | `/api/v1/courses/{courseId}/chapters` | 章节目录 | — | `{chapters:[...]}`（未购仅返回免费课时可播） | 40401 |
 | GET | `/api/v1/courses/{courseId}/comments` | 评论分页 | query:`pageNum,pageSize` | 分页 `{records:[{id,nickname,avatarUrl,content,likeCount,createdAt,replies[]}]}` | 40401 |
 | POST | `/api/v1/courses/{courseId}/favorite` | 收藏课程 | `{}` | `{favorited:true}` | 40101,40401 |
