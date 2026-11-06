@@ -4,6 +4,7 @@ import com.lp.common.exception.BizException;
 import com.lp.common.exception.ErrorCode;
 import com.lp.common.result.Result;
 import com.lp.trade.dto.FailedOutboxPage;
+import com.lp.trade.entitlement.EntitlementOutboxMetrics;
 import com.lp.trade.entitlement.OutboxAdminService;
 import java.util.Map;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -28,15 +29,33 @@ public class InternalEntitlementOutboxController {
 
     private final OutboxAdminService outboxAdminService;
 
+    private final EntitlementOutboxMetrics metrics;
+
     /**
-     * Creates the controller with its service dependency.
+     * Creates the controller with its dependencies.
      *
      * @param outboxAdminService operations queries and retries
+     * @param metrics gauge values exposed to operations tooling
      * @author Caspian
      * @since 0.1.0
      */
-    public InternalEntitlementOutboxController(OutboxAdminService outboxAdminService) {
+    public InternalEntitlementOutboxController(
+            OutboxAdminService outboxAdminService, EntitlementOutboxMetrics metrics) {
         this.outboxAdminService = outboxAdminService;
+        this.metrics = metrics;
+    }
+
+    /**
+     * Returns the last observed backlog gauges without needing a metrics scrape endpoint.
+     *
+     * @return {@code {pending, failed}}
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @GetMapping("/stats")
+    public Result<Map<String, Long>> stats() {
+        return Result.ok(
+                Map.of("pending", metrics.pendingCount(), "failed", metrics.failedCount()));
     }
 
     /**
