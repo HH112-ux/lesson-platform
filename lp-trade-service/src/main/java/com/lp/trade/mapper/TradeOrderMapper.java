@@ -1,5 +1,6 @@
 package com.lp.trade.mapper;
 
+import com.lp.trade.entity.AdminOrderRow;
 import com.lp.trade.entity.TradeOrder;
 import com.lp.trade.entity.TradeOrderItem;
 import java.math.BigDecimal;
@@ -282,4 +283,71 @@ public interface TradeOrderMapper {
      */
     @Select("SELECT SUM(pay_amount) FROM trade_order WHERE deleted = 0 AND status = 1")
     BigDecimal sumPaidAmount();
+
+    /**
+     * Counts live orders matching the console filters.
+     *
+     * @param status optional order status
+     * @param channel optional payment channel
+     * @param orderNo optional order number fragment
+     * @param userId optional buyer id
+     * @param from optional inclusive creation time lower bound
+     * @param to optional exclusive creation time upper bound
+     * @return matching orders
+     * @author Caspian
+     * @since 0.2.0
+     */
+    @Select(
+            "<script>SELECT COUNT(*) FROM trade_order WHERE deleted = 0 "
+                    + "<if test='status != null'>AND status = #{status} </if>"
+                    + "<if test='channel != null'>AND channel = #{channel} </if>"
+                    + "<if test='orderNo != null and orderNo != \"\"'>AND order_no LIKE "
+                    + "CONCAT('%', #{orderNo}, '%') </if>"
+                    + "<if test='userId != null'>AND user_id = #{userId} </if>"
+                    + "<if test='from != null'>AND created_at &gt;= #{from} </if>"
+                    + "<if test='to != null'>AND created_at &lt; #{to} </if></script>")
+    long countForAdmin(
+            @Param("status") Integer status,
+            @Param("channel") Integer channel,
+            @Param("orderNo") String orderNo,
+            @Param("userId") Long userId,
+            @Param("from") LocalDateTime from,
+            @Param("to") LocalDateTime to);
+
+    /**
+     * Lists one page of live orders matching the console filters, newest first.
+     *
+     * @param status optional order status
+     * @param channel optional payment channel
+     * @param orderNo optional order number fragment
+     * @param userId optional buyer id
+     * @param from optional inclusive creation time lower bound
+     * @param to optional exclusive creation time upper bound
+     * @param offset zero based row offset
+     * @param limit maximum rows
+     * @return matching order rows, amounts in yuan
+     * @author Caspian
+     * @since 0.2.0
+     */
+    @Select(
+            "<script>SELECT order_no AS orderNo, user_id AS userId, status, "
+                    + "pay_amount AS payAmount, created_at AS createdAt "
+                    + "FROM trade_order WHERE deleted = 0 "
+                    + "<if test='status != null'>AND status = #{status} </if>"
+                    + "<if test='channel != null'>AND channel = #{channel} </if>"
+                    + "<if test='orderNo != null and orderNo != \"\"'>AND order_no LIKE "
+                    + "CONCAT('%', #{orderNo}, '%') </if>"
+                    + "<if test='userId != null'>AND user_id = #{userId} </if>"
+                    + "<if test='from != null'>AND created_at &gt;= #{from} </if>"
+                    + "<if test='to != null'>AND created_at &lt; #{to} </if>"
+                    + "ORDER BY id DESC LIMIT #{limit} OFFSET #{offset}</script>")
+    List<AdminOrderRow> selectPageForAdmin(
+            @Param("status") Integer status,
+            @Param("channel") Integer channel,
+            @Param("orderNo") String orderNo,
+            @Param("userId") Long userId,
+            @Param("from") LocalDateTime from,
+            @Param("to") LocalDateTime to,
+            @Param("offset") long offset,
+            @Param("limit") long limit);
 }
