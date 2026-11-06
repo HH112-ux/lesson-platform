@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import PageState from '../components/PageState.vue'
-import { listOrders, type OrderView } from '../api/orders'
+import { listOrders, type OrderSummaryView } from '../api/orders'
 import { navigate } from '../router'
 import { describeError, isUnauthorized } from '../utils/errors'
 import { formatYuan } from '../utils/format'
@@ -9,7 +9,7 @@ import { isSignedIn } from '../utils/session'
 
 const PAGE_SIZE = 10
 
-const orders = ref<OrderView[]>([])
+const orders = ref<OrderSummaryView[]>([])
 const total = ref(0)
 const pageNum = ref(1)
 const loading = ref(false)
@@ -160,14 +160,17 @@ void load()
                 {{ order.orderNo }}
               </td>
               <td>
-                <a :href="`/courses/${order.courseId}`">课程 {{ order.courseId }}</a>
+                <a
+                  v-if="order.items.length"
+                  :href="`/courses/${order.items[0].courseId}`"
+                >{{ order.items[0].title }}</a>
+                <span
+                  v-else
+                  class="lp-subtle"
+                >--</span>
               </td>
               <td>
                 <span class="price">¥{{ formatYuan(order.payAmount) }}</span>
-                <span
-                  v-if="order.discountAmount > 0"
-                  class="lp-small lp-muted"
-                >（已优惠 ¥{{ formatYuan(order.discountAmount) }}）</span>
               </td>
               <td>
                 <span
