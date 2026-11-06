@@ -1113,7 +1113,7 @@ spec:
 
 > **内部接口（不经网关对外）**：`POST /internal/v1/entitlements`，请求 `{userId,courseId,orderId?,source}`，响应 `{granted:true}`；重复投递返回成功。
 
-> **看板统计内部接口（trade-service，不经网关）**：`GET /internal/v1/orders/stats` 返回 `{totalOrders,paidOrders,paidAmountFen}`——`totalOrders` 为未删除订单总数，`paidOrders` 为 `status=1` 的订单数，`paidAmountFen` 为已支付订单 `pay_amount` 之和（元转分，无已支付订单时为 `0`）；供 admin-service 看板聚合，校验 `X-Internal-Token`。
+> **看板统计内部接口（trade-service，不经网关）**：`GET /internal/v1/orders/stats` 返回 `{totalOrders,paidOrders,paidAmountFen}`——`totalOrders` 为未删除订单总数，`paidOrders` 为 `status=1` 的订单数，`paidAmountFen` 为已支付订单 `pay_amount` 之和（元转分，无已支付订单时为 `0`）。`GET /internal/v1/orders?status=&channel=&orderNo=&userId=&dateFrom=&dateTo=&pageNum=&pageSize=` 返回 `{records:[{orderNo,userId,status,payAmount,createdAt}],total,pageNum,pageSize}`（`payAmount` 单位元，`dateFrom/dateTo` 为含首尾的 `yyyy-MM-dd`，内部转半开区间），供运营端订单列表。两个接口均校验 `X-Internal-Token`。
 
 > **outbox 死信运维接口（trade-service，不经网关）**：`GET /internal/v1/entitlement-outbox/failed?pageNum=1&pageSize=20` 分页列出 `status=2`（放弃）记录，字段 `id/orderId/courseId/userId/retryCount/lastError/updatedAt`；`POST /internal/v1/entitlement-outbox/{id}/retry` 把放弃记录复位为 `status=0`、`retry_count=0`、清空 `last_error`，由中继按原节奏重投，记录不存在或非放弃态返回 `40401`。
 
