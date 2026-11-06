@@ -51,11 +51,15 @@ async function load(): Promise<void> {
  * Builds the resume link of a course.
  *
  * @param course owned course
- * @returns player link when a lesson was started, detail page otherwise
+ * @returns player link when a lesson was started, detail page otherwise; a refunded course always
+ *     opens its detail page because playback is denied
  * @author Caspian
  * @since 0.2.0
  */
 function resumeHref(course: MyCourseCard): string {
+  if (course.refunded) {
+    return `/courses/${course.courseId}`
+  }
   if (course.lastLessonId) {
     return `/learning/lessons/${course.lastLessonId}?courseId=${course.courseId}`
   }
@@ -143,6 +147,10 @@ void load()
           <div class="body">
             <h2 class="name">
               {{ course.title }}
+              <span
+                v-if="course.refunded"
+                class="refunded"
+              >已退款</span>
             </h2>
             <div class="progress">
               <div class="bar">
@@ -154,7 +162,7 @@ void load()
               <span class="lp-small lp-muted">{{ formatPercent(course.progressPercent) }}</span>
             </div>
             <span class="action lp-small">
-              {{ course.lastLessonId ? '继续学习' : '开始学习' }}
+              {{ course.refunded ? '已退款，学习权限已收回' : (course.lastLessonId ? '继续学习' : '开始学习') }}
             </span>
           </div>
         </a>
@@ -266,6 +274,17 @@ void load()
 
 .action {
   color: var(--lp-primary);
+}
+
+.refunded {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: #f2f3f5;
+  color: var(--lp-muted);
+  font-size: 11px;
+  font-weight: 500;
+  vertical-align: middle;
 }
 
 .pager {
