@@ -37,3 +37,14 @@ jobs:
             git log -1 --pretty=%B "$head" > /tmp/commit-msg.txt
             bash scripts/check-commit-msg.sh /tmp/commit-msg.txt "$head"
           fi
+
+      # Squash merge turns the PR title into the commit on develop, so the title
+      # has to pass the same check as a hand written commit message.
+      - name: PR 标题校验
+        if: github.event_name == 'pull_request'
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          set -e
+          printf '%s\n' "$PR_TITLE" > /tmp/pr-title.txt
+          bash scripts/check-commit-msg.sh /tmp/pr-title.txt

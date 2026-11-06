@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
-# Commit message check: type(scope): subject, English imperative, lowercase, <= 60 characters.
+# Commit message check following the team git convention:
+# type(scope): subject, English imperative, lowercase first word, <= 50 characters,
+# ASCII only, body lines <= 72 characters.
 # Usage: check-commit-msg.sh <message-file> [commit-sha]
 # The optional sha lets the checker skip merge commits (more than one parent); CI passes it
 # because it validates every commit of a pull request.
 set -uo pipefail
 
-MAX_LENGTH=60
+MAX_LENGTH=50
+MAX_BODY_LINE=72
 
 msg_file="${1:-}"
 [ -z "$msg_file" ] && { echo "FAIL missing commit message file argument"; exit 1; }
@@ -38,8 +41,11 @@ subject="$(printf '%s' "$subject" | sed -E 's/ \(#([0-9]+)\)$//')"
 [ -z "$subject" ] && { echo "FAIL empty subject after stripping the squash suffix"; exit 1; }
 
 types='feat|fix|docs|style|refactor|perf|test|chore|revert'
-if ! printf '%s' "$subject" | grep -qE "^($types)(\([a-z0-9_-]+\))?: [^ ]"; then
+scopes='gateway|auth|course|trade|learn|ugc|admin|ai|web|admin-web|miniapp|db|ci'
+if ! printf '%s' "$subject" | grep -qE "^($types)(\(($scopes)\))?: [a-z0-9]"; then
   echo "FAIL subject must look like 'type(scope): subject', type in: ${types//|/ }"
+  echo "     scope must be one of: ${scopes//|/ }, or omitted"
+  echo "     subject starts with a lowercase word"
   echo "     actual: $subject"
   exit 1
 fi
@@ -52,7 +58,26 @@ if [ "$len" -gt "$MAX_LENGTH" ]; then
 fi
 
 case "$subject" in
-  *。) echo "FAIL subject must not end with a period: $subject"; exit 1 ;;
+  *.) echo "FAIL subject must not end with a period: $subject"; exit 1 ;;
 esac
+
+# Commits are English so changelog tooling and git log --grep keep working.
+if LC_ALL=C grep -q '[^ -~]' "$msg_file"; then
+  echo "FAIL commit message must be ASCII English; put Chinese only in the PR description"
+  exit 1
+fi
+
+# Body and footer lines stay readable in an 80 column terminal.
+line_number=0
+while IFS= read -r line || [ -n "$line" ]; do
+  line_number=$((line_number + 1))
+  [ "$line_number" -eq 1 ] && continue
+  line_len="$(printf '%s' "$line" | wc -m | tr -d ' ')"
+  if [ "$line_len" -gt "$MAX_BODY_LINE" ]; then
+    echo "FAIL commit message line ${line_number} is ${line_len} characters, limit is ${MAX_BODY_LINE}"
+    echo "     actual: $line"
+    exit 1
+  fi
+done < "$msg_file"
 
 exit 0
