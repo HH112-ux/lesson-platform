@@ -88,6 +88,18 @@ public enum ErrorCode {
     /** The requested payment channel has been retired and cannot create new payments. */
     PAYMENT_CHANNEL_RETIRED(62011, "payment channel is no longer supported"),
 
+    /** The purchase ticket is no longer valid. */
+    PURCHASE_TICKET_EXPIRED(62012, "purchase ticket has expired"),
+
+    /** The purchase ticket was already redeemed. */
+    PURCHASE_TICKET_USED(62013, "purchase ticket has already been used"),
+
+    /** The purchase ticket does not exist. */
+    PURCHASE_TICKET_NOT_FOUND(62014, "purchase ticket not found"),
+
+    /** The ticket belongs to another user and cannot be redeemed by the caller. */
+    PURCHASE_TICKET_USER_MISMATCH(62015, "purchase ticket belongs to another user"),
+
     /** Learning domain failure. */
     LEARN_BIZ_ERROR(63001, "learning operation failed"),
 

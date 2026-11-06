@@ -424,4 +424,32 @@ public class AuthServiceImpl implements AuthService {
         String trimmed = value.trim();
         return trimmed.isEmpty() ? null : trimmed;
     }
+
+    /**
+     * Issues a browser session for a ticket owner.
+     *
+     * @param userId account id already proven by the ticket
+     * @param source source platform recorded with the refresh session
+     * @return a new token pair
+     * @throws BizException {@code 40101} when the account is missing, {@code 40301} when disabled
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Override
+    public RefreshResponse issueSession(long userId, String source) {
+        UserAccount account = authUserMapper.selectById(userId);
+        if (account == null) {
+            throw new BizException(ErrorCode.UNAUTHENTICATED);
+        }
+        if (account.getStatus() == null || account.getStatus() != STATUS_ACTIVE) {
+            throw new BizException(ErrorCode.FORBIDDEN, "account disabled");
+        }
+        List<String> roles = authUserMapper.selectRoleCodes(userId);
+        List<String> permissions = authUserMapper.selectPermissionCodes(userId);
+        AuthTokens tokens = jwtTokenService.issue(userId, roles, permissions);
+        refreshTokenStore.store(
+                tokens.getRefreshToken(), new RefreshSession(userId, Instant.now(), source));
+        return new RefreshResponse(
+                tokens.getAccessToken(), tokens.getRefreshToken(), tokens.getExpiresInSeconds());
+    }
 }
