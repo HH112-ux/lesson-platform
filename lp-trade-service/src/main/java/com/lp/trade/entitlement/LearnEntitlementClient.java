@@ -2,8 +2,10 @@ package com.lp.trade.entitlement;
 
 import com.lp.common.exception.BizException;
 import com.lp.common.exception.ErrorCode;
+import com.lp.common.internal.InternalHeaders;
 import com.lp.trade.config.TradeProperties;
 import java.util.Map;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
@@ -27,15 +29,18 @@ public class LearnEntitlementClient {
      * Creates the client from trade configuration.
      *
      * @param tradeProperties learn-service address
+     * @param internalToken shared secret required by the learn-service internal API
      * @author Caspian
      * @since 0.1.0
      */
-    public LearnEntitlementClient(TradeProperties tradeProperties) {
+    public LearnEntitlementClient(
+            TradeProperties tradeProperties, @Value("${lp.internal.token}") String internalToken) {
         JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory();
         factory.setReadTimeout(tradeProperties.getLearnReadTimeout());
         this.restClient =
                 RestClient.builder()
                         .baseUrl(tradeProperties.getLearnBaseUrl())
+                        .defaultHeader(InternalHeaders.INTERNAL_TOKEN, internalToken)
                         .requestFactory(factory)
                         .build();
     }

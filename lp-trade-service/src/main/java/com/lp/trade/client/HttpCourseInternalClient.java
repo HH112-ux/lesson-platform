@@ -2,11 +2,13 @@ package com.lp.trade.client;
 
 import com.lp.common.exception.BizException;
 import com.lp.common.exception.ErrorCode;
+import com.lp.common.internal.InternalHeaders;
 import com.lp.common.result.Result;
 import com.lp.trade.config.TradeProperties;
 import com.lp.trade.dto.CourseSnapshot;
 import java.util.List;
 import java.util.stream.Collectors;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
@@ -38,15 +40,18 @@ public class HttpCourseInternalClient implements CourseInternalClient {
      * Creates the client from trade configuration.
      *
      * @param tradeProperties course-service address and read timeout
+     * @param internalToken shared secret required by the course-service internal API
      * @author Caspian
      * @since 0.1.0
      */
-    public HttpCourseInternalClient(TradeProperties tradeProperties) {
+    public HttpCourseInternalClient(
+            TradeProperties tradeProperties, @Value("${lp.internal.token}") String internalToken) {
         JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory();
         factory.setReadTimeout(tradeProperties.getCourseReadTimeout());
         this.restClient =
                 RestClient.builder()
                         .baseUrl(tradeProperties.getCourseBaseUrl())
+                        .defaultHeader(InternalHeaders.INTERNAL_TOKEN, internalToken)
                         .requestFactory(factory)
                         .build();
     }
