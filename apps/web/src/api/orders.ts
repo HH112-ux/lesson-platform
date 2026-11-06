@@ -26,6 +26,58 @@ export interface PayView {
   payParams: Record<string, string>
 }
 
+/** Item of an order, aligned with {@code OrderItemView}. */
+export interface OrderItemView {
+  courseId: number
+  title: string
+  price: number
+}
+
+/** Order row of {@code GET /api/v1/orders}, aligned with {@code OrderSummaryView}. */
+export interface OrderSummaryView {
+  orderId: number
+  orderNo: string
+  status: number
+  channel: number
+  /** Amount in yuan. */
+  payAmount: number
+  createdAt: string
+  items: OrderItemView[]
+}
+
+/** Page of orders, aligned with {@code OrderPageView}. */
+export interface OrderPage {
+  pageNum: number
+  pageSize: number
+  total: number
+  records: OrderSummaryView[]
+}
+
+/**
+ * Loads one page of the signed-in buyer's orders, newest first.
+ *
+ * @param pageNum 1-based page number
+ * @param pageSize page size, the backend caps it at 100
+ * @param status optional status filter
+ * @returns the page of order rows
+ * @author Caspian
+ * @since 0.2.0
+ */
+export function listOrders(
+  pageNum: number,
+  pageSize: number,
+  status?: number,
+): Promise<OrderPage> {
+  const params = new URLSearchParams({
+    pageNum: String(pageNum),
+    pageSize: String(pageSize),
+  })
+  if (typeof status === 'number') {
+    params.set('status', String(status))
+  }
+  return apiRequest<OrderPage>(`/api/v1/orders?${params.toString()}`)
+}
+
 /** Order status meaning "paid"; aligned with the backend {@code OrderStatus}. */
 export const ORDER_STATUS_PAID = 2
 
