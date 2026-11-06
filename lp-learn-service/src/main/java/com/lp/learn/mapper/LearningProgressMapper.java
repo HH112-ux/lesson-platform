@@ -31,7 +31,8 @@ public interface LearningProgressMapper {
     @Select(
             "SELECT id, user_id AS userId, course_id AS courseId, lesson_id AS lessonId, "
                     + "position_seconds AS positionSeconds, "
-                    + "max_position_seconds AS maxPositionSeconds, completed, "
+                    + "max_position_seconds AS maxPositionSeconds, "
+                    + "watched_sec AS watchedSeconds, completed, "
                     + "updated_at AS updatedAt FROM learning_progress "
                     + "WHERE user_id = #{userId} AND lesson_id = #{lessonId} AND deleted = 0")
     LearningProgress selectOne(@Param("userId") long userId, @Param("lessonId") long lessonId);
@@ -46,11 +47,13 @@ public interface LearningProgressMapper {
      */
     @Insert(
             "INSERT INTO learning_progress (user_id, course_id, lesson_id, position_seconds, "
-                    + "max_position_seconds, completed) VALUES (#{userId}, #{courseId}, "
-                    + "#{lessonId}, #{positionSeconds}, #{maxPositionSeconds}, #{completed}) "
+                    + "max_position_seconds, watched_sec, completed) VALUES (#{userId}, "
+                    + "#{courseId}, #{lessonId}, #{positionSeconds}, #{maxPositionSeconds}, "
+                    + "#{watchedSeconds}, #{completed}) "
                     + "ON DUPLICATE KEY UPDATE position_seconds = VALUES(position_seconds), "
                     + "max_position_seconds = GREATEST(max_position_seconds, "
                     + "VALUES(max_position_seconds)), "
+                    + "watched_sec = GREATEST(watched_sec, VALUES(watched_sec)), "
                     + "completed = GREATEST(completed, VALUES(completed)), "
                     + "updated_at = CURRENT_TIMESTAMP(3)")
     int merge(LearningProgress progress);
@@ -67,7 +70,8 @@ public interface LearningProgressMapper {
     @Select(
             "SELECT id, user_id AS userId, course_id AS courseId, lesson_id AS lessonId, "
                     + "position_seconds AS positionSeconds, "
-                    + "max_position_seconds AS maxPositionSeconds, completed, "
+                    + "max_position_seconds AS maxPositionSeconds, "
+                    + "watched_sec AS watchedSeconds, completed, "
                     + "updated_at AS updatedAt FROM learning_progress "
                     + "WHERE user_id = #{userId} AND course_id = #{courseId} AND deleted = 0 "
                     + "ORDER BY lesson_id")
@@ -89,7 +93,8 @@ public interface LearningProgressMapper {
     @Select(
             "<script>SELECT id, user_id AS userId, course_id AS courseId, lesson_id AS lessonId, "
                     + "position_seconds AS positionSeconds, "
-                    + "max_position_seconds AS maxPositionSeconds, completed, "
+                    + "max_position_seconds AS maxPositionSeconds, "
+                    + "watched_sec AS watchedSeconds, completed, "
                     + "updated_at AS updatedAt FROM learning_progress "
                     + "WHERE user_id = #{userId} AND deleted = 0 AND course_id IN "
                     + "<foreach collection='courseIds' item='id' open='(' separator=',' close=')'>"

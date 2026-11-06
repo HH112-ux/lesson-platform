@@ -753,8 +753,9 @@ erDiagram
 | course_id | BIGINT UNSIGNED | NOT NULL | 冗余 |
 | lesson_id | BIGINT UNSIGNED | NOT NULL | — |
 | position_seconds | INT | NOT NULL DEFAULT 0 | 最近播放位置（秒），允许回退 |
-| max_position_seconds | INT | NOT NULL DEFAULT 0 | 历史最大播放位置（秒），只增不减；唯一 `uk_user_lesson(user_id, lesson_id)` |
-| completed | TINYINT | NOT NULL DEFAULT 0 | 1 完成；仅服务端按 `max_position_seconds ≥ 课时时长 90%` 重算，客户端不可提交完成态（15.2 D7）；`watched_sec`（有效观看时长）延后实现 |
+| max_position_seconds | INT | NOT NULL DEFAULT 0 | 历史最大播放位置（秒），只增不减；仅用于续播 |
+| watched_sec | INT | NOT NULL DEFAULT 0 | 累计有效观看秒数（V4 新增），只增不减；完成态唯一依据 |
+| completed | TINYINT | NOT NULL DEFAULT 0 | 1 完成；仅服务端按 `watched_sec ≥ 课时时长 90%` 重算，客户端不可提交完成态（15.2 D7） |
 | updated_at | DATETIME(3) | NOT NULL | 最近上报时间 |
 | 公共字段 | — | — | — |
 
@@ -908,7 +909,7 @@ erDiagram
 | 分渠道对账 | `job-worker` 每日拉取两渠道账单 → 写 `payment_reconcile`（`uk_channel_date_type` 覆盖更新）→ `diff_count>0` 置 `status=2` 并告警 |
 | 教师数据范围 | 所有 `/api/v1/teacher/**` 在 service 层按 `owner_teacher_id = 当前教师ID` 过滤，不接受前端传教师 ID；看板只读 `course_daily_stat` |
 | 模型配置变更 | 单条事务更新 `ai_model_config` + 写 `audit_log`；提交后清空 `ai-service` 本地缓存（Nacos 配置刷新），失败不改旧配置 |
-| 学习进度 | `uk_user_lesson` + 条件更新（`watched_sec = GREATEST(watched_sec, ?)`），乐观锁兜底 |
+| 学习进度 | `uk_user_lesson` + 条件更新（`watched_sec = GREATEST(watched_sec, ?)`、`max_position_seconds = GREATEST(...)`），可信增量上限为服务端时间差 × 1.5，乐观锁兜底 |
 | 评论计数 | 审核通过后异步重算课程评论计数（不产出评分，07 §2.5），避免热点行更新 |
 
 ---
@@ -1065,12 +1066,21 @@ erDiagram
 |---|---|---|---|---|---|
 | GET | `/api/v1/learning/my-courses` | 我的课程 | query:`pageNum,pageSize` | 分页 `{records:[{courseId,title,coverUrl,progressPercent,lastLessonId}]}` | 40101 |
 | GET | `/api/v1/lessons/{lessonId}/play-token` | 获取签名播放地址（有效期 10 分钟，`expiresAt` 为 epoch 秒；签名失效后 MinIO 返回 403 `AccessDenied`/`SignatureDoesNotMatch`） | — | `{playUrl,expiresIn,expiresAt}` | 40302,40401,50206 |
-| POST | `/api/v1/learning/progress` | 上报进度（完成态由服务端按 `max_position_seconds ≥ 课时时长 90%` 重算，请求不可直接置完成，15.2 D7） | `{lessonId,positionSeconds}` | `{lessonId,positionSeconds,maxPositionSeconds,completed,updatedAt}` | 40302,40401,63001 |
-| GET | `/api/v1/learning/progress` | 课程进度 | query:`courseId` | `{courseId,lessons:[{lessonId,positionSeconds,maxPositionSeconds,completed,updatedAt}]}` | 40302,40401 |
+| POST | `/api/v1/learning/progress` | 上报进度（`watched_sec` 由服务端累加，完成态按 `watched_sec ≥ 课时时长 90%` 重算，请求不可直接置完成，15.2 D7） | `{lessonId,positionSeconds}` | `{lessonId,positionSeconds,maxPositionSeconds,watchedSeconds,completed,truncated,updatedAt}` | 40302,40401,63001 |
+| GET | `/api/v1/learning/progress` | 课程进度 | query:`courseId` | `{courseId,lessons:[{lessonId,positionSeconds,maxPositionSeconds,watchedSeconds,completed,updatedAt}]}` | 40302,40401 |
 
 **权益一致性（trade → learn）**：`trade_order` 与 `user_entitlement` 分属 `lp_oms` / `lp_lms`。下单与支付回调事务内**不跨服务 HTTP**，而是在同一事务写入本地消息表 `entitlement_outbox`（唯一 `uk_order_course(order_id, course_id)`）；`trade-service` 的定时中继（默认 5 秒延迟、失败指数退避、最多 10 次）调用 `POST /internal/v1/entitlements` 投递给 `learn-service`，由 `uk_user_course(user_id, course_id)` 吸收重复投递。投递为**最终一致、至少一次**：学习权益可见最多滞后一个中继周期；中继放弃（`status=2`）的记录需人工对账补发。
 
 > **内部接口（不经网关对外）**：`POST /internal/v1/entitlements`，请求 `{userId,courseId,orderId?,source}`，响应 `{granted:true}`；重复投递返回成功。
+
+> **有效观看时长口径（V4）**：服务端**只用自己记录的 `updated_at` 与当前时间之差**作为本次真实间隔（不采用客户端上报的间隔，避免伪造）。本次可信增量 = `min(position 相对上次的推进量, 间隔 × 1.5)`：
+> - 位置回退（拖动往回）推进量为 0，不增加 `watched_sec`；
+> - 前进跳转超过上限时截断为上限，不报错，响应 `truncated=true`；
+> - `position_seconds < 2` 或间隔 `< 5s` 视为异常心跳，本次不计入；
+> - 首次上报只建立基线（无上次记录），`watched_sec` 保持 0；
+> - `watched_sec` 与 `max_position_seconds` 均只增不减；并发写入用 `GREATEST` 兜底。
+>
+> **完成态**：`watched_sec × 100 ≥ 课时时长 × 90` 时置 `completed=1`，一旦完成不再回退；`max_position_seconds` 不再参与完成判定，仅用于续播。
 
 > **我的课程进度口径**：`progressPercent = 该课程 completed=1 的课时数 ÷ 课程当前可见课时数 × 100`，按整数**四舍五入**（`.5` 向上），上限 100；课程课时数为 0 时取 0。`lastLessonId` 取该课程 `learning_progress.updated_at` 最新一条的 `lesson_id`（同秒冲突时取较大的 `lesson_id`），无进度记录时为 `null`。进度数据只统计当前页课程，跨课程不串数据。
 

@@ -17,6 +17,10 @@ import com.lp.learn.dto.LessonProgressView;
 import com.lp.learn.entity.LearningProgress;
 import com.lp.learn.mapper.LearningProgressMapper;
 import com.lp.learn.service.EntitlementService;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -26,6 +30,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 /**
  * Unit tests for progress reporting; lesson metadata and persistence are mocked.
+ *
+ * <p>The clock is fixed so the trusted increment bound is deterministic.
  *
  * @author Caspian
  * @since 0.1.0
@@ -41,6 +47,12 @@ class LearningProgressServiceImplTest {
 
     private static final int DURATION_SEC = 600;
 
+    private static final Clock CLOCK =
+            Clock.fixed(Instant.parse("2026-03-01T10:00:10Z"), ZoneOffset.UTC);
+
+    private static final LocalDateTime NOW =
+            LocalDateTime.ofInstant(CLOCK.instant(), CLOCK.getZone());
+
     @Mock private LessonInternalClient lessonInternalClient;
 
     @Mock private EntitlementService entitlementService;
@@ -50,7 +62,7 @@ class LearningProgressServiceImplTest {
     private LearningProgressServiceImpl progressService;
 
     /**
-     * Builds the service under test.
+     * Builds the service under test with the fixed clock.
      *
      * @author Caspian
      * @since 0.1.0
@@ -59,49 +71,147 @@ class LearningProgressServiceImplTest {
     void setUp() {
         progressService =
                 new LearningProgressServiceImpl(
-                        lessonInternalClient, entitlementService, learningProgressMapper);
+                        lessonInternalClient, entitlementService, learningProgressMapper, CLOCK);
     }
 
     /**
-     * A first report stores the position and leaves the lesson incomplete.
+     * A first report stores the position but cannot credit watch time without a baseline.
      *
      * @author Caspian
      * @since 0.1.0
      */
     @Test
-    void reportsPositionForEntitledUser() {
+    void firstReportStoresPositionWithoutWatchedTime() {
         when(lessonInternalClient.lesson(LESSON_ID)).thenReturn(lesson(false));
         when(entitlementService.hasEntitlement(USER_ID, COURSE_ID)).thenReturn(true);
 
         LessonProgressView view = progressService.report(USER_ID, LESSON_ID, 100);
 
         assertEquals(100, view.getPositionSeconds());
-        assertEquals(100, view.getMaxPositionSeconds());
+        assertEquals(0, view.getWatchedSeconds());
         assertFalse(view.isCompleted());
-        LearningProgress saved = captureMerged();
-        assertEquals(100, saved.getMaxPositionSeconds());
-        assertEquals(0, saved.getCompleted());
+        assertFalse(view.isTruncated());
     }
 
     /**
-     * Rewinding updates the latest position but never lowers the stored maximum.
+     * A regular heartbeat credits the playback advance when it fits the trusted bound.
      *
      * @author Caspian
      * @since 0.1.0
      */
     @Test
-    void rewindKeepsMaxPosition() {
+    void normalHeartbeatAccumulatesWatchedTime() {
         when(lessonInternalClient.lesson(LESSON_ID)).thenReturn(lesson(false));
         when(entitlementService.hasEntitlement(USER_ID, COURSE_ID)).thenReturn(true);
-        when(learningProgressMapper.selectOne(USER_ID, LESSON_ID)).thenReturn(existing(300, 0));
+        when(learningProgressMapper.selectOne(USER_ID, LESSON_ID))
+                .thenReturn(existing(100, 100, 100, 0, 10));
+
+        LessonProgressView view = progressService.report(USER_ID, LESSON_ID, 110);
+
+        // 10 seconds elapsed, advance 10 <= 15, so all of it is credible.
+        assertEquals(110, view.getWatchedSeconds());
+        assertFalse(view.isTruncated());
+        assertEquals(110, captureMerged().getWatchedSeconds());
+    }
+
+    /**
+     * Dragging backwards never earns watch time and never lowers the maximum position.
+     *
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Test
+    void rewindDoesNotAddWatchedTimeOrLowerMax() {
+        when(lessonInternalClient.lesson(LESSON_ID)).thenReturn(lesson(false));
+        when(entitlementService.hasEntitlement(USER_ID, COURSE_ID)).thenReturn(true);
+        when(learningProgressMapper.selectOne(USER_ID, LESSON_ID))
+                .thenReturn(existing(300, 300, 300, 0, 10));
 
         LessonProgressView view = progressService.report(USER_ID, LESSON_ID, 120);
 
         assertEquals(120, view.getPositionSeconds());
         assertEquals(300, view.getMaxPositionSeconds());
-        LearningProgress saved = captureMerged();
-        assertEquals(120, saved.getPositionSeconds());
-        assertEquals(300, saved.getMaxPositionSeconds());
+        assertEquals(300, view.getWatchedSeconds());
+        assertFalse(view.isTruncated());
+    }
+
+    /**
+     * A forward seek is capped at 1.5x the real elapsed time and flagged as truncated.
+     *
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Test
+    void advanceBeyondTrustedBoundIsTruncated() {
+        when(lessonInternalClient.lesson(LESSON_ID)).thenReturn(lesson(false));
+        when(entitlementService.hasEntitlement(USER_ID, COURSE_ID)).thenReturn(true);
+        when(learningProgressMapper.selectOne(USER_ID, LESSON_ID))
+                .thenReturn(existing(10, 10, 10, 0, 10));
+
+        LessonProgressView view = progressService.report(USER_ID, LESSON_ID, 310);
+
+        // 10 seconds elapsed allows 15 seconds; the 300 second jump is cut to 15.
+        assertEquals(25, view.getWatchedSeconds());
+        assertTrue(view.isTruncated());
+        assertEquals(310, view.getMaxPositionSeconds());
+    }
+
+    /**
+     * Reports closer than five seconds apart are treated as abnormal and add nothing.
+     *
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Test
+    void shortIntervalIsNotCounted() {
+        when(lessonInternalClient.lesson(LESSON_ID)).thenReturn(lesson(false));
+        when(entitlementService.hasEntitlement(USER_ID, COURSE_ID)).thenReturn(true);
+        when(learningProgressMapper.selectOne(USER_ID, LESSON_ID))
+                .thenReturn(existing(100, 100, 100, 0, 2));
+
+        LessonProgressView view = progressService.report(USER_ID, LESSON_ID, 110);
+
+        assertEquals(100, view.getWatchedSeconds());
+        assertFalse(view.isTruncated());
+    }
+
+    /**
+     * Completion now depends on watch time, not on the furthest position.
+     *
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Test
+    void completionRequiresWatchedThresholdNotPosition() {
+        when(lessonInternalClient.lesson(LESSON_ID)).thenReturn(lesson(false));
+        when(entitlementService.hasEntitlement(USER_ID, COURSE_ID)).thenReturn(true);
+        when(learningProgressMapper.selectOne(USER_ID, LESSON_ID))
+                .thenReturn(existing(595, 595, 530, 0, 10));
+
+        LessonProgressView view = progressService.report(USER_ID, LESSON_ID, 600);
+
+        assertEquals(535, view.getWatchedSeconds());
+        assertFalse(view.isCompleted());
+    }
+
+    /**
+     * Accumulated watch time reaching 90% of the duration flips completion.
+     *
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Test
+    void watchedThresholdTriggersCompletion() {
+        when(lessonInternalClient.lesson(LESSON_ID)).thenReturn(lesson(false));
+        when(entitlementService.hasEntitlement(USER_ID, COURSE_ID)).thenReturn(true);
+        when(learningProgressMapper.selectOne(USER_ID, LESSON_ID))
+                .thenReturn(existing(538, 538, 538, 0, 10));
+
+        LessonProgressView view = progressService.report(USER_ID, LESSON_ID, 545);
+
+        assertEquals(545, view.getWatchedSeconds());
+        assertTrue(view.isCompleted());
+        assertEquals(1, captureMerged().getCompleted());
     }
 
     /**
@@ -143,24 +253,6 @@ class LearningProgressServiceImplTest {
         verify(learningProgressMapper, never()).merge(any());
     }
 
-    /**
-     * Reaching 90% of the duration flips completion on the server.
-     *
-     * @author Caspian
-     * @since 0.1.0
-     */
-    @Test
-    void completionIsTriggeredByThreshold() {
-        when(lessonInternalClient.lesson(LESSON_ID)).thenReturn(lesson(false));
-        when(entitlementService.hasEntitlement(USER_ID, COURSE_ID)).thenReturn(true);
-
-        LessonProgressView view = progressService.report(USER_ID, LESSON_ID, 540);
-
-        assertTrue(view.isCompleted());
-        LearningProgress saved = captureMerged();
-        assertEquals(1, saved.getCompleted());
-    }
-
     private LearningProgress captureMerged() {
         ArgumentCaptor<LearningProgress> captor = ArgumentCaptor.forClass(LearningProgress.class);
         verify(learningProgressMapper).merge(captor.capture());
@@ -177,14 +269,17 @@ class LearningProgressServiceImplTest {
         return info;
     }
 
-    private LearningProgress existing(int maxPosition, int completed) {
+    private LearningProgress existing(
+            int position, int maxPosition, int watched, int completed, int secondsAgo) {
         LearningProgress progress = new LearningProgress();
         progress.setUserId(USER_ID);
         progress.setCourseId(COURSE_ID);
         progress.setLessonId(LESSON_ID);
-        progress.setPositionSeconds(maxPosition);
+        progress.setPositionSeconds(position);
         progress.setMaxPositionSeconds(maxPosition);
+        progress.setWatchedSeconds(watched);
         progress.setCompleted(completed);
+        progress.setUpdatedAt(NOW.minusSeconds(secondsAgo));
         return progress;
     }
 }

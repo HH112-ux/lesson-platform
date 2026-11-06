@@ -16,7 +16,11 @@ public class LessonProgressView {
 
     private final int maxPositionSeconds;
 
+    private final int watchedSeconds;
+
     private final boolean completed;
+
+    private final boolean truncated;
 
     private final LocalDateTime updatedAt;
 
@@ -26,7 +30,9 @@ public class LessonProgressView {
      * @param lessonId lesson id
      * @param positionSeconds latest position in seconds
      * @param maxPositionSeconds historical maximum in seconds
+     * @param watchedSeconds accumulated credible watch time in seconds
      * @param completed whether the server marked it complete
+     * @param truncated whether this report's increment was capped by the trusted limit
      * @param updatedAt last update time
      * @author Caspian
      * @since 0.1.0
@@ -35,12 +41,16 @@ public class LessonProgressView {
             long lessonId,
             int positionSeconds,
             int maxPositionSeconds,
+            int watchedSeconds,
             boolean completed,
+            boolean truncated,
             LocalDateTime updatedAt) {
         this.lessonId = lessonId;
         this.positionSeconds = positionSeconds;
         this.maxPositionSeconds = maxPositionSeconds;
+        this.watchedSeconds = watchedSeconds;
         this.completed = completed;
+        this.truncated = truncated;
         this.updatedAt = updatedAt;
     }
 
@@ -69,12 +79,23 @@ public class LessonProgressView {
     /**
      * Returns the historical maximum position.
      *
-     * @return maximum position in seconds
+     * @return max position in seconds
      * @author Caspian
      * @since 0.1.0
      */
     public int getMaxPositionSeconds() {
         return maxPositionSeconds;
+    }
+
+    /**
+     * Returns the accumulated credible watch time.
+     *
+     * @return watched seconds
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public int getWatchedSeconds() {
+        return watchedSeconds;
     }
 
     /**
@@ -86,6 +107,17 @@ public class LessonProgressView {
      */
     public boolean isCompleted() {
         return completed;
+    }
+
+    /**
+     * Tells whether this report was capped by the trusted increment limit.
+     *
+     * @return {@code true} when the increment was truncated
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public boolean isTruncated() {
+        return truncated;
     }
 
     /**
