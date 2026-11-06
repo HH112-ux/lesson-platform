@@ -11,18 +11,22 @@
   </view>
 
   <view wx:for="{{records}}" wx:key="courseId" class="card">
-    <view class="name" data-id="{{item.courseId}}" bindtap="openCourse">{{item.title}}</view>
+    <view class="title-row">
+      <text class="name" data-id="{{item.courseId}}" bindtap="openCourse">{{item.title}}</text>
+      <text wx:if="{{item.refunded}}" class="badge">已退款</text>
+    </view>
     <view class="bar">
       <view class="bar-fill" style="width: {{item.progressWidth}}"></view>
     </view>
     <view class="row">
-      <text class="muted small">已学 {{item.progressText}}</text>
+      <text class="muted small">{{item.hintText}}</text>
       <view
-        class="btn small-btn"
+        class="btn small-btn {{item.refunded ? 'btn--ghost' : ''}}"
         data-id="{{item.courseId}}"
         data-lesson="{{item.lastLessonId}}"
+        data-refunded="{{item.refunded}}"
         bindtap="continueLearning"
-      >{{item.lastLessonId ? '继续学习' : '去学习'}}</view>
+      >{{item.actionText}}</view>
     </view>
   </view>
 </view>
