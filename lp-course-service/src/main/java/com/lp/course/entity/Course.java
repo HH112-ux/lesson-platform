@@ -1,12 +1,14 @@
 package com.lp.course.entity;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 
 /**
  * Course row read from the {@code course} table.
  *
- * <p>Only the columns exposed by the internal contract are projected; publishing fields stay in the
- * course-service write paths. {@code lessonCount} comes from a correlated subquery instead of a
+ * <p>Each projection selects only the columns it needs, so fields missing from a query stay {@code
+ * null}. The teacher console additionally reads the descriptive and review columns below; the
+ * internal contract ignores them. {@code lessonCount} comes from a correlated subquery instead of a
  * second round trip.
  *
  * @author Caspian
@@ -29,6 +31,22 @@ public class Course {
     private Long lessonCount;
 
     private String instructorName;
+
+    private Long categoryId;
+
+    private String subtitle;
+
+    private String description;
+
+    private BigDecimal originalPrice;
+
+    private Integer level;
+
+    private String reviewRemark;
+
+    private LocalDateTime submittedAt;
+
+    private LocalDateTime updatedAt;
 
     /**
      * Returns the course id.
@@ -204,5 +222,181 @@ public class Course {
      */
     public void setInstructorName(String instructorName) {
         this.instructorName = instructorName;
+    }
+
+    /**
+     * Returns the category id.
+     *
+     * @return {@code course_category.id}
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public Long getCategoryId() {
+        return categoryId;
+    }
+
+    /**
+     * Sets the category id.
+     *
+     * @param categoryId {@code course_category.id}
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public void setCategoryId(Long categoryId) {
+        this.categoryId = categoryId;
+    }
+
+    /**
+     * Returns the subtitle.
+     *
+     * @return subtitle text, may be {@code null}
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public String getSubtitle() {
+        return subtitle;
+    }
+
+    /**
+     * Sets the subtitle.
+     *
+     * @param subtitle subtitle text
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public void setSubtitle(String subtitle) {
+        this.subtitle = subtitle;
+    }
+
+    /**
+     * Returns the long description.
+     *
+     * @return description text, may be {@code null}
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public String getDescription() {
+        return description;
+    }
+
+    /**
+     * Sets the long description.
+     *
+     * @param description description text
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public void setDescription(String description) {
+        this.description = description;
+    }
+
+    /**
+     * Returns the crossed out reference price.
+     *
+     * @return price in yuan, may be {@code null}
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public BigDecimal getOriginalPrice() {
+        return originalPrice;
+    }
+
+    /**
+     * Sets the crossed out reference price.
+     *
+     * @param originalPrice price in yuan
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public void setOriginalPrice(BigDecimal originalPrice) {
+        this.originalPrice = originalPrice;
+    }
+
+    /**
+     * Returns the difficulty level.
+     *
+     * @return 1 beginner, 2 intermediate, 3 advanced
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public Integer getLevel() {
+        return level;
+    }
+
+    /**
+     * Sets the difficulty level.
+     *
+     * @param level 1 beginner, 2 intermediate, 3 advanced
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public void setLevel(Integer level) {
+        this.level = level;
+    }
+
+    /**
+     * Returns the review remark left by the operations reviewer.
+     *
+     * @return remark text, {@code null} when never rejected
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public String getReviewRemark() {
+        return reviewRemark;
+    }
+
+    /**
+     * Sets the review remark.
+     *
+     * @param reviewRemark remark text
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public void setReviewRemark(String reviewRemark) {
+        this.reviewRemark = reviewRemark;
+    }
+
+    /**
+     * Returns the time the teacher submitted the course.
+     *
+     * @return submit time, {@code null} while never submitted
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public LocalDateTime getSubmittedAt() {
+        return submittedAt;
+    }
+
+    /**
+     * Sets the submit time.
+     *
+     * @param submittedAt submit time
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public void setSubmittedAt(LocalDateTime submittedAt) {
+        this.submittedAt = submittedAt;
+    }
+
+    /**
+     * Returns the last modification time.
+     *
+     * @return update time
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public LocalDateTime getUpdatedAt() {
+        return updatedAt;
+    }
+
+    /**
+     * Sets the last modification time.
+     *
+     * @param updatedAt update time
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public void setUpdatedAt(LocalDateTime updatedAt) {
+        this.updatedAt = updatedAt;
     }
 }
