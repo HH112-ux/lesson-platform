@@ -18,6 +18,16 @@ spring:
         import-check:
           enabled: false
 
+lp:
+  admin:
+    # course-service internal API address used by the review queue.
+    course-base-url: ${LP_COURSE_SERVICE_BASE_URL:http://127.0.0.1:8102}
+    course-read-timeout-ms: ${LP_COURSE_READ_TIMEOUT_MS:3000}
+  internal:
+    # Shared secret for /internal/v1/**. No default on purpose: the service refuses to start
+    # without LP_INTERNAL_TOKEN so a misconfigured deployment never sends unauthenticated calls.
+    token: ${LP_INTERNAL_TOKEN:}
+
 management:
   endpoints:
     web:
