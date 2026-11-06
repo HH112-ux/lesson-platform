@@ -1,0 +1,25 @@
+<view class="page">
+  <view wx:if="{{loading}}" class="empty">加载中…</view>
+
+  <view wx:elif="{{errorText}}" class="card empty">
+    <text>{{errorText}}</text>
+    <view class="btn btn--ghost retry" bindtap="retry">重新加载</view>
+  </view>
+
+  <block wx:else>
+    <video
+      class="video"
+      src="{{playUrl}}"
+      initial-time="{{initialTime}}"
+      show-center-play-btn
+      enable-play-gesture
+      bindtimeupdate="onTimeUpdate"
+      bindpause="onPause"
+      bindended="onEnded"
+      binderror="onVideoError"
+    ></video>
+    <view class="card tip">
+      学习进度每 15 秒自动保存，退出时会补报一次；下次进入将从最近位置继续播放。
+    </view>
+  </block>
+</view>
