@@ -68,6 +68,9 @@ lp:
     optional-auth:
       - /api/v1/courses/**
       - /api/v1/categories/**
+      # The purchase page may be opened in a browser without a session; the ticket is the
+      # credential. A valid token is still verified so a different user is rejected.
+      - /api/v1/orders/purchase-ticket/redeem
     jwt:
       issuer: auth-service
       public-key-path: ${LP_JWT_PUBLIC_KEY_PATH:}
