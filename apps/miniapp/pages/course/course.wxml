@@ -1,0 +1,46 @@
+<view class="page">
+  <view wx:if="{{loading}}" class="empty">加载中…</view>
+
+  <view wx:elif="{{errorText}}" class="card empty">
+    <text>{{errorText}}</text>
+    <view class="btn btn--ghost retry" bindtap="retry">重新加载</view>
+  </view>
+
+  <block wx:elif="{{course}}">
+    <view class="card">
+      <image wx:if="{{course.coverUrl}}" class="banner" src="{{course.coverUrl}}" mode="aspectFill" />
+      <view class="title">{{course.title}}</view>
+      <view class="muted small">{{course.instructorName || '平台讲师'}} · {{course.lessonCount}} 课时</view>
+      <view class="price">{{priceText}}</view>
+
+      <view wx:if="{{course.status === 3}}" class="hint">课程已下架，暂时无法购买</view>
+      <view wx:elif="{{owned}}" class="cta" bindtap="openMyCourses">已购，去我的课程学习</view>
+      <view wx:else class="cta" bindtap="copyPurchaseLink">复制购买链接（去浏览器支付）</view>
+    </view>
+
+    <view class="section-title">课程目录</view>
+    <view wx:if="{{chapters.length === 0}}" class="card empty">暂无课时</view>
+    <view wx:for="{{chapters}}" wx:key="chapterId" class="card chapter">
+      <view class="chapter-name">{{item.title}}</view>
+      <view
+        wx:for="{{item.lessons}}"
+        wx:for-item="lesson"
+        wx:key="lessonId"
+        class="lesson"
+        data-id="{{lesson.lessonId}}"
+        data-free="{{lesson.free}}"
+        data-playable="{{lesson.playable}}"
+        bindtap="tapLesson"
+      >
+        <view class="lesson-title">
+          {{lesson.title}}
+          <text wx:if="{{lesson.free}}" class="tag">试听</text>
+        </view>
+        <view class="muted small">
+          <block wx:if="{{owned || lesson.free}}">{{lesson.durationText}}</block>
+          <block wx:else>购买后可学习</block>
+        </view>
+      </view>
+    </view>
+  </block>
+</view>

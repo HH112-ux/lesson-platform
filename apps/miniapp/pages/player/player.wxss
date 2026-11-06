@@ -1,0 +1,17 @@
+.video {
+  width: 100%;
+  height: 400rpx;
+  background: #000000;
+  border-radius: 12rpx;
+}
+
+.tip {
+  margin-top: 20rpx;
+  color: #646a73;
+  font-size: 26rpx;
+  line-height: 1.6;
+}
+
+.retry {
+  margin-top: 24rpx;
+}

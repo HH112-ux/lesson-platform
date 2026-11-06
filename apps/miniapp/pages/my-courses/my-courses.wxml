@@ -1,0 +1,28 @@
+<view class="page">
+  <view wx:if="{{loading}}" class="empty">加载中…</view>
+
+  <view wx:elif="{{errorText}}" class="card empty">
+    <text>{{errorText}}</text>
+    <view class="btn btn--ghost retry" bindtap="load">重新加载</view>
+  </view>
+
+  <view wx:elif="{{records.length === 0}}" class="card empty">
+    还没有已购课程，去首页挑选一门吧
+  </view>
+
+  <view wx:for="{{records}}" wx:key="courseId" class="card">
+    <view class="name" data-id="{{item.courseId}}" bindtap="openCourse">{{item.title}}</view>
+    <view class="bar">
+      <view class="bar-fill" style="width: {{item.progressWidth}}"></view>
+    </view>
+    <view class="row">
+      <text class="muted small">已学 {{item.progressText}}</text>
+      <view
+        class="btn small-btn"
+        data-id="{{item.courseId}}"
+        data-lesson="{{item.lastLessonId}}"
+        bindtap="continueLearning"
+      >{{item.lastLessonId ? '继续学习' : '去学习'}}</view>
+    </view>
+  </view>
+</view>

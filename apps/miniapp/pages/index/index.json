@@ -1,3 +1,5 @@
 {
-  "navigationBarTitleText": "课程平台"
+  "navigationBarTitleText": "全部课程",
+  "enablePullDownRefresh": true,
+  "backgroundTextStyle": "dark"
 }

@@ -1,5 +1,57 @@
 <view class="page">
-  <text class="title">{{ title }}</text>
-  <text class="hint">小程序骨架已就绪，业务页面待后续批次实现。</text>
-  <text class="meta">API base: {{ apiBaseUrl }}</text>
+  <view class="head">
+    <text class="title">全部课程</text>
+    <text class="entry" bindtap="goMyCourses">我的课程</text>
+  </view>
+
+  <scroll-view
+    class="chips"
+    scroll-x
+    enhanced
+    show-scrollbar="{{false}}"
+  >
+    <text
+      class="chip {{activeCategoryId === 0 ? 'chip--active' : ''}}"
+      data-id="0"
+      bindtap="tapCategory"
+    >全部</text>
+    <text
+      wx:for="{{categories}}"
+      wx:key="categoryId"
+      class="chip {{activeCategoryId === item.categoryId ? 'chip--active' : ''}}"
+      data-id="{{item.categoryId}}"
+      bindtap="tapCategory"
+    >{{item.name}}</text>
+  </scroll-view>
+
+  <view wx:if="{{errorText}}" class="card empty">
+    <text>{{errorText}}</text>
+    <view class="btn btn--ghost retry" bindtap="retry">重新加载</view>
+  </view>
+
+  <block wx:else>
+    <view
+      wx:for="{{courses}}"
+      wx:key="courseId"
+      class="card course"
+      data-id="{{item.courseId}}"
+      bindtap="tapCourse"
+    >
+      <image wx:if="{{item.coverUrl}}" class="cover" src="{{item.coverUrl}}" mode="aspectFill" />
+      <view class="body">
+        <view class="name">
+          {{item.title}}
+          <text wx:if="{{item.owned}}" class="tag">已购</text>
+        </view>
+        <view class="muted small">
+          {{item.instructorName || '平台讲师'}} · {{item.lessonCount}} 课时
+        </view>
+        <view class="price">{{item.priceText}}</view>
+      </view>
+    </view>
+
+    <view wx:if="{{courses.length === 0 && !loading}}" class="empty">暂无上架课程</view>
+    <view wx:if="{{loading}}" class="empty">加载中…</view>
+    <view wx:if="{{courses.length > 0 && courses.length >= total}}" class="empty small">已经到底啦</view>
+  </block>
 </view>
