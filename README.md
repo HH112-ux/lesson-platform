@@ -95,6 +95,21 @@ DRILL OK: order stayed paid during the outage, retries backed off, delivery reco
 
 失败时先看脚本最后打印的步骤号与 HTTP 响应体，再查 `docker logs lp-trade-service`；outbox 原始状态可直接查 `lp_oms.entitlement_outbox`。
 
+### outbox 指标抓取
+
+`trade-service` 直接暴露 Prometheus 文本端点（服务端口 8103，不经网关；网关与 nginx 只暴露自身 actuator，不会转发下游服务的 `/actuator/prometheus`）。actuator 仅开放 `health`、`info`、`prometheus` 三项。
+
+```bash
+curl -s http://localhost:8103/actuator/prometheus | grep entitlement_outbox
+```
+
+| 指标 | 含义 |
+|---|---|
+| `entitlement_outbox_pending` | 待投递的权益记录数；持续大于 0 说明中继未追平或下游不可用 |
+| `entitlement_outbox_failed` | 超过重试上限、需要人工重放的死信数；大于 0 应告警 |
+
+两个 Gauge 在中继每批投递后与每 15 秒刷新，抓取端不需要访问数据库。
+
 ## 本地模拟支付
 
 - 开关：`infra/.env` 的 `LP_PAY_MOCK_ENABLED`，**默认 `false`**。

@@ -23,6 +23,11 @@
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-actuator</artifactId>
     </dependency>
+    <!-- Prometheus scrape endpoint; the registry turns the outbox gauges into text samples. -->
+    <dependency>
+      <groupId>io.micrometer</groupId>
+      <artifactId>micrometer-registry-prometheus</artifactId>
+    </dependency>
     <!-- Purchase tickets are one-time, 15 minute Redis entries; see PurchaseTicketStore. -->
     <dependency>
       <groupId>org.springframework.boot</groupId>
