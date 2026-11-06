@@ -30,6 +30,21 @@ export function formatFen(fen: number | null | undefined): string {
 }
 
 /**
+ * Formats a ratio as a percentage.
+ *
+ * @param ratio value between 0 and 1
+ * @returns text such as {@code 62.5%}
+ * @author Caspian
+ * @since 0.2.0
+ */
+export function formatPercent(ratio: number): string {
+  if (!Number.isFinite(ratio)) {
+    return '--'
+  }
+  return `${(ratio * 100).toFixed(1)}%`
+}
+
+/**
  * Formats an ISO timestamp for table cells.
  *
  * @param value timestamp returned by the backend

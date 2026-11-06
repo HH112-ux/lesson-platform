@@ -76,3 +76,112 @@ export function reviewCourse(courseId: number, payload: ReviewPayload): Promise<
     body: JSON.stringify(payload),
   })
 }
+
+/** User row of {@code GET /api/v1/admin/users}. */
+export interface AdminUserView {
+  userId: number
+  username: string
+  nickname: string
+  phone?: string | null
+  status: number
+  /** Role codes such as {@code STUDENT} or {@code ADMIN}. */
+  roles?: string[]
+  createdAt: string
+}
+
+/** Page of users. */
+export interface AdminUserPage {
+  records: AdminUserView[]
+  total: number
+  pageNum: number
+  pageSize: number
+}
+
+/** Order row of {@code GET /api/v1/admin/orders}. */
+export interface AdminOrderView {
+  orderNo: string
+  userId: number
+  status: number
+  /** Amount in yuan. */
+  payAmount: number
+  createdAt: string
+}
+
+/** Page of orders. */
+export interface AdminOrderPage {
+  records: AdminOrderView[]
+  total: number
+  pageNum: number
+  pageSize: number
+}
+
+/** Top selling course of the overview. */
+export interface CourseSale {
+  courseId: number
+  title: string
+  orderCount: number
+}
+
+/** Operations overview returned by {@code GET /api/v1/admin/metrics/overview}. */
+export interface MetricsOverview {
+  /** Gross merchandise volume in yuan. */
+  gmv: number
+  orderCount: number
+  /** Paid orders divided by created orders. */
+  paidRate: number
+  newUsers: number
+  courseSalesTop5: CourseSale[]
+}
+
+/**
+ * Lists users with an optional keyword.
+ *
+ * @param keyword username, nickname or phone fragment
+ * @param pageNum one-based page number
+ * @param pageSize page size
+ * @returns the page of users
+ * @author Caspian
+ * @since 0.2.0
+ */
+export function listUsers(keyword: string, pageNum: number, pageSize: number): Promise<AdminUserPage> {
+  const params = new URLSearchParams({
+    pageNum: String(pageNum),
+    pageSize: String(pageSize),
+  })
+  if (keyword.trim()) {
+    params.set('keyword', keyword.trim())
+  }
+  return apiRequest<AdminUserPage>(`/api/v1/admin/users?${params.toString()}`)
+}
+
+/**
+ * Lists orders with an optional order number filter.
+ *
+ * @param orderNo exact or partial order number, empty for all
+ * @param pageNum one-based page number
+ * @param pageSize page size
+ * @returns the page of orders
+ * @author Caspian
+ * @since 0.2.0
+ */
+export function listAdminOrders(orderNo: string, pageNum: number, pageSize: number): Promise<AdminOrderPage> {
+  const params = new URLSearchParams({
+    pageNum: String(pageNum),
+    pageSize: String(pageSize),
+  })
+  if (orderNo.trim()) {
+    params.set('orderNo', orderNo.trim())
+  }
+  return apiRequest<AdminOrderPage>(`/api/v1/admin/orders?${params.toString()}`)
+}
+
+/**
+ * Loads the operations overview.
+ *
+ * @returns aggregated metrics of the given period
+ * @author Caspian
+ * @since 0.2.0
+ */
+export function loadOverview(): Promise<MetricsOverview> {
+  return apiRequest<MetricsOverview>('/api/v1/admin/metrics/overview')
+}

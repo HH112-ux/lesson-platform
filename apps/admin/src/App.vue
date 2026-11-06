@@ -8,8 +8,11 @@
 import { computed, onMounted } from 'vue'
 import { clearSession, readAccessToken } from './api/client'
 import { currentRoute, currentUser, navigate, syncRoute } from './router'
+import DashboardView from './views/DashboardView.vue'
 import LoginView from './views/LoginView.vue'
+import OrdersView from './views/OrdersView.vue'
 import ReviewQueueView from './views/ReviewQueueView.vue'
+import UsersView from './views/UsersView.vue'
 
 const signedIn = computed(() => Boolean(readAccessToken()) && Boolean(currentUser.value))
 
@@ -39,8 +42,20 @@ onMounted(() => {
       <nav>
         <a
           href="/"
+          :class="{ active: currentRoute.name === 'overview' }"
+        >数据看板</a>
+        <a
+          href="/courses"
           :class="{ active: currentRoute.name === 'review' }"
         >课程审核</a>
+        <a
+          href="/users"
+          :class="{ active: currentRoute.name === 'users' }"
+        >用户管理</a>
+        <a
+          href="/orders"
+          :class="{ active: currentRoute.name === 'orders' }"
+        >订单管理</a>
       </nav>
       <div class="account">
         <span>{{ currentUser?.nickname }}</span>
@@ -54,12 +69,15 @@ onMounted(() => {
     </aside>
 
     <main class="content">
-      <ReviewQueueView v-if="currentRoute.name === 'review'" />
+      <DashboardView v-if="currentRoute.name === 'overview'" />
+      <ReviewQueueView v-else-if="currentRoute.name === 'review'" />
+      <UsersView v-else-if="currentRoute.name === 'users'" />
+      <OrdersView v-else-if="currentRoute.name === 'orders'" />
       <p
         v-else
         class="lp-empty"
       >
-        页面不存在，<a href="/">返回课程审核</a>
+        页面不存在，<a href="/">返回数据看板</a>
       </p>
     </main>
   </div>

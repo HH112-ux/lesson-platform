@@ -11,7 +11,7 @@ import { shallowRef } from 'vue'
 import { readUser, type SessionUser } from './api/client'
 
 /** Screen of the console. */
-export type RouteName = 'review' | 'login' | 'not-found'
+export type RouteName = 'overview' | 'review' | 'users' | 'orders' | 'login' | 'not-found'
 
 /** Resolved route with its rendered screen and path parameters. */
 export interface Route {
@@ -30,17 +30,26 @@ export interface Route {
 export function resolveRoute(pathname: string): Route {
   const segments = pathname.split('/').filter(Boolean)
   if (segments.length === 0) {
-    return { name: 'review', params: {} }
+    return { name: 'overview', params: {} }
   }
   if (segments.length === 1 && segments[0] === 'login') {
     return { name: 'login', params: {} }
+  }
+  if (segments.length === 1 && segments[0] === 'courses') {
+    return { name: 'review', params: {} }
+  }
+  if (segments.length === 1 && segments[0] === 'users') {
+    return { name: 'users', params: {} }
+  }
+  if (segments.length === 1 && segments[0] === 'orders') {
+    return { name: 'orders', params: {} }
   }
   return { name: 'not-found', params: {} }
 }
 
 /** Current route, kept in sync with the address bar. */
 export const currentRoute = shallowRef<Route>(
-  typeof window === 'undefined' ? { name: 'review', params: {} } : resolveRoute(window.location.pathname),
+  typeof window === 'undefined' ? { name: 'overview', params: {} } : resolveRoute(window.location.pathname),
 )
 
 /** Signed-in operator, or {@code null} when the session is gone. */
