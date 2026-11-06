@@ -17,8 +17,11 @@ import com.lp.common.exception.BizException;
 import com.lp.trade.client.CourseInternalClient;
 import com.lp.trade.domain.OrderStatus;
 import com.lp.trade.domain.PaymentChannel;
+import com.lp.trade.dto.CancelOrderResult;
 import com.lp.trade.dto.CourseSnapshot;
 import com.lp.trade.dto.CreateOrderRequest;
+import com.lp.trade.dto.OrderDetailView;
+import com.lp.trade.dto.OrderPageView;
 import com.lp.trade.dto.OrderView;
 import com.lp.trade.entitlement.EntitlementService;
 import com.lp.trade.entity.Coupon;
@@ -26,9 +29,11 @@ import com.lp.trade.entity.TradeOrder;
 import com.lp.trade.entity.TradeOrderItem;
 import com.lp.trade.entity.UserCoupon;
 import com.lp.trade.mapper.CouponMapper;
+import com.lp.trade.mapper.PaymentMapper;
 import com.lp.trade.mapper.TradeOrderMapper;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -58,6 +63,8 @@ class OrderServiceImplTest {
     @Mock private CourseInternalClient courseInternalClient;
 
     @Mock private EntitlementService entitlementService;
+
+    @Mock private PaymentMapper paymentMapper;
 
     @InjectMocks private OrderServiceImpl orderService;
 
@@ -223,6 +230,120 @@ class OrderServiceImplTest {
 
         assertEquals(62003, exception.getCode());
         verify(tradeOrderMapper, never()).insertOrder(any(TradeOrder.class));
+    }
+
+    /**
+     * A buyer only sees the orders the query returns for that user and page bounds are clamped.
+     *
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Test
+    void listsBuyerOrdersWithClampedPaging() {
+        when(tradeOrderMapper.countByUser(USER_ID, null)).thenReturn(2L);
+        when(tradeOrderMapper.selectPageByUser(USER_ID, null, 0L, 100L))
+                .thenReturn(List.of(order(42L, "LP1", OrderStatus.PENDING)));
+        when(tradeOrderMapper.selectFirstItem(42L)).thenReturn(item());
+
+        OrderPageView page = orderService.list(USER_ID, null, 0, 500);
+
+        assertEquals(2L, page.getTotal());
+        assertEquals(1, page.getPageNum());
+        assertEquals(100, page.getPageSize());
+        assertEquals(1, page.getRecords().size());
+        assertEquals("LP1", page.getRecords().get(0).getOrderNo());
+    }
+
+    /**
+     * An empty page skips the row query entirely.
+     *
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Test
+    void returnsEmptyPageWhenNothingMatches() {
+        when(tradeOrderMapper.countByUser(USER_ID, OrderStatus.PAID)).thenReturn(0L);
+
+        OrderPageView page = orderService.list(USER_ID, OrderStatus.PAID, 2, 20);
+
+        assertEquals(0, page.getRecords().size());
+        assertEquals(2, page.getPageNum());
+        verify(tradeOrderMapper, never()).selectPageByUser(anyLong(), any(), anyLong(), anyLong());
+    }
+
+    /**
+     * Detail returns the snapshot lines of an order owned by the caller.
+     *
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Test
+    void returnsOwnedOrderDetail() {
+        when(tradeOrderMapper.selectById(42L)).thenReturn(order(42L, "LP1", OrderStatus.PENDING));
+        when(tradeOrderMapper.selectItems(42L)).thenReturn(List.of(item()));
+
+        OrderDetailView detail = orderService.detail(USER_ID, 42L);
+
+        assertEquals("LP1", detail.getOrderNo());
+        assertEquals(1, detail.getItems().size());
+        assertEquals(COURSE_ID, detail.getItems().get(0).getCourseId());
+    }
+
+    /**
+     * Another buyer's order is rejected and never leaks its content.
+     *
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Test
+    void rejectsForeignOrderDetail() {
+        TradeOrder foreign = order(42L, "LP1", OrderStatus.PENDING);
+        foreign.setUserId(9999L);
+        when(tradeOrderMapper.selectById(42L)).thenReturn(foreign);
+
+        BizException exception =
+                assertThrows(BizException.class, () -> orderService.detail(USER_ID, 42L));
+
+        assertEquals(40301, exception.getCode());
+        verify(tradeOrderMapper, never()).selectItems(42L);
+    }
+
+    /**
+     * Cancelling a pending order closes the order and its pending payment attempt.
+     *
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Test
+    void cancelsPendingOrderAndClosesPayment() {
+        when(tradeOrderMapper.selectById(42L)).thenReturn(order(42L, "LP1", OrderStatus.PENDING));
+        when(tradeOrderMapper.markCancelled(eq(42L), eq("changed mind"), any(LocalDateTime.class)))
+                .thenReturn(1);
+
+        CancelOrderResult result = orderService.cancel(USER_ID, 42L, "  changed mind  ");
+
+        assertEquals(OrderStatus.CANCELLED, result.getStatus());
+        verify(paymentMapper).closePendingByOrderId(42L);
+    }
+
+    /**
+     * Cancelling twice is idempotent; a paid order cannot be cancelled.
+     *
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Test
+    void cancelIsIdempotentButRejectsPaidOrders() {
+        when(tradeOrderMapper.selectById(42L)).thenReturn(order(42L, "LP1", OrderStatus.CANCELLED));
+        when(tradeOrderMapper.selectById(43L)).thenReturn(order(43L, "LP2", OrderStatus.PAID));
+
+        assertEquals(OrderStatus.CANCELLED, orderService.cancel(USER_ID, 42L, null).getStatus());
+        BizException exception =
+                assertThrows(BizException.class, () -> orderService.cancel(USER_ID, 43L, null));
+
+        assertEquals(62001, exception.getCode());
+        verify(tradeOrderMapper, never()).markCancelled(anyLong(), any(), any(LocalDateTime.class));
+        verify(paymentMapper, never()).closePendingByOrderId(anyLong());
     }
 
     private CreateOrderRequest request(String idempotencyKey, Long couponId) {

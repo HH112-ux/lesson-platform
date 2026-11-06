@@ -32,6 +32,10 @@ lp:
   internal:
     # Shared secret for /internal/v1/**; no default, so a missing LP_INTERNAL_TOKEN fails startup.
     token: ${LP_INTERNAL_TOKEN}
+  course:
+    # Used only to fill the catalog owned flag; failures degrade to anonymous.
+    learn-base-url: ${LP_LEARN_BASE_URL:http://127.0.0.1:8104}
+    learn-read-timeout-ms: ${LP_LEARN_READ_TIMEOUT_MS:2000}
 
 management:
   endpoints:
