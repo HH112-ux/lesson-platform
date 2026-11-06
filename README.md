@@ -62,6 +62,39 @@ bash scripts/smoke.sh
 
 `smoke.sh` 顺序验证：教师建课 → 新增章节/课时 → 提交审核 → 运营审核上架 → 学员浏览 → 下单 → 支付 → 权益 → 播放地址 → 进度回写，全部通过输出 `SMOKE OK`；任一步失败立即停止并打印响应体。模拟支付关闭时支付及后续步骤输出 `SKIPPED`，不会输出 `SMOKE OK`。
 
+## 权益 outbox 故障演练
+
+`scripts/outbox-fault-drill.sh` 真实停掉 `learn-service`，验证「订单成功 → outbox 重试 → 恢复补发 → 幂等 → 死信重放」整条链路，而不仅是单测。
+
+```bash
+bash scripts/dev-up.sh          # 至少包含 mysql/auth/course/trade/learn/admin/gateway
+bash scripts/outbox-fault-drill.sh
+```
+
+前置：本机有 `jq` 与 `docker`，栈已启动；脚本会临时用 `LP_PAY_MOCK_ENABLED=true` 重建 `trade-service`，结束（含失败退出）时按 `infra/.env` 恢复，不改文件。每次运行会新建一门演练课程，并在开始时清掉上一轮的 `DRILL-*` outbox 行。
+
+脚本逐步打印实际观测值，任一断言失败立即退出并打印 HTTP 状态与响应体；全部通过输出：
+
+```
+DRILL OK: order stayed paid during the outage, retries backed off, delivery recovered, replay was idempotent, dead letter was requeued.
+```
+
+覆盖的九步：
+
+| 步骤 | 断言 |
+|---|---|
+| 1 | 网关健康；模拟支付可用；清理上一轮演练数据 |
+| 2 | 教师建课、提交，运营审核上架 |
+| 3 | `learn-service` 已停止 |
+| 4 | 下单与支付回调仍 200，订单与订单详情均为已支付，outbox 落 `status=0` |
+| 5 | `retry_count>=1`、`next_retry_at` 在未来、未被误标死信，`pending` 计数上升 |
+| 6 | 恢复 `learn-service` 后自动补发：`status=1`、`delivered_at` 有值、权益恰好 1 行、我的课程可见、`pending` 回落 |
+| 7 | 同一权益重复投递 3 次，`uk_user_course` 兜住，权益仍 1 行 |
+| 8 | 构造 `retry_count=9` 的行，失败后进入死信（`status=2`、`retry_count=10`），失败列表与 `failed` 计数可见 |
+| 9 | 重放接口把死信救回，补发成功，`failed` 计数回落 |
+
+失败时先看脚本最后打印的步骤号与 HTTP 响应体，再查 `docker logs lp-trade-service`；outbox 原始状态可直接查 `lp_oms.entitlement_outbox`。
+
 ## 本地模拟支付
 
 - 开关：`infra/.env` 的 `LP_PAY_MOCK_ENABLED`，**默认 `false`**。
