@@ -1188,7 +1188,7 @@ spec:
 | POST | `/api/v1/admin/ai/course-profile/{courseId}/generate` | 重建课程画像 | `{force?:bool}` | `{taskId}` | 40301,50301 |
 | POST | `/api/v1/admin/ai/course-profile/{courseId}/confirm` | 确认课程画像（确认后才对学员公开；可先编辑再确认，C06-09） | `{summary?,audience?,objectives?,outline?,difficulty?}` | `{status:3}` | 40301,40401 |
 | POST | `/api/v1/admin/ai/copy` | 文案生成 | `{scene:COURSE_DETAIL/NOTICE/BANNER/COUPON,fields:{},style?,length?}` | `{candidates:[{text,length}]}` | 40301,42901,50301 |
-| GET | `/api/v1/admin/metrics/overview` | 看板 | query:`dateFrom,dateTo` | `{gmv,orderCount,paidRate,newUsers,courseSalesTop5}` | 40301 |
+| GET | `/api/v1/admin/metrics/overview` | 看板汇总（窗口固定近 7 日：成交额、订单数、支付转化率、新增用户、爆款 Top5，另附课程总数/待审核数与用户总数） | — | `{gmv,orderCount,paidRate,newUsers,courseSalesTop5:[{courseId,title,orderCount}],courseTotal,coursePendingReview,userTotal}`；`gmv` 单位元、`paidRate` 为 0–1 小数 | 40301,50201 |
 | GET | `/api/v1/admin/ai/model-config` | **读取模型接入配置**（密钥仅尾号） | — | `{scope,tenantId,baseUrl,modelName,apiKeyMasked:"****{tail}",keyVersion,timeoutMs,maxRetries,dailyTokenLimit,monthlyTokenLimit,enabled,lastCheckAt,lastCheckStatus,lastError}` | 40301,40401(未配置) |
 | PUT | `/api/v1/admin/ai/model-config` | **保存/更新配置**（`apiKey` 明文仅入参，服务端加密） | `{baseUrl,modelName,apiKey?,timeoutMs?,maxRetries?,dailyTokenLimit?,monthlyTokenLimit?,enabled}` | `{updated:true,apiKeyMasked,keyVersion}` | 40001,40301,50304(保存后测试失败) |
 | POST | `/api/v1/admin/ai/model-config/test` | **连通性测试** | `{}` | `{ok:bool,latencyMs,model,error?}` | 40301,50303,50304,50306 |

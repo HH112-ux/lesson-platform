@@ -5,6 +5,9 @@ import static org.mockito.Mockito.when;
 
 import com.lp.admin.client.DashboardClient;
 import com.lp.admin.dto.AdminDashboardView;
+import com.lp.admin.dto.AdminMetricsOverviewView;
+import java.math.BigDecimal;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -36,6 +39,31 @@ class AdminDashboardServiceTest {
         when(dashboardClient.load()).thenReturn(expected);
 
         AdminDashboardView actual = service.load();
+
+        assertEquals(expected, actual);
+    }
+
+    /**
+     * The overview figures are returned unchanged.
+     *
+     * @author Caspian
+     * @since 0.2.0
+     */
+    @Test
+    void returnsOverviewFigures() {
+        AdminMetricsOverviewView expected =
+                new AdminMetricsOverviewView(
+                        new BigDecimal("100.00"),
+                        4,
+                        new BigDecimal("0.2500"),
+                        2,
+                        List.of(),
+                        12,
+                        3,
+                        77);
+        when(dashboardClient.overview()).thenReturn(expected);
+
+        AdminMetricsOverviewView actual = service.overview();
 
         assertEquals(expected, actual);
     }
