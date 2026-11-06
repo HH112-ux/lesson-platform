@@ -4,15 +4,26 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.lp.common.exception.BizException;
 import com.lp.course.dto.CourseInternalView;
+import com.lp.course.dto.CourseReviewResultView;
 import com.lp.course.dto.LessonInternalView;
+import com.lp.course.dto.PendingCoursePageView;
+import com.lp.course.dto.PendingCourseView;
 import com.lp.course.entity.Course;
 import com.lp.course.entity.CourseLesson;
 import com.lp.course.mapper.CourseMapper;
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -123,6 +134,124 @@ class CourseInternalServiceImplTest {
                 assertThrows(BizException.class, () -> courseInternalService.lessons(99L));
 
         assertEquals(40401, exception.getCode());
+    }
+
+    /**
+     * The pending queue clamps paging and returns the mapper rows untouched.
+     *
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Test
+    void listsPendingCoursesWithClampedPaging() {
+        PendingCourseView row = new PendingCourseView();
+        row.setCourseId(7L);
+        row.setTitle("Course 7");
+        when(courseMapper.countByStatus(1)).thenReturn(1L);
+        when(courseMapper.selectPageByStatus(1, 0L, 100)).thenReturn(List.of(row));
+
+        PendingCoursePageView page = courseInternalService.pendingCourses(0, 500);
+
+        assertEquals(1L, page.getTotal());
+        assertEquals(1, page.getPageNum());
+        assertEquals(100, page.getPageSize());
+        assertEquals(7L, page.getRecords().get(0).getCourseId());
+    }
+
+    /**
+     * An empty queue skips the row query.
+     *
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Test
+    void returnsEmptyPendingQueue() {
+        when(courseMapper.countByStatus(1)).thenReturn(0L);
+
+        PendingCoursePageView page = courseInternalService.pendingCourses(1, 20);
+
+        assertEquals(0, page.getRecords().size());
+        verify(courseMapper, never()).selectPageByStatus(anyInt(), anyLong(), anyLong());
+    }
+
+    /**
+     * Approval publishes the course and reports the applied price.
+     *
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Test
+    void approvesPendingCourse() {
+        when(courseMapper.approve(eq(7L), any(BigDecimal.class), eq(55L), any(LocalDateTime.class)))
+                .thenReturn(1);
+
+        CourseReviewResultView result = courseInternalService.review(7L, true, 9900L, null, 55L);
+
+        assertEquals(2, result.getStatus());
+        assertEquals(9900L, result.getPriceFen());
+        verify(courseMapper)
+                .approve(
+                        eq(7L),
+                        argThat(
+                                price ->
+                                        price != null
+                                                && price.compareTo(new BigDecimal("99.00")) == 0),
+                        eq(55L),
+                        any(LocalDateTime.class));
+    }
+
+    /**
+     * Rejection requires a remark and moves the course back to draft.
+     *
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Test
+    void rejectsWithRemarkAndReadsCurrentPrice() {
+        when(courseMapper.reject(eq(7L), eq("missing outline"), eq(55L), any(LocalDateTime.class)))
+                .thenReturn(1);
+        when(courseMapper.selectPrice(7L)).thenReturn(new BigDecimal("12.30"));
+
+        CourseReviewResultView result =
+                courseInternalService.review(7L, false, null, "  missing outline ", 55L);
+
+        assertEquals(0, result.getStatus());
+        assertEquals(1230L, result.getPriceFen());
+    }
+
+    /**
+     * A rejection without a remark never touches the database.
+     *
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Test
+    void rejectsBlankRemark() {
+        BizException exception =
+                assertThrows(
+                        BizException.class,
+                        () -> courseInternalService.review(7L, false, null, " ", 55L));
+
+        assertEquals(40001, exception.getCode());
+        verify(courseMapper, never()).reject(anyLong(), any(), anyLong(), any(LocalDateTime.class));
+    }
+
+    /**
+     * A course that is no longer pending reports the documented state conflict.
+     *
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Test
+    void rejectsReviewWhenCourseIsNotPending() {
+        when(courseMapper.approve(eq(7L), any(), eq(55L), any(LocalDateTime.class))).thenReturn(0);
+
+        BizException exception =
+                assertThrows(
+                        BizException.class,
+                        () -> courseInternalService.review(7L, true, 100L, null, 55L));
+
+        assertEquals(61005, exception.getCode());
     }
 
     private Course course(int status, String price, long courseId, long teacherId) {

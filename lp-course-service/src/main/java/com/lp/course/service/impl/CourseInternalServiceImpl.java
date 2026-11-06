@@ -3,12 +3,17 @@ package com.lp.course.service.impl;
 import com.lp.common.exception.BizException;
 import com.lp.common.exception.ErrorCode;
 import com.lp.course.dto.CourseInternalView;
+import com.lp.course.dto.CourseReviewResultView;
 import com.lp.course.dto.LessonInternalView;
 import com.lp.course.dto.LessonPlayView;
+import com.lp.course.dto.PendingCoursePageView;
+import com.lp.course.dto.PendingCourseView;
 import com.lp.course.entity.Course;
 import com.lp.course.entity.CourseLesson;
 import com.lp.course.mapper.CourseMapper;
 import com.lp.course.service.CourseInternalService;
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 import org.springframework.stereotype.Service;
 
@@ -25,6 +30,21 @@ import org.springframework.stereotype.Service;
 public class CourseInternalServiceImpl implements CourseInternalService {
 
     private final CourseMapper courseMapper;
+
+    /** Course status of a submitted course waiting for the operations review queue. */
+    private static final int STATUS_PENDING_REVIEW = 1;
+
+    /** Resulting status of an approved course. */
+    private static final int STATUS_PUBLISHED = 2;
+
+    /** Resulting status of a rejected course, sent back to draft. */
+    private static final int STATUS_DRAFT = 0;
+
+    /** Maximum review page size. */
+    private static final int MAX_PAGE_SIZE = 100;
+
+    /** Maximum rejection remark length, matching {@code course.review_remark}. */
+    private static final int MAX_REMARK_LENGTH = 300;
 
     /**
      * Creates the service with its mapper dependency.
@@ -109,6 +129,87 @@ public class CourseInternalServiceImpl implements CourseInternalService {
                 lesson.getVideoUrl(),
                 lesson.getVideoDurationSec() == null ? 0 : lesson.getVideoDurationSec(),
                 lesson.getIsFree() != null && lesson.getIsFree() == 1);
+    }
+
+    /**
+     * Lists the courses waiting for an operations review decision.
+     *
+     * @param pageNum one based page number
+     * @param pageSize page size, capped at 100
+     * @return one page of pending courses, oldest submission first
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Override
+    public PendingCoursePageView pendingCourses(int pageNum, int pageSize) {
+        int safePage = Math.max(pageNum, 1);
+        int safeSize = Math.min(Math.max(pageSize, 1), MAX_PAGE_SIZE);
+        long total = courseMapper.countByStatus(STATUS_PENDING_REVIEW);
+        if (total == 0) {
+            return new PendingCoursePageView(List.of(), 0, safePage, safeSize);
+        }
+        List<PendingCourseView> records =
+                courseMapper.selectPageByStatus(
+                        STATUS_PENDING_REVIEW, (long) (safePage - 1) * safeSize, safeSize);
+        return new PendingCoursePageView(records, total, safePage, safeSize);
+    }
+
+    /**
+     * Approves or rejects a pending course; approval publishes it in the same step.
+     *
+     * @param courseId course primary key
+     * @param approved {@code true} to publish, {@code false} to send back to draft
+     * @param priceFen price in fen set on approval, {@code null} keeps the current price
+     * @param remark rejection remark, required when rejecting
+     * @param reviewerId operator user id
+     * @return course state after the decision
+     * @throws BizException when the course is not pending or the remark is missing
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Override
+    public CourseReviewResultView review(
+            long courseId, boolean approved, Long priceFen, String remark, long reviewerId) {
+        LocalDateTime reviewedAt = LocalDateTime.now();
+        int updated;
+        if (approved) {
+            BigDecimal price = priceFen == null ? null : BigDecimal.valueOf(priceFen, 2);
+            updated = courseMapper.approve(courseId, price, reviewerId, reviewedAt);
+        } else {
+            String trimmed = remark == null ? "" : remark.trim();
+            if (trimmed.isEmpty()) {
+                throw new BizException(ErrorCode.PARAM_INVALID, "remark is required on rejection");
+            }
+            updated =
+                    courseMapper.reject(
+                            courseId,
+                            trimmed.substring(0, Math.min(trimmed.length(), MAX_REMARK_LENGTH)),
+                            reviewerId,
+                            reviewedAt);
+        }
+        if (updated == 0) {
+            throw new BizException(ErrorCode.COURSE_REVIEW_STATE_INVALID);
+        }
+        long effectivePriceFen =
+                approved && priceFen != null ? priceFen : currentPriceFen(courseId);
+        return new CourseReviewResultView(
+                courseId,
+                approved ? STATUS_PUBLISHED : STATUS_DRAFT,
+                effectivePriceFen,
+                reviewedAt);
+    }
+
+    /**
+     * Reads the current price of a course and converts it to fen.
+     *
+     * @param courseId course primary key
+     * @return price in fen, {@code 0} when the column is missing
+     * @author Caspian
+     * @since 0.1.0
+     */
+    private long currentPriceFen(long courseId) {
+        BigDecimal price = courseMapper.selectPrice(courseId);
+        return price == null ? 0L : price.movePointRight(2).longValueExact();
     }
 
     private CourseInternalView toView(Course course) {

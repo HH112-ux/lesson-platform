@@ -1,8 +1,10 @@
 package com.lp.course.service;
 
 import com.lp.course.dto.CourseInternalView;
+import com.lp.course.dto.CourseReviewResultView;
 import com.lp.course.dto.LessonInternalView;
 import com.lp.course.dto.LessonPlayView;
+import com.lp.course.dto.PendingCoursePageView;
 import java.util.List;
 
 /**
@@ -56,4 +58,32 @@ public interface CourseInternalService {
      * @since 0.1.0
      */
     LessonPlayView lessonForPlay(long lessonId);
+
+    /**
+     * Lists the courses waiting for an operations review decision.
+     *
+     * @param pageNum one based page number
+     * @param pageSize page size, capped at 100
+     * @return one page of pending courses
+     * @author Caspian
+     * @since 0.1.0
+     */
+    PendingCoursePageView pendingCourses(int pageNum, int pageSize);
+
+    /**
+     * Approves or rejects a pending course; approval publishes it in the same step.
+     *
+     * @param courseId course primary key
+     * @param approved {@code true} to publish, {@code false} to send back to draft
+     * @param priceFen price in fen set on approval, {@code null} keeps the current price
+     * @param remark rejection remark, required when rejecting
+     * @param reviewerId operator user id
+     * @return course state after the decision
+     * @throws com.lp.common.exception.BizException when the course is not pending or the remark is
+     *     missing
+     * @author Caspian
+     * @since 0.1.0
+     */
+    CourseReviewResultView review(
+            long courseId, boolean approved, Long priceFen, String remark, long reviewerId);
 }

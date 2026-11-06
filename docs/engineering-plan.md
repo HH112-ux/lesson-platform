@@ -967,6 +967,7 @@ erDiagram
 | 61002 | 课程已购买 | 重复购买 |
 | 61003 | 视频上传校验未通过 | 容器/编码/分辨率/时长/大小/完整性任一不符（第 4.3.2 节） |
 | 61004 | 播放并发超限 | 同一用户同一课时并发 > 2 路 |
+| 61005 | 课程不在待审核状态 | 审核通过/驳回时课程已不是 `status=1` |
 | 62001 | 订单状态不允许 | 取消/支付/退款 |
 | 62002 | 订单已过期 | 超时关单 |
 | 62003 | 业务不可用（课程已下架 / 优惠券不可用） | 加购、下单、领券 |
@@ -1155,7 +1156,8 @@ spec:
 | POST | `/api/v1/admin/courses` | 建课（草稿） | `{categoryId,title,subtitle,coverUrl,description,price,instructorId,level}` | `{courseId,status:0}` | 40001,40301 |
 | PUT | `/api/v1/admin/courses/{courseId}` | 编辑 | 同建课字段（可部分） | `{updated:true}` | 40301,40901 |
 | POST | `/api/v1/admin/courses/{courseId}/submit` | 提交审核（运营代提交） | `{}` | `{status:1}` | 40901 |
-| POST | `/api/v1/admin/courses/{courseId}/review` | **审核课程**（通过：定价并上架同一动作 `1→2`，无「待上架」中间态；驳回→草稿） | `{approved:bool,remark?,price?}` | `{status:0\|2,reviewRemark}` | 40301,40901,40401 |
+| GET | `/api/v1/admin/courses/pending` | 课程审核队列（`status=1`，按提交时间正序） | query:`pageNum,pageSize` | 分页 `{records:[{courseId,title,coverUrl,ownerTeacherId,price,submittedAt}],total,pageNum,pageSize}`；`price` 单位元 | 40301 |
+| POST | `/api/v1/admin/courses/{courseId}/review` | **审核课程**（通过：定价并上架同一动作 `1→2`，无「待上架」中间态；驳回→草稿，`remark` 必填） | `{approved:bool,priceFen?,remark?}` | `{courseId,status:0\|2,priceFen,reviewedAt}` | 40001,40301,40401,61005 |
 | POST | `/api/v1/admin/courses/{courseId}/publish` | 上架并定价（运营；已下架未变更可直接再上架 `3→2`，内容变更过须回草稿复审） | `{price?,categoryId?}` | `{status:2}` | 40301,40901 |
 | POST | `/api/v1/admin/courses/{courseId}/unpublish` | 下架 | `{reason}` | `{status:3}` | 40301 |
 | POST | `/api/v1/admin/entitlements/grant` | 运营发放课程权益（免费课开通/客诉补偿，不产生订单，15.2 D9） | `{userId,courseId,reason}` | `{entitlementId}` | 40001,40301,40901(已有权益) |
