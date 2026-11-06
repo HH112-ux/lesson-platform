@@ -1159,6 +1159,7 @@ spec:
 | 方法 | 路径 | 用途 | 请求 | 响应 | 主要错误码 |
 |---|---|---|---|---|---|
 | GET | `/api/v1/admin/menus` | 按角色与权限码返回侧边栏菜单树（读取 `X-User-Permissions`，父节点只要有可见子节点即保留） | — | `[{key,name,path,permission,type,children[]}]`（`type` 1 菜单 / 2 按钮） | 40301 |
+| GET | `/api/v1/admin/dashboard` | 运营看板汇总（课程总数/待审核/已上架、订单总数/已支付数/已支付金额、用户数；金额单位分；近 7 日趋势暂不提供） | — | `{courseTotal,coursePendingReview,coursePublished,orderTotal,paidOrderCount,paidAmountFen,userTotal}` | 40301,50201 |
 | POST | `/api/v1/admin/courses` | 建课（草稿） | `{categoryId,title,subtitle,coverUrl,description,price,instructorId,level}` | `{courseId,status:0}` | 40001,40301 |
 | PUT | `/api/v1/admin/courses/{courseId}` | 编辑 | 同建课字段（可部分） | `{updated:true}` | 40301,40901 |
 | POST | `/api/v1/admin/courses/{courseId}/submit` | 提交审核（运营代提交） | `{}` | `{status:1}` | 40901 |
@@ -1193,7 +1194,7 @@ spec:
 | POST | `/api/v1/admin/ai/model-config/test` | **连通性测试** | `{}` | `{ok:bool,latencyMs,model,error?}` | 40301,50303,50304,50306 |
 | POST | `/api/v1/admin/ai/model-config/rotate-key` | **密钥轮换**（旧钥保留 24h 双活） | `{apiKey}` | `{keyVersion,apiKeyMasked}` | 40001,40301 |
 
-> 权限码沿用 `sys_menu` 现有 `admin:*` 体系：`admin:dashboard:view`、`admin:course:list`、`admin:course:review`、`admin:user:list`、`admin:order:list`、`admin:teacher:audit`。`/api/v1/admin/menus` 只返回调用方权限码命中的节点（父节点有可见子节点即保留）；`ADMIN`/`OPS` 之外的调用方返回 `40301`。
+> 权限码沿用 `sys_menu` 现有 `admin:*` 体系：`admin:dashboard:view`、`admin:course:list`、`admin:course:review`、`admin:user:list`、`admin:order:list`、`admin:teacher:audit`。`/api/v1/admin/menus` 只返回调用方权限码命中的节点（父节点有可见子节点即保留）；`ADMIN`/`OPS` 之外的调用方返回 `40301`。`/api/v1/admin/dashboard` 通过 course-service `/internal/v1/courses/stats`、trade-service `/internal/v1/orders/stats`、auth-service `/internal/v1/users/stats` 聚合，任一上游失败返回 `50201`；`/api/v1/admin/metrics/overview` 的区间趋势仍为规划中。
 
 ## 5.10 教师域（course-service，`/api/v1/teacher`）
 

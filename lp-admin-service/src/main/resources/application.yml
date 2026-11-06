@@ -22,6 +22,9 @@ lp:
   admin:
     # course-service internal API address used by the review queue.
     course-base-url: ${LP_COURSE_SERVICE_BASE_URL:http://127.0.0.1:8102}
+    # trade-service and auth-service internal APIs used by the dashboard.
+    trade-base-url: ${LP_TRADE_SERVICE_BASE_URL:http://127.0.0.1:8103}
+    auth-base-url: ${LP_AUTH_SERVICE_BASE_URL:http://127.0.0.1:8101}
     course-read-timeout-ms: ${LP_COURSE_READ_TIMEOUT_MS:3000}
   internal:
     # Shared secret for /internal/v1/**. No default on purpose: the service refuses to start
