@@ -56,7 +56,9 @@ login() {
   req POST /api/v1/auth/login "" \
     "$(jq -nc --arg a "$account" --arg p "$PASSWORD" '{account:$a,password:$p}')"
   require_code "login $account"
-  pass "login ok user=$(jq -r '.data.user.nickname' <<<"$BODY")"
+  # Progress goes to stderr so command substitution only captures the token.
+  printf '  HTTP %s | login ok user=%s\n' "$HTTP_STATUS" \
+    "$(jq -r '.data.user.nickname' <<<"$BODY")" >&2
   jq -r '.data.accessToken' <<<"$BODY"
 }
 
@@ -77,7 +79,7 @@ CATEGORY_ID="$(jq -r '.data[0].categoryId' <<<"$BODY")"
 pass "categoryId=$CATEGORY_ID"
 req POST /api/v1/teacher/courses "$TEACHER_TOKEN" \
   "$(jq -nc --argjson cat "$CATEGORY_ID" --arg title "$COURSE_TITLE" \
-    '{categoryId:$cat,title:$title,subtitle:"smoke",description:"smoke course",price:19.90,originalPrice:29.90,level:1}')"
+    '{categoryId:$cat,title:$title,subtitle:"smoke",coverUrl:"http://localhost:9000/lp-media/demo/cover.jpg",description:"smoke course",price:19.90,originalPrice:29.90,level:1}')"
 require_code "create course"
 COURSE_ID="$(jq -r '.data.courseId' <<<"$BODY")"
 pass "courseId=$COURSE_ID status=$(jq -r '.data.status' <<<"$BODY")"
@@ -140,16 +142,22 @@ require_code "mock payment callback"
 pass "result=$(jq -r '.data' <<<"$BODY")"
 
 step 11 "student owns the course"
-req GET "/api/v1/learning/my-courses?pageNum=1&pageSize=50" "$STUDENT_TOKEN"
-require_code "my courses"
-OWNED="$(jq -r --argjson cid "$COURSE_ID" '[.data.records[] | select(.courseId == $cid)] | length' <<<"$BODY")"
+# Ownership travels through the entitlement outbox, so allow a short propagation window.
+OWNED=0
+for _ in $(seq 1 20); do
+  req GET "/api/v1/learning/my-courses?pageNum=1&pageSize=50" "$STUDENT_TOKEN"
+  require_code "my courses"
+  OWNED="$(jq -r --argjson cid "$COURSE_ID" '[.data.records[] | select(.courseId == $cid)] | length' <<<"$BODY")"
+  [ "$OWNED" = "1" ] && break
+  sleep 1
+done
 pass "ownedMatches=$OWNED"
 [ "$OWNED" = "1" ] || die "course $COURSE_ID is missing from my-courses"
 
 step 12 "student resolves a signed playback URL"
 req GET "/api/v1/courses/$COURSE_ID/chapters"
 require_code "public chapters"
-PLAY_LESSON="$(jq -r '.data[0].lessons[0].lessonId' <<<"$BODY")"
+PLAY_LESSON="$(jq -r '.data.chapters[0].lessons[0].lessonId' <<<"$BODY")"
 req GET "/api/v1/lessons/$PLAY_LESSON/play-token" "$STUDENT_TOKEN"
 require_code "play token"
 PLAY_URL="$(jq -r '.data.playUrl' <<<"$BODY")"
