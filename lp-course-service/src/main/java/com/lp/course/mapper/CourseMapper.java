@@ -1,12 +1,16 @@
 package com.lp.course.mapper;
 
+import com.lp.course.dto.PendingCourseView;
 import com.lp.course.entity.Course;
 import com.lp.course.entity.CourseChapter;
 import com.lp.course.entity.CourseLesson;
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 
 /**
  * Reads course content for service-to-service callers.
@@ -106,6 +110,89 @@ public interface CourseMapper {
             @Param("keyword") String keyword,
             @Param("offset") long offset,
             @Param("limit") long limit);
+
+    /**
+     * Counts courses in one status.
+     *
+     * @param status course status
+     * @return matching courses
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Select("SELECT COUNT(*) FROM course WHERE status = #{status} AND deleted = 0")
+    long countByStatus(@Param("status") int status);
+
+    /**
+     * Lists one page of courses in one status, oldest submission first.
+     *
+     * @param status course status
+     * @param offset zero based row offset
+     * @param limit maximum rows
+     * @return pending course rows
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Select(
+            "SELECT id AS courseId, title, cover_url AS coverUrl, "
+                    + "owner_teacher_id AS ownerTeacherId, price, submitted_at AS submittedAt "
+                    + "FROM course WHERE status = #{status} AND deleted = 0 "
+                    + "ORDER BY submitted_at, id LIMIT #{limit} OFFSET #{offset}")
+    List<PendingCourseView> selectPageByStatus(
+            @Param("status") int status, @Param("offset") long offset, @Param("limit") long limit);
+
+    /**
+     * Approves a pending course and publishes it in the same statement.
+     *
+     * @param id course primary key
+     * @param price price in yuan, {@code null} keeps the current price
+     * @param reviewerId operator user id
+     * @param reviewedAt review time
+     * @return affected rows, {@code 0} when the course is not pending
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Update(
+            "UPDATE course SET status = 2, price = COALESCE(#{price}, price), "
+                    + "review_remark = NULL, reviewed_by = #{reviewerId}, "
+                    + "reviewed_at = #{reviewedAt}, published_at = #{reviewedAt} "
+                    + "WHERE id = #{id} AND status = 1 AND deleted = 0")
+    int approve(
+            @Param("id") long id,
+            @Param("price") BigDecimal price,
+            @Param("reviewerId") long reviewerId,
+            @Param("reviewedAt") LocalDateTime reviewedAt);
+
+    /**
+     * Rejects a pending course and sends it back to the draft state.
+     *
+     * @param id course primary key
+     * @param remark rejection remark shown to the teacher
+     * @param reviewerId operator user id
+     * @param reviewedAt review time
+     * @return affected rows, {@code 0} when the course is not pending
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Update(
+            "UPDATE course SET status = 0, review_remark = #{remark}, "
+                    + "reviewed_by = #{reviewerId}, reviewed_at = #{reviewedAt} "
+                    + "WHERE id = #{id} AND status = 1 AND deleted = 0")
+    int reject(
+            @Param("id") long id,
+            @Param("remark") String remark,
+            @Param("reviewerId") long reviewerId,
+            @Param("reviewedAt") LocalDateTime reviewedAt);
+
+    /**
+     * Reads the price of one course in yuan.
+     *
+     * @param id course primary key
+     * @return price, or {@code null} when absent
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Select("SELECT price FROM course WHERE id = #{id} AND deleted = 0")
+    BigDecimal selectPrice(@Param("id") long id);
 
     /**
      * Lists visible chapters of a course in display order.
