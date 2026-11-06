@@ -9,6 +9,7 @@ import CheckoutView from './views/CheckoutView.vue'
 import OrderResultView from './views/OrderResultView.vue'
 import HealthView from './views/HealthView.vue'
 import LoginView from './views/LoginView.vue'
+import PlayerView from './views/PlayerView.vue'
 import PurchaseView from './views/PurchaseView.vue'
 
 const focused = computed(() => currentRoute.value.name === 'purchase')
@@ -45,6 +46,7 @@ onUnmounted(() => {
   <CourseDetailView v-else-if="currentRoute.name === 'course-detail'" />
   <CheckoutView v-else-if="currentRoute.name === 'checkout'" />
   <OrderResultView v-else-if="currentRoute.name === 'order-result'" />
+  <PlayerView v-else-if="currentRoute.name === 'player'" />
   <main
     v-else
     class="lp-page"
