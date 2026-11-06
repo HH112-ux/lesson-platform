@@ -10,6 +10,7 @@ import static org.mockito.Mockito.when;
 
 import com.lp.learn.client.CourseInternalClient;
 import com.lp.learn.client.CourseSnapshot;
+import com.lp.learn.domain.EntitlementStatus;
 import com.lp.learn.dto.MyCourseView;
 import com.lp.learn.dto.PageView;
 import com.lp.learn.entity.LearningProgress;
@@ -68,7 +69,7 @@ class MyCourseServiceImplTest {
      */
     @Test
     void noEntitlementReturnsEmptyPage() {
-        when(userEntitlementMapper.countActiveByUser(USER_ID)).thenReturn(0L);
+        when(userEntitlementMapper.countAllByUser(USER_ID)).thenReturn(0L);
 
         PageView<MyCourseView> page = myCourseService.myCourses(USER_ID, 1, 20);
 
@@ -155,8 +156,8 @@ class MyCourseServiceImplTest {
     void progressDoesNotLeakAcrossCourses() {
         UserEntitlement other = entitlement();
         other.setCourseId(OTHER_COURSE_ID);
-        when(userEntitlementMapper.countActiveByUser(USER_ID)).thenReturn(2L);
-        when(userEntitlementMapper.selectActiveByUser(eq(USER_ID), eq(0L), eq(20L)))
+        when(userEntitlementMapper.countAllByUser(USER_ID)).thenReturn(2L);
+        when(userEntitlementMapper.selectAllByUser(eq(USER_ID), eq(0L), eq(20L)))
                 .thenReturn(List.of(entitlement(), other));
         when(courseInternalClient.courses(anyList()))
                 .thenReturn(
@@ -200,13 +201,39 @@ class MyCourseServiceImplTest {
         assertEquals(0, view.getProgressPercent());
     }
 
+    /**
+     * A refunded course stays in my-courses, marked as refunded, and keeps its progress.
+     *
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Test
+    void refundedCourseIsMarkedAndKeepsProgress() {
+        UserEntitlement refunded = entitlement();
+        refunded.setStatus(EntitlementStatus.REVOKED);
+        when(userEntitlementMapper.countAllByUser(USER_ID)).thenReturn(1L);
+        when(userEntitlementMapper.selectAllByUser(eq(USER_ID), eq(0L), eq(20L)))
+                .thenReturn(List.of(refunded));
+        when(courseInternalClient.courses(anyList()))
+                .thenReturn(
+                        List.of(new CourseSnapshot(COURSE_ID, "Spring Boot 实战", "cover.png", 3)));
+        when(learningProgressMapper.selectByUserCourses(eq(USER_ID), anyList()))
+                .thenReturn(List.of(progress(11L, 1, 0, 1)));
+
+        MyCourseView view = myCourseService.myCourses(USER_ID, 1, 20).getRecords().get(0);
+
+        assertEquals(33, view.getProgressPercent());
+        assertEquals(11L, view.getLastLessonId());
+        assertTrue(view.isRefunded());
+    }
+
     private void stubEntitlement() {
         stubEntitlement(3);
     }
 
     private void stubEntitlement(int lessonCount) {
-        when(userEntitlementMapper.countActiveByUser(USER_ID)).thenReturn(1L);
-        when(userEntitlementMapper.selectActiveByUser(eq(USER_ID), eq(0L), eq(20L)))
+        when(userEntitlementMapper.countAllByUser(USER_ID)).thenReturn(1L);
+        when(userEntitlementMapper.selectAllByUser(eq(USER_ID), eq(0L), eq(20L)))
                 .thenReturn(List.of(entitlement()));
         when(courseInternalClient.courses(anyList()))
                 .thenReturn(
@@ -221,6 +248,7 @@ class MyCourseServiceImplTest {
         entitlement.setCourseId(COURSE_ID);
         entitlement.setOrderId(11L);
         entitlement.setSource(1);
+        entitlement.setStatus(EntitlementStatus.ACTIVE);
         return entitlement;
     }
 

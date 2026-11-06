@@ -12,7 +12,9 @@ import com.lp.common.exception.BizException;
 import com.lp.common.exception.ErrorCode;
 import com.lp.learn.config.LearnProperties;
 import com.lp.learn.dto.LessonPlayInfo;
+import com.lp.learn.mapper.UserEntitlementMapper;
 import com.lp.learn.service.EntitlementService;
+import com.lp.learn.service.impl.EntitlementServiceImpl;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -33,6 +35,8 @@ class LessonAccessGuardTest {
     private static final long COURSE_ID = 7L;
 
     @Mock private EntitlementService entitlementService;
+
+    @Mock private UserEntitlementMapper userEntitlementMapper;
 
     private LearnProperties learnProperties;
 
@@ -140,6 +144,28 @@ class LessonAccessGuardTest {
         offline.setCourseStatus(3);
 
         assertDoesNotThrow(() -> guard.requireAccess(USER_ID, offline));
+    }
+
+    /**
+     * After a refund the entitlement row is revoked, the active count drops to zero and the paid
+     * lesson is rejected, so a refunded student can no longer play.
+     *
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Test
+    void refundedEntitlementRejectsPaidLessonPlayback() {
+        when(userEntitlementMapper.countActive(USER_ID, COURSE_ID)).thenReturn(0L);
+        LessonAccessGuard guardWithRealService =
+                new LessonAccessGuard(
+                        new EntitlementServiceImpl(userEntitlementMapper), learnProperties);
+
+        BizException exception =
+                assertThrows(
+                        BizException.class,
+                        () -> guardWithRealService.requireAccess(USER_ID, lesson(false)));
+
+        assertEquals(ErrorCode.LEARN_NOT_ENTITLED.getCode(), exception.getCode());
     }
 
     private LessonPlayInfo lesson(boolean free) {
