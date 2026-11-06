@@ -1,6 +1,8 @@
 package com.lp.course.mapper;
 
 import com.lp.course.entity.Course;
+import com.lp.course.entity.CourseChapter;
+import com.lp.course.entity.CourseLesson;
 import java.time.LocalDateTime;
 import java.util.List;
 import org.apache.ibatis.annotations.Insert;
@@ -168,4 +170,190 @@ public interface TeacherCourseMapper {
                     + "AND deleted = 0 AND status = 1 AND video_url <> '' "
                     + "AND video_duration_sec > 0")
     long countSubmittableLessons(@Param("courseId") long courseId);
+
+    /**
+     * Lists every live chapter of a course, including hidden ones.
+     *
+     * @param courseId course primary key
+     * @return chapters ordered by sort
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Select(
+            "SELECT id, course_id AS courseId, title, sort, status FROM course_chapter "
+                    + "WHERE course_id = #{courseId} AND deleted = 0 ORDER BY sort, id")
+    List<CourseChapter> selectChapters(@Param("courseId") long courseId);
+
+    /**
+     * Lists every live lesson of a course, including hidden ones.
+     *
+     * @param courseId course primary key
+     * @return lessons ordered by chapter and sort
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Select(
+            "SELECT id, course_id AS courseId, chapter_id AS chapterId, title, "
+                    + "video_url AS videoUrl, video_duration_sec AS videoDurationSec, "
+                    + "is_free AS isFree, sort, status FROM course_lesson "
+                    + "WHERE course_id = #{courseId} AND deleted = 0 "
+                    + "ORDER BY chapter_id, sort, id")
+    List<CourseLesson> selectLessons(@Param("courseId") long courseId);
+
+    /**
+     * Finds one chapter inside its owning course.
+     *
+     * @param courseId course primary key
+     * @param chapterId chapter primary key
+     * @return chapter row, or {@code null} when absent or belonging to another course
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Select(
+            "SELECT id, course_id AS courseId, title, sort, status FROM course_chapter "
+                    + "WHERE id = #{chapterId} AND course_id = #{courseId} AND deleted = 0 LIMIT 1")
+    CourseChapter selectChapter(
+            @Param("courseId") long courseId, @Param("chapterId") long chapterId);
+
+    /**
+     * Inserts a chapter and fills the generated id back into the row.
+     *
+     * @param chapter chapter to insert
+     * @return affected rows
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Insert(
+            "INSERT INTO course_chapter (course_id, title, sort, status) "
+                    + "VALUES (#{courseId}, #{title}, #{sort}, #{status})")
+    @Options(useGeneratedKeys = true, keyProperty = "id")
+    int insertChapter(CourseChapter chapter);
+
+    /**
+     * Updates the editable columns of one chapter.
+     *
+     * @param chapter chapter values to write
+     * @return affected rows, {@code 0} when absent
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Update(
+            "UPDATE course_chapter SET title = #{title}, sort = #{sort}, status = #{status}, "
+                    + "version = version + 1 WHERE id = #{id} AND course_id = #{courseId} "
+                    + "AND deleted = 0")
+    int updateChapter(CourseChapter chapter);
+
+    /**
+     * Logically deletes one chapter.
+     *
+     * @param courseId course primary key
+     * @param chapterId chapter primary key
+     * @return affected rows, {@code 0} when absent
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Update(
+            "UPDATE course_chapter SET deleted = 1, status = 0, version = version + 1 "
+                    + "WHERE id = #{chapterId} AND course_id = #{courseId} AND deleted = 0")
+    int deleteChapter(@Param("courseId") long courseId, @Param("chapterId") long chapterId);
+
+    /**
+     * Logically deletes every lesson left in a deleted chapter.
+     *
+     * @param courseId course primary key
+     * @param chapterId chapter primary key
+     * @return affected rows
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Update(
+            "UPDATE course_lesson SET deleted = 1, status = 0, version = version + 1 "
+                    + "WHERE chapter_id = #{chapterId} AND course_id = #{courseId} AND deleted = 0")
+    int deleteLessonsByChapter(
+            @Param("courseId") long courseId, @Param("chapterId") long chapterId);
+
+    /**
+     * Finds one lesson inside its owning course and chapter.
+     *
+     * @param courseId course primary key
+     * @param chapterId chapter primary key
+     * @param lessonId lesson primary key
+     * @return lesson row, or {@code null} when absent or outside the chapter
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Select(
+            "SELECT id, course_id AS courseId, chapter_id AS chapterId, title, "
+                    + "video_url AS videoUrl, video_duration_sec AS videoDurationSec, "
+                    + "is_free AS isFree, sort, status FROM course_lesson "
+                    + "WHERE id = #{lessonId} AND chapter_id = #{chapterId} "
+                    + "AND course_id = #{courseId} AND deleted = 0 LIMIT 1")
+    CourseLesson selectLesson(
+            @Param("courseId") long courseId,
+            @Param("chapterId") long chapterId,
+            @Param("lessonId") long lessonId);
+
+    /**
+     * Inserts a lesson and fills the generated id back into the row.
+     *
+     * @param lesson lesson to insert
+     * @return affected rows
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Insert(
+            "INSERT INTO course_lesson (course_id, chapter_id, title, video_url, "
+                    + "video_duration_sec, is_free, sort, status) VALUES (#{courseId}, "
+                    + "#{chapterId}, #{title}, #{videoUrl}, #{videoDurationSec}, #{isFree}, "
+                    + "#{sort}, #{status})")
+    @Options(useGeneratedKeys = true, keyProperty = "id")
+    int insertLesson(CourseLesson lesson);
+
+    /**
+     * Updates the editable columns of one lesson.
+     *
+     * @param lesson lesson values to write
+     * @return affected rows, {@code 0} when absent
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Update(
+            "UPDATE course_lesson SET title = #{title}, video_url = #{videoUrl}, "
+                    + "video_duration_sec = #{videoDurationSec}, is_free = #{isFree}, "
+                    + "sort = #{sort}, status = #{status}, version = version + 1 "
+                    + "WHERE id = #{id} AND chapter_id = #{chapterId} "
+                    + "AND course_id = #{courseId} AND deleted = 0")
+    int updateLesson(CourseLesson lesson);
+
+    /**
+     * Logically deletes one lesson.
+     *
+     * @param courseId course primary key
+     * @param chapterId chapter primary key
+     * @param lessonId lesson primary key
+     * @return affected rows, {@code 0} when absent
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Update(
+            "UPDATE course_lesson SET deleted = 1, status = 0, version = version + 1 "
+                    + "WHERE id = #{lessonId} AND chapter_id = #{chapterId} "
+                    + "AND course_id = #{courseId} AND deleted = 0")
+    int deleteLesson(
+            @Param("courseId") long courseId,
+            @Param("chapterId") long chapterId,
+            @Param("lessonId") long lessonId);
+
+    /**
+     * Sends an offline course back to draft after its content changed.
+     *
+     * @param courseId course primary key
+     * @return affected rows, {@code 0} when the course is not offline
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Update(
+            "UPDATE course SET status = 0, version = version + 1 "
+                    + "WHERE id = #{courseId} AND status = 3 AND deleted = 0")
+    int resetOfflineToDraft(@Param("courseId") long courseId);
 }

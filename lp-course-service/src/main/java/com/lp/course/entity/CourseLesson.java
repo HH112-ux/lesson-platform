@@ -26,6 +26,8 @@ public class CourseLesson {
 
     private Integer videoDurationSec;
 
+    private Integer status;
+
     /**
      * Returns the lesson id.
      *
@@ -200,5 +202,27 @@ public class CourseLesson {
      */
     public void setVideoDurationSec(Integer videoDurationSec) {
         this.videoDurationSec = videoDurationSec;
+    }
+
+    /**
+     * Returns the visibility flag.
+     *
+     * @return 1 visible, 0 hidden
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public Integer getStatus() {
+        return status;
+    }
+
+    /**
+     * Sets the visibility flag.
+     *
+     * @param status 1 visible, 0 hidden
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public void setStatus(Integer status) {
+        this.status = status;
     }
 }

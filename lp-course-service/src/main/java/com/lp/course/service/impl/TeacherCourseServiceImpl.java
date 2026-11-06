@@ -2,16 +2,25 @@ package com.lp.course.service.impl;
 
 import com.lp.common.exception.BizException;
 import com.lp.common.exception.ErrorCode;
+import com.lp.course.dto.TeacherChapterRequest;
+import com.lp.course.dto.TeacherChapterView;
 import com.lp.course.dto.TeacherCoursePageView;
 import com.lp.course.dto.TeacherCourseRequest;
 import com.lp.course.dto.TeacherCourseView;
+import com.lp.course.dto.TeacherLessonRequest;
+import com.lp.course.dto.TeacherLessonView;
 import com.lp.course.entity.Course;
+import com.lp.course.entity.CourseChapter;
+import com.lp.course.entity.CourseLesson;
 import com.lp.course.mapper.TeacherCourseMapper;
 import com.lp.course.service.TeacherCourseService;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 
 /**
@@ -45,6 +54,9 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
 
     /** Maximum cover URL length, matching {@code course.cover_url}. */
     private static final int MAX_COVER_LENGTH = 255;
+
+    /** Maximum video object key length, matching {@code course_lesson.video_url}. */
+    private static final int MAX_VIDEO_URL_LENGTH = 500;
 
     private final TeacherCourseMapper teacherCourseMapper;
 
@@ -193,6 +205,361 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
             throw new BizException(ErrorCode.STATE_CONFLICT, "course is no longer submittable");
         }
         return toView(teacherCourseMapper.selectById(courseId));
+    }
+
+    /**
+     * Lists the chapters and lessons of one owned course, including hidden rows.
+     *
+     * @param userId authenticated user id
+     * @param roles comma separated gateway roles
+     * @param courseId course primary key
+     * @return chapters ordered by sort
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Override
+    public List<TeacherChapterView> chapters(long userId, String roles, long courseId) {
+        Actor actor = resolveActor(userId, roles);
+        requireAccessible(actor, courseId);
+        Map<Long, List<TeacherLessonView>> lessonsByChapter =
+                teacherCourseMapper.selectLessons(courseId).stream()
+                        .map(this::toView)
+                        .collect(
+                                Collectors.groupingBy(
+                                        TeacherLessonView::chapterId,
+                                        LinkedHashMap::new,
+                                        Collectors.toList()));
+        return teacherCourseMapper.selectChapters(courseId).stream()
+                .map(
+                        chapter ->
+                                toView(
+                                        chapter,
+                                        lessonsByChapter.getOrDefault(chapter.getId(), List.of())))
+                .toList();
+    }
+
+    /**
+     * Creates a chapter in a draft or offline course.
+     *
+     * @param userId authenticated user id
+     * @param roles comma separated gateway roles
+     * @param courseId course primary key
+     * @param request chapter form
+     * @return the created chapter
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Override
+    public TeacherChapterView createChapter(
+            long userId, String roles, long courseId, TeacherChapterRequest request) {
+        Course course = requireContentEditable(userId, roles, courseId);
+        CourseChapter chapter = new CourseChapter();
+        chapter.setCourseId(courseId);
+        chapter.setTitle(requireText(request.title(), "title", MAX_TITLE_LENGTH));
+        chapter.setSort(requireSort(request.sort()));
+        chapter.setStatus(requireFlag(request.status()));
+        teacherCourseMapper.insertChapter(chapter);
+        afterContentChange(course);
+        return toView(chapter, List.of());
+    }
+
+    /**
+     * Edits a chapter of a draft or offline course.
+     *
+     * @param userId authenticated user id
+     * @param roles comma separated gateway roles
+     * @param courseId course primary key
+     * @param chapterId chapter primary key
+     * @param request chapter form, omitted fields keep their current value
+     * @return the chapter after the update
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Override
+    public TeacherChapterView updateChapter(
+            long userId,
+            String roles,
+            long courseId,
+            long chapterId,
+            TeacherChapterRequest request) {
+        Course course = requireContentEditable(userId, roles, courseId);
+        CourseChapter chapter = requireChapter(courseId, chapterId);
+        if (request.title() != null) {
+            chapter.setTitle(requireText(request.title(), "title", MAX_TITLE_LENGTH));
+        }
+        if (request.sort() != null) {
+            chapter.setSort(requireSort(request.sort()));
+        }
+        if (request.status() != null) {
+            chapter.setStatus(requireFlag(request.status()));
+        }
+        teacherCourseMapper.updateChapter(chapter);
+        afterContentChange(course);
+        List<TeacherLessonView> lessons =
+                teacherCourseMapper.selectLessons(courseId).stream()
+                        .filter(lesson -> lesson.getChapterId().equals(chapterId))
+                        .map(this::toView)
+                        .toList();
+        return toView(chapter, lessons);
+    }
+
+    /**
+     * Deletes a chapter and its lessons from a draft or offline course.
+     *
+     * @param userId authenticated user id
+     * @param roles comma separated gateway roles
+     * @param courseId course primary key
+     * @param chapterId chapter primary key
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Override
+    public void deleteChapter(long userId, String roles, long courseId, long chapterId) {
+        Course course = requireContentEditable(userId, roles, courseId);
+        requireChapter(courseId, chapterId);
+        teacherCourseMapper.deleteChapter(courseId, chapterId);
+        teacherCourseMapper.deleteLessonsByChapter(courseId, chapterId);
+        afterContentChange(course);
+    }
+
+    /**
+     * Creates a lesson under a chapter of a draft or offline course.
+     *
+     * @param userId authenticated user id
+     * @param roles comma separated gateway roles
+     * @param courseId course primary key
+     * @param chapterId chapter primary key
+     * @param request lesson form
+     * @return the created lesson
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Override
+    public TeacherLessonView createLesson(
+            long userId,
+            String roles,
+            long courseId,
+            long chapterId,
+            TeacherLessonRequest request) {
+        Course course = requireContentEditable(userId, roles, courseId);
+        requireChapter(courseId, chapterId);
+        CourseLesson lesson = new CourseLesson();
+        lesson.setCourseId(courseId);
+        lesson.setChapterId(chapterId);
+        lesson.setTitle(requireText(request.title(), "title", MAX_TITLE_LENGTH));
+        lesson.setVideoUrl(requireText(request.videoUrl(), "videoUrl", MAX_VIDEO_URL_LENGTH));
+        lesson.setVideoDurationSec(requireDuration(request.durationSec()));
+        lesson.setIsFree(requireFreeFlag(request.isFree()));
+        lesson.setSort(requireSort(request.sort()));
+        lesson.setStatus(requireFlag(request.status()));
+        teacherCourseMapper.insertLesson(lesson);
+        afterContentChange(course);
+        return toView(lesson);
+    }
+
+    /**
+     * Edits a lesson of a draft or offline course.
+     *
+     * @param userId authenticated user id
+     * @param roles comma separated gateway roles
+     * @param courseId course primary key
+     * @param chapterId chapter primary key
+     * @param lessonId lesson primary key
+     * @param request lesson form, omitted fields keep their current value
+     * @return the lesson after the update
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Override
+    public TeacherLessonView updateLesson(
+            long userId,
+            String roles,
+            long courseId,
+            long chapterId,
+            long lessonId,
+            TeacherLessonRequest request) {
+        Course course = requireContentEditable(userId, roles, courseId);
+        requireChapter(courseId, chapterId);
+        CourseLesson lesson = teacherCourseMapper.selectLesson(courseId, chapterId, lessonId);
+        if (lesson == null) {
+            throw new BizException(ErrorCode.NOT_FOUND);
+        }
+        if (request.title() != null) {
+            lesson.setTitle(requireText(request.title(), "title", MAX_TITLE_LENGTH));
+        }
+        if (request.videoUrl() != null) {
+            lesson.setVideoUrl(requireText(request.videoUrl(), "videoUrl", MAX_VIDEO_URL_LENGTH));
+        }
+        if (request.durationSec() != null) {
+            lesson.setVideoDurationSec(requireDuration(request.durationSec()));
+        }
+        if (request.isFree() != null) {
+            lesson.setIsFree(requireFreeFlag(request.isFree()));
+        }
+        if (request.sort() != null) {
+            lesson.setSort(requireSort(request.sort()));
+        }
+        if (request.status() != null) {
+            lesson.setStatus(requireFlag(request.status()));
+        }
+        teacherCourseMapper.updateLesson(lesson);
+        afterContentChange(course);
+        return toView(lesson);
+    }
+
+    /**
+     * Deletes a lesson of a draft or offline course.
+     *
+     * @param userId authenticated user id
+     * @param roles comma separated gateway roles
+     * @param courseId course primary key
+     * @param chapterId chapter primary key
+     * @param lessonId lesson primary key
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Override
+    public void deleteLesson(
+            long userId, String roles, long courseId, long chapterId, long lessonId) {
+        Course course = requireContentEditable(userId, roles, courseId);
+        requireChapter(courseId, chapterId);
+        if (teacherCourseMapper.deleteLesson(courseId, chapterId, lessonId) == 0) {
+            throw new BizException(ErrorCode.NOT_FOUND);
+        }
+        afterContentChange(course);
+    }
+
+    /**
+     * Loads a course the caller may change content of.
+     *
+     * @param userId authenticated user id
+     * @param roles comma separated gateway roles
+     * @param courseId course primary key
+     * @return editable course row
+     * @author Caspian
+     * @since 0.1.0
+     */
+    private Course requireContentEditable(long userId, String roles, long courseId) {
+        Course course = requireAccessible(resolveActor(userId, roles), courseId);
+        requireEditable(course);
+        return course;
+    }
+
+    /**
+     * Loads a chapter that belongs to the given course.
+     *
+     * @param courseId course primary key
+     * @param chapterId chapter primary key
+     * @return chapter row
+     * @author Caspian
+     * @since 0.1.0
+     */
+    private CourseChapter requireChapter(long courseId, long chapterId) {
+        CourseChapter chapter = teacherCourseMapper.selectChapter(courseId, chapterId);
+        if (chapter == null) {
+            throw new BizException(ErrorCode.NOT_FOUND);
+        }
+        return chapter;
+    }
+
+    /**
+     * Returns an offline course to draft after its content changed.
+     *
+     * @param course course row before the change
+     * @author Caspian
+     * @since 0.1.0
+     */
+    private void afterContentChange(Course course) {
+        if (course.getStatus() == STATUS_OFFLINE) {
+            teacherCourseMapper.resetOfflineToDraft(course.getId());
+        }
+    }
+
+    /**
+     * Validates a required text field.
+     *
+     * @param value text
+     * @param field field name used in the error message
+     * @param maxLength maximum accepted length
+     * @return the trimmed text
+     * @author Caspian
+     * @since 0.1.0
+     */
+    private String requireText(String value, String field, int maxLength) {
+        String trimmed = value == null ? "" : value.trim();
+        if (trimmed.isEmpty() || trimmed.length() > maxLength) {
+            throw new BizException(ErrorCode.PARAM_INVALID, field + " is invalid");
+        }
+        return trimmed;
+    }
+
+    /**
+     * Validates a lesson duration.
+     *
+     * @param durationSec duration in seconds
+     * @return the duration
+     * @author Caspian
+     * @since 0.1.0
+     */
+    private int requireDuration(Integer durationSec) {
+        if (durationSec == null || durationSec <= 0) {
+            throw new BizException(ErrorCode.PARAM_INVALID, "durationSec must be positive");
+        }
+        return durationSec;
+    }
+
+    /**
+     * Validates a free-trial flag.
+     *
+     * @param value flag, {@code null} defaults to paid
+     * @return 0 or 1
+     * @author Caspian
+     * @since 0.1.0
+     */
+    private int requireFreeFlag(Integer value) {
+        if (value == null) {
+            return 0;
+        }
+        if (value != 0 && value != 1) {
+            throw new BizException(ErrorCode.PARAM_INVALID, "isFree is out of range");
+        }
+        return value;
+    }
+
+    /**
+     * Validates a visibility flag.
+     *
+     * @param value flag, {@code null} defaults to visible
+     * @return 0 or 1
+     * @author Caspian
+     * @since 0.1.0
+     */
+    private int requireFlag(Integer value) {
+        if (value == null) {
+            return 1;
+        }
+        if (value != 0 && value != 1) {
+            throw new BizException(ErrorCode.PARAM_INVALID, "status is out of range");
+        }
+        return value;
+    }
+
+    /**
+     * Validates a display order.
+     *
+     * @param value order, {@code null} defaults to 0
+     * @return the order
+     * @author Caspian
+     * @since 0.1.0
+     */
+    private int requireSort(Integer value) {
+        if (value == null) {
+            return 0;
+        }
+        if (value < 0) {
+            throw new BizException(ErrorCode.PARAM_INVALID, "sort must not be negative");
+        }
+        return value;
     }
 
     /**
@@ -383,6 +750,44 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
                 course.getLessonCount() == null ? 0L : course.getLessonCount(),
                 course.getSubmittedAt(),
                 course.getUpdatedAt());
+    }
+
+    /**
+     * Maps a chapter row and its lessons to the console projection.
+     *
+     * @param chapter chapter row
+     * @param lessons lessons of the chapter
+     * @return console view
+     * @author Caspian
+     * @since 0.1.0
+     */
+    private TeacherChapterView toView(CourseChapter chapter, List<TeacherLessonView> lessons) {
+        return new TeacherChapterView(
+                chapter.getId(),
+                chapter.getTitle(),
+                chapter.getSort() == null ? 0 : chapter.getSort(),
+                chapter.getStatus() == null ? 1 : chapter.getStatus(),
+                lessons);
+    }
+
+    /**
+     * Maps a lesson row to the console projection.
+     *
+     * @param lesson lesson row
+     * @return console view
+     * @author Caspian
+     * @since 0.1.0
+     */
+    private TeacherLessonView toView(CourseLesson lesson) {
+        return new TeacherLessonView(
+                lesson.getId(),
+                lesson.getChapterId() == null ? 0L : lesson.getChapterId(),
+                lesson.getTitle(),
+                lesson.getVideoUrl(),
+                lesson.getVideoDurationSec() == null ? 0 : lesson.getVideoDurationSec(),
+                lesson.getIsFree() != null && lesson.getIsFree() == 1,
+                lesson.getSort() == null ? 0 : lesson.getSort(),
+                lesson.getStatus() == null ? 1 : lesson.getStatus());
     }
 
     /**

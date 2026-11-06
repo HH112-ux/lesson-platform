@@ -5,11 +5,17 @@ import com.lp.common.exception.ErrorCode;
 import com.lp.common.identity.IdentityHeaders;
 import com.lp.common.result.Result;
 import com.lp.common.web.TraceIds;
+import com.lp.course.dto.TeacherChapterRequest;
+import com.lp.course.dto.TeacherChapterView;
 import com.lp.course.dto.TeacherCoursePageView;
 import com.lp.course.dto.TeacherCourseRequest;
 import com.lp.course.dto.TeacherCourseView;
+import com.lp.course.dto.TeacherLessonRequest;
+import com.lp.course.dto.TeacherLessonView;
 import com.lp.course.service.TeacherCourseService;
 import jakarta.servlet.http.HttpServletRequest;
+import java.util.List;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -161,6 +167,184 @@ public class TeacherCourseController {
         return Result.ok(
                 teacherCourseService.submit(requireUser(userId), roles, courseId),
                 TraceIds.resolve(request));
+    }
+
+    /**
+     * Lists the chapters and lessons of an owned course.
+     *
+     * @param userId gateway injected user id
+     * @param roles gateway injected roles, comma separated
+     * @param courseId course primary key
+     * @param request current request, used to resolve the trace id
+     * @return chapters ordered by sort, including hidden rows
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @GetMapping("/{courseId}/chapters")
+    public Result<List<TeacherChapterView>> chapters(
+            @RequestHeader(value = IdentityHeaders.USER_ID, required = false) Long userId,
+            @RequestHeader(value = IdentityHeaders.USER_ROLES, required = false) String roles,
+            @PathVariable("courseId") long courseId,
+            HttpServletRequest request) {
+        return Result.ok(
+                teacherCourseService.chapters(requireUser(userId), roles, courseId),
+                TraceIds.resolve(request));
+    }
+
+    /**
+     * Creates a chapter in a draft or offline course.
+     *
+     * @param userId gateway injected user id
+     * @param roles gateway injected roles, comma separated
+     * @param courseId course primary key
+     * @param body chapter form
+     * @param request current request, used to resolve the trace id
+     * @return the created chapter
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @PostMapping("/{courseId}/chapters")
+    public Result<TeacherChapterView> createChapter(
+            @RequestHeader(value = IdentityHeaders.USER_ID, required = false) Long userId,
+            @RequestHeader(value = IdentityHeaders.USER_ROLES, required = false) String roles,
+            @PathVariable("courseId") long courseId,
+            @RequestBody TeacherChapterRequest body,
+            HttpServletRequest request) {
+        return Result.ok(
+                teacherCourseService.createChapter(requireUser(userId), roles, courseId, body),
+                TraceIds.resolve(request));
+    }
+
+    /**
+     * Edits a chapter of a draft or offline course.
+     *
+     * @param userId gateway injected user id
+     * @param roles gateway injected roles, comma separated
+     * @param courseId course primary key
+     * @param chapterId chapter primary key
+     * @param body chapter form, omitted fields keep their current value
+     * @param request current request, used to resolve the trace id
+     * @return the chapter after the update
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @PutMapping("/{courseId}/chapters/{chapterId}")
+    public Result<TeacherChapterView> updateChapter(
+            @RequestHeader(value = IdentityHeaders.USER_ID, required = false) Long userId,
+            @RequestHeader(value = IdentityHeaders.USER_ROLES, required = false) String roles,
+            @PathVariable("courseId") long courseId,
+            @PathVariable("chapterId") long chapterId,
+            @RequestBody TeacherChapterRequest body,
+            HttpServletRequest request) {
+        return Result.ok(
+                teacherCourseService.updateChapter(
+                        requireUser(userId), roles, courseId, chapterId, body),
+                TraceIds.resolve(request));
+    }
+
+    /**
+     * Deletes a chapter and its lessons from a draft or offline course.
+     *
+     * @param userId gateway injected user id
+     * @param roles gateway injected roles, comma separated
+     * @param courseId course primary key
+     * @param chapterId chapter primary key
+     * @param request current request, used to resolve the trace id
+     * @return empty success payload
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @DeleteMapping("/{courseId}/chapters/{chapterId}")
+    public Result<Void> deleteChapter(
+            @RequestHeader(value = IdentityHeaders.USER_ID, required = false) Long userId,
+            @RequestHeader(value = IdentityHeaders.USER_ROLES, required = false) String roles,
+            @PathVariable("courseId") long courseId,
+            @PathVariable("chapterId") long chapterId,
+            HttpServletRequest request) {
+        teacherCourseService.deleteChapter(requireUser(userId), roles, courseId, chapterId);
+        return Result.ok(null, TraceIds.resolve(request));
+    }
+
+    /**
+     * Creates a lesson under a chapter of a draft or offline course.
+     *
+     * @param userId gateway injected user id
+     * @param roles gateway injected roles, comma separated
+     * @param courseId course primary key
+     * @param chapterId chapter primary key
+     * @param body lesson form
+     * @param request current request, used to resolve the trace id
+     * @return the created lesson
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @PostMapping("/{courseId}/chapters/{chapterId}/lessons")
+    public Result<TeacherLessonView> createLesson(
+            @RequestHeader(value = IdentityHeaders.USER_ID, required = false) Long userId,
+            @RequestHeader(value = IdentityHeaders.USER_ROLES, required = false) String roles,
+            @PathVariable("courseId") long courseId,
+            @PathVariable("chapterId") long chapterId,
+            @RequestBody TeacherLessonRequest body,
+            HttpServletRequest request) {
+        return Result.ok(
+                teacherCourseService.createLesson(
+                        requireUser(userId), roles, courseId, chapterId, body),
+                TraceIds.resolve(request));
+    }
+
+    /**
+     * Edits a lesson of a draft or offline course.
+     *
+     * @param userId gateway injected user id
+     * @param roles gateway injected roles, comma separated
+     * @param courseId course primary key
+     * @param chapterId chapter primary key
+     * @param lessonId lesson primary key
+     * @param body lesson form, omitted fields keep their current value
+     * @param request current request, used to resolve the trace id
+     * @return the lesson after the update
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @PutMapping("/{courseId}/chapters/{chapterId}/lessons/{lessonId}")
+    public Result<TeacherLessonView> updateLesson(
+            @RequestHeader(value = IdentityHeaders.USER_ID, required = false) Long userId,
+            @RequestHeader(value = IdentityHeaders.USER_ROLES, required = false) String roles,
+            @PathVariable("courseId") long courseId,
+            @PathVariable("chapterId") long chapterId,
+            @PathVariable("lessonId") long lessonId,
+            @RequestBody TeacherLessonRequest body,
+            HttpServletRequest request) {
+        return Result.ok(
+                teacherCourseService.updateLesson(
+                        requireUser(userId), roles, courseId, chapterId, lessonId, body),
+                TraceIds.resolve(request));
+    }
+
+    /**
+     * Deletes a lesson of a draft or offline course.
+     *
+     * @param userId gateway injected user id
+     * @param roles gateway injected roles, comma separated
+     * @param courseId course primary key
+     * @param chapterId chapter primary key
+     * @param lessonId lesson primary key
+     * @param request current request, used to resolve the trace id
+     * @return empty success payload
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @DeleteMapping("/{courseId}/chapters/{chapterId}/lessons/{lessonId}")
+    public Result<Void> deleteLesson(
+            @RequestHeader(value = IdentityHeaders.USER_ID, required = false) Long userId,
+            @RequestHeader(value = IdentityHeaders.USER_ROLES, required = false) String roles,
+            @PathVariable("courseId") long courseId,
+            @PathVariable("chapterId") long chapterId,
+            @PathVariable("lessonId") long lessonId,
+            HttpServletRequest request) {
+        teacherCourseService.deleteLesson(
+                requireUser(userId), roles, courseId, chapterId, lessonId);
+        return Result.ok(null, TraceIds.resolve(request));
     }
 
     /**

@@ -1203,17 +1203,18 @@ spec:
 | POST | `/api/v1/teacher/courses/{courseId}/submit` | 提交审核（`0→1` 或 `3→1`；至少 1 个带视频与有效时长的课时；待审核期间只读） | `{}` | 课程详情，`status:1` | 40001,40301,40401,40901 |
 | POST | `/api/v1/teacher/courses/{courseId}/publish` | 本人课程再上架（`3→2`；仅内容未变更可直接上架，编辑过须回草稿复审） | `{}` | `{status:2}` | 40301,40901 |
 | POST | `/api/v1/teacher/courses/{courseId}/unpublish` | 本人课程下架（`2→3`） | `{reason}` | `{status:3}` | 40301,40901 |
-| POST | `/api/v1/teacher/courses/{courseId}/chapters` | 建章节 | `{title,sort}` | `{chapterId}` | 40301,40001 |
-| PUT | `/api/v1/teacher/chapters/{chapterId}` | 改章节 | `{title?,sort?,status?}` | `{updated:true}` | 40301,40401 |
-| DELETE | `/api/v1/teacher/chapters/{chapterId}` | 删章节（逻辑删，级联隐藏课时） | — | `{deleted:true}` | 40301,40901,40401 |
-| POST | `/api/v1/teacher/chapters/{chapterId}/lessons` | 建课时 | `{title,isFree,sort,coverUrl?}` | `{lessonId}` | 40301,40001 |
-| PUT | `/api/v1/teacher/lessons/{lessonId}` | 改课时 | `{title?,isFree?,sort?,coverUrl?,status?}` | `{updated:true}` | 40301,40401 |
-| DELETE | `/api/v1/teacher/lessons/{lessonId}` | 删课时（逻辑删） | — | `{deleted:true}` | 40301,40401 |
+| GET | `/api/v1/teacher/courses/{courseId}/chapters` | 章节+课时目录（含隐藏项） | — | `[{chapterId,title,sort,status,lessons:[{lessonId,chapterId,title,videoUrl,durationSec,free,sort,status}]}]` | 40301,40401 |
+| POST | `/api/v1/teacher/courses/{courseId}/chapters` | 建章节（草稿/已下架课程；已下架改动回草稿） | `{title,sort?,status?}` | 章节详情 | 40001,40301,40401,40901 |
+| PUT | `/api/v1/teacher/courses/{courseId}/chapters/{chapterId}` | 改章节（字段可选） | `{title?,sort?,status?}` | 章节详情 | 40001,40301,40401,40901 |
+| DELETE | `/api/v1/teacher/courses/{courseId}/chapters/{chapterId}` | 删章节（逻辑删，级联隐藏课时） | — | `data:null` | 40301,40401,40901 |
+| POST | `/api/v1/teacher/courses/{courseId}/chapters/{chapterId}/lessons` | 建课时（`videoUrl` 与 `durationSec>0` 必填） | `{title,videoUrl,durationSec,isFree?,sort?,status?}` | 课时详情 | 40001,40301,40401,40901 |
+| PUT | `/api/v1/teacher/courses/{courseId}/chapters/{chapterId}/lessons/{lessonId}` | 改课时（字段可选） | `{title?,videoUrl?,durationSec?,isFree?,sort?,status?}` | 课时详情 | 40001,40301,40401,40901 |
+| DELETE | `/api/v1/teacher/courses/{courseId}/chapters/{chapterId}/lessons/{lessonId}` | 删课时（逻辑删） | — | `data:null` | 40301,40401,40901 |
 | POST | `/api/v1/teacher/lessons/{lessonId}/video` | 上传视频（multipart，同步校验） | form-data `file` | `{videoUrl,durationSec,codec,width,height,sizeBytes}` | 40301,40002,50001,61003 |
 | GET | `/api/v1/teacher/courses/{courseId}/dashboard` | **课程数据看板** | query:`dateFrom,dateTo`（≤90 天） | `{summary:{salesCount,revenue,refundAmount,newLearnerCount,avgProgressPercent,commentCount},trend:[{date,paidOrderCount,revenue,newLearnerCount}]}` | 40301,40401 |
 | GET | `/api/v1/teacher/courses/{courseId}/comments` | 本人课程评论查看（只读，不能处置） | query:`status,pageNum` | 分页 `{records:[{id,content,status,createdAt}]}` | 40301,40401 |
 
-> 教师接口的归属校验统一走 `CourseOwnerChecker.check(courseId, teacherId)`，`chapter/lesson` 通过 `course_id` 反查；删除有已售订单的课时需先下架（`40901`）。
+> 教师接口的归属校验统一在 service 层按 `course.owner_teacher_id = 当前用户 teacher_profile.id` 完成（`ADMIN` 例外），`chapter/lesson` 再以 `course_id + chapter_id` 双条件反查；删除有已售订单的课时需先下架（`40901`）。
 
 ## 5.11 接口与数据模型一致性校验
 

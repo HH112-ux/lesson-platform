@@ -1,8 +1,13 @@
 package com.lp.course.service;
 
+import com.lp.course.dto.TeacherChapterRequest;
+import com.lp.course.dto.TeacherChapterView;
 import com.lp.course.dto.TeacherCoursePageView;
 import com.lp.course.dto.TeacherCourseRequest;
 import com.lp.course.dto.TeacherCourseView;
+import com.lp.course.dto.TeacherLessonRequest;
+import com.lp.course.dto.TeacherLessonView;
+import java.util.List;
 
 /**
  * Teacher console use cases for the courses a teacher owns.
@@ -78,4 +83,110 @@ public interface TeacherCourseService {
      * @since 0.1.0
      */
     TeacherCourseView submit(long userId, String roles, long courseId);
+
+    /**
+     * Lists the chapters and lessons of one owned course, including hidden rows.
+     *
+     * @param userId authenticated user id
+     * @param roles comma separated gateway roles
+     * @param courseId course primary key
+     * @return chapters ordered by sort
+     * @author Caspian
+     * @since 0.1.0
+     */
+    List<TeacherChapterView> chapters(long userId, String roles, long courseId);
+
+    /**
+     * Creates a chapter in a draft or offline course.
+     *
+     * @param userId authenticated user id
+     * @param roles comma separated gateway roles
+     * @param courseId course primary key
+     * @param request chapter form
+     * @return the created chapter
+     * @author Caspian
+     * @since 0.1.0
+     */
+    TeacherChapterView createChapter(
+            long userId, String roles, long courseId, TeacherChapterRequest request);
+
+    /**
+     * Edits a chapter of a draft or offline course.
+     *
+     * @param userId authenticated user id
+     * @param roles comma separated gateway roles
+     * @param courseId course primary key
+     * @param chapterId chapter primary key
+     * @param request chapter form, omitted fields keep their current value
+     * @return the chapter after the update
+     * @author Caspian
+     * @since 0.1.0
+     */
+    TeacherChapterView updateChapter(
+            long userId,
+            String roles,
+            long courseId,
+            long chapterId,
+            TeacherChapterRequest request);
+
+    /**
+     * Deletes a chapter and its lessons from a draft or offline course.
+     *
+     * @param userId authenticated user id
+     * @param roles comma separated gateway roles
+     * @param courseId course primary key
+     * @param chapterId chapter primary key
+     * @author Caspian
+     * @since 0.1.0
+     */
+    void deleteChapter(long userId, String roles, long courseId, long chapterId);
+
+    /**
+     * Creates a lesson under a chapter of a draft or offline course.
+     *
+     * @param userId authenticated user id
+     * @param roles comma separated gateway roles
+     * @param courseId course primary key
+     * @param chapterId chapter primary key
+     * @param request lesson form
+     * @return the created lesson
+     * @author Caspian
+     * @since 0.1.0
+     */
+    TeacherLessonView createLesson(
+            long userId, String roles, long courseId, long chapterId, TeacherLessonRequest request);
+
+    /**
+     * Edits a lesson of a draft or offline course.
+     *
+     * @param userId authenticated user id
+     * @param roles comma separated gateway roles
+     * @param courseId course primary key
+     * @param chapterId chapter primary key
+     * @param lessonId lesson primary key
+     * @param request lesson form, omitted fields keep their current value
+     * @return the lesson after the update
+     * @author Caspian
+     * @since 0.1.0
+     */
+    TeacherLessonView updateLesson(
+            long userId,
+            String roles,
+            long courseId,
+            long chapterId,
+            long lessonId,
+            TeacherLessonRequest request);
+
+    /**
+     * Deletes a lesson of a draft or offline course.
+     *
+     * @param userId authenticated user id
+     * @param roles comma separated gateway roles
+     * @param courseId course primary key
+     * @param chapterId chapter primary key
+     * @param lessonId lesson primary key
+     * @author Caspian
+     * @since 0.1.0
+     */
+    void deleteLesson(long userId, String roles, long courseId, long chapterId, long lessonId);
 }
