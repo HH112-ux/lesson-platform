@@ -110,6 +110,33 @@ curl -s http://localhost:8103/actuator/prometheus | grep entitlement_outbox
 
 两个 Gauge 在中继每批投递后与每 15 秒刷新，抓取端不需要访问数据库。
 
+## 退款闭环演练
+
+`scripts/refund-drill.sh` 在本地真实栈上验证「下单 → 支付 → 申请退款 → 退款成功 → 权益失效 → 播放被拒」整条链路，而不只是单测。
+
+```bash
+bash scripts/dev-up.sh
+bash scripts/refund-drill.sh
+```
+
+前置与 outbox 演练相同（`jq`、`docker`、栈已启动）；脚本同样会临时用 `LP_PAY_MOCK_ENABLED=true` 重建 `trade-service` 并在退出时恢复。每次运行新建自己的课程与订单，可重复执行。
+
+口径：退款成功后权益置为**失效**（`user_entitlement.status=1`，软状态，不物理删除），学习记录保留；已购用户再次访问该课程按未购处理，「我的课程」中该课程标记 `refunded=true`，播放地址接口返回 `40302`。再次购买同一课程会复用同一行并重新生效。
+
+| 步骤 | 断言 |
+|---|---|
+| 1 | 网关健康；模拟支付可用 |
+| 2 | 教师建课、提交，运营审核上架 |
+| 3 | 下单支付成功，权益已发放，退款前可播放 |
+| 4 | 退款成功（`refundNo=RF{orderNo}`），订单置 `status=5`，`refund_request` 一行，撤销 outbox 已投递 |
+| 5 | 权益行仍在且 `status=1`、`revoked_at` 有值；我的课程 `refunded=true`；播放返回 `40302` |
+| 6 | 重复退款返回同一 `refundNo`，退款行仍 1 条，撤销 outbox 仍 1 条，`revoked_at` 不变 |
+| 7 | 另一笔订单退款金额超过实付返回 `62018`，不产生退款行且订单状态不变 |
+
+全部通过输出 `REFUND OK`；失败时先看步骤号与响应体，再查 `lp_oms.refund_request`、`lp_oms.entitlement_outbox`（`action=1`）与 `lp_lms.user_entitlement`。
+
+退款决策：渠道退款同步执行（买家需要确定结果，`refund_no` 即渠道幂等键，重试返回原退款）；权益撤销走 outbox（跨服务副作用可重试，复用同一套退避、死信与运营重放，不引入新中间件）。
+
 ## 本地模拟支付
 
 - 开关：`infra/.env` 的 `LP_PAY_MOCK_ENABLED`，**默认 `false`**。
