@@ -85,6 +85,9 @@ public enum ErrorCode {
     /** The callback channel differs from the channel fixed on the order. */
     PAYMENT_CHANNEL_MISMATCH(62010, "payment channel mismatch"),
 
+    /** The requested payment channel has been retired and cannot create new payments. */
+    PAYMENT_CHANNEL_RETIRED(62011, "payment channel is no longer supported"),
+
     /** Learning domain failure. */
     LEARN_BIZ_ERROR(63001, "learning operation failed"),
 

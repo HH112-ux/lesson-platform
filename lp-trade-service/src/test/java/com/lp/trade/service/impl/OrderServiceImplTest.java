@@ -149,13 +149,30 @@ class OrderServiceImplTest {
                             return 1;
                         });
 
-        OrderView view = orderService.create(USER_ID, "miniapp", request("key-3", null));
+        OrderView view = orderService.create(USER_ID, "web", request("key-3", null));
 
         assertEquals(OrderStatus.PAID, view.getStatus());
-        assertEquals(PaymentChannel.WXPAY, view.getChannel());
+        assertEquals(PaymentChannel.ALIPAY, view.getChannel());
         assertNotNull(view.getPaidAt());
         assertNull(view.getPayExpireAt());
         verify(entitlementService).grant(eq(USER_ID), eq(COURSE_ID), anyLong(), anyString());
+    }
+
+    /**
+     * The miniapp channel was retired, so ordering from the miniapp fails with a dedicated code.
+     *
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Test
+    void rejectsMiniappOrders() {
+        BizException exception =
+                assertThrows(
+                        BizException.class,
+                        () -> orderService.create(USER_ID, "miniapp", request("key-9", null)));
+
+        assertEquals(62011, exception.getCode());
+        verify(tradeOrderMapper, never()).insertOrder(any(TradeOrder.class));
     }
 
     /**

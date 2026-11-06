@@ -10,8 +10,8 @@ import org.springframework.stereotype.Service;
  * Placeholder {@link SignatureVerifier} used until channel credentials exist.
  *
  * <p>It never returns normally: every callback fails with {@code 50205} instead of silently
- * accepting an unsigned notification. This bean must be replaced, not bypassed, when Alipay or
- * WeChat Pay credentials are wired in.
+ * accepting an unsigned notification. This bean must be replaced, not bypassed, when Alipay
+ * credentials are wired in.
  *
  * @author Caspian
  * @since 0.1.0

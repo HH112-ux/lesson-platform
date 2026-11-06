@@ -10,7 +10,7 @@ import org.springframework.stereotype.Service;
  * Placeholder {@link PaymentGateway} used until channel credentials exist.
  *
  * <p>It never returns a payable payload, so a client can never start a payment that the server
- * cannot verify. Replace this bean together with the Alipay and WeChat Pay adapters.
+ * cannot verify. Replace this bean together with the Alipay adapter.
  *
  * @author Caspian
  * @since 0.1.0
