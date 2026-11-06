@@ -6,7 +6,8 @@ import java.time.LocalDateTime;
  * Row read from and written to {@code learning_progress}.
  *
  * <p>{@code maxPositionSeconds} only grows; {@code positionSeconds} stores the latest reported
- * point. {@code completed} is derived by the service, never accepted from a client.
+ * point. {@code watchedSeconds} is the accumulated credible watch time and drives completion.
+ * {@code completed} is derived by the service, never accepted from a client.
  *
  * @author Caspian
  * @since 0.1.0
@@ -24,6 +25,8 @@ public class LearningProgress {
     private Integer positionSeconds;
 
     private Integer maxPositionSeconds;
+
+    private Integer watchedSeconds;
 
     private Integer completed;
 
@@ -159,6 +162,28 @@ public class LearningProgress {
      */
     public void setMaxPositionSeconds(Integer maxPositionSeconds) {
         this.maxPositionSeconds = maxPositionSeconds;
+    }
+
+    /**
+     * Returns the accumulated credible watch time.
+     *
+     * @return watched seconds, only increased by the server
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public Integer getWatchedSeconds() {
+        return watchedSeconds;
+    }
+
+    /**
+     * Sets the accumulated credible watch time.
+     *
+     * @param watchedSeconds watched seconds
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public void setWatchedSeconds(Integer watchedSeconds) {
+        this.watchedSeconds = watchedSeconds;
     }
 
     /**
