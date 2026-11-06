@@ -6,6 +6,7 @@ import { currentRoute, navigate, syncRoute } from './router'
 import CourseListView from './views/CourseListView.vue'
 import HealthView from './views/HealthView.vue'
 import LoginView from './views/LoginView.vue'
+import MyCoursesView from './views/MyCoursesView.vue'
 import PurchaseView from './views/PurchaseView.vue'
 
 const focused = computed(() => currentRoute.value.name === 'purchase')
@@ -39,6 +40,7 @@ onUnmounted(() => {
   />
   <HealthView v-else-if="currentRoute.name === 'health'" />
   <CourseListView v-else-if="currentRoute.name === 'home'" />
+  <MyCoursesView v-else-if="currentRoute.name === 'my-courses'" />
   <main
     v-else
     class="lp-page"
