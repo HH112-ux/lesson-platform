@@ -41,22 +41,27 @@ public class EntitlementRelay {
 
     private final TradeProperties tradeProperties;
 
+    private final EntitlementOutboxMetrics metrics;
+
     /**
      * Creates the relay with its dependencies.
      *
      * @param entitlementOutboxMapper outbox persistence
      * @param learnEntitlementClient learn-service internal client
      * @param tradeProperties retry limit
+     * @param metrics outbox gauges refreshed after each batch
      * @author Caspian
      * @since 0.1.0
      */
     public EntitlementRelay(
             EntitlementOutboxMapper entitlementOutboxMapper,
             LearnEntitlementClient learnEntitlementClient,
-            TradeProperties tradeProperties) {
+            TradeProperties tradeProperties,
+            EntitlementOutboxMetrics metrics) {
         this.entitlementOutboxMapper = entitlementOutboxMapper;
         this.learnEntitlementClient = learnEntitlementClient;
         this.tradeProperties = tradeProperties;
+        this.metrics = metrics;
     }
 
     /**
@@ -67,15 +72,15 @@ public class EntitlementRelay {
      */
     @Scheduled(fixedDelayString = "${lp.trade.outbox-relay-delay-ms:5000}", initialDelay = 10000)
     public void relay() {
-        List<EntitlementOutbox> pending;
         try {
-            pending = entitlementOutboxMapper.selectPending(BATCH_SIZE);
+            List<EntitlementOutbox> pending = entitlementOutboxMapper.selectPending(BATCH_SIZE);
+            for (EntitlementOutbox outbox : pending) {
+                deliver(outbox);
+            }
         } catch (RuntimeException exception) {
             LOG.warn("entitlement outbox read failed: {}", exception.getMessage());
-            return;
-        }
-        for (EntitlementOutbox outbox : pending) {
-            deliver(outbox);
+        } finally {
+            metrics.refresh();
         }
     }
 
@@ -93,7 +98,7 @@ public class EntitlementRelay {
         int retryCount = outbox.getRetryCount() + 1;
         String error = describe(exception);
         if (retryCount >= tradeProperties.getOutboxMaxRetries()) {
-            entitlementOutboxMapper.markGivenUp(outbox.getId(), error);
+            entitlementOutboxMapper.markGivenUp(outbox.getId(), retryCount, error);
             LOG.error(
                     "entitlement delivery gave up: outbox={}, order={}, attempts={}",
                     outbox.getId(),

@@ -33,6 +33,30 @@ public class EntitlementOutbox {
 
     private String lastError;
 
+    private LocalDateTime updatedAt;
+
+    /**
+     * Returns the last update time.
+     *
+     * @return update time, {@code null} when the projection does not select it
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public LocalDateTime getUpdatedAt() {
+        return updatedAt;
+    }
+
+    /**
+     * Sets the last update time.
+     *
+     * @param updatedAt update time
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public void setUpdatedAt(LocalDateTime updatedAt) {
+        this.updatedAt = updatedAt;
+    }
+
     /**
      * Returns the primary key.
      *
