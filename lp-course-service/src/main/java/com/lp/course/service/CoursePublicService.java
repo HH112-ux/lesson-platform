@@ -2,6 +2,7 @@ package com.lp.course.service;
 
 import com.lp.course.dto.CourseCategoryView;
 import com.lp.course.dto.CoursePageView;
+import com.lp.course.dto.CourseSyllabusView;
 import com.lp.course.dto.PublicCourseView;
 import java.util.List;
 
@@ -23,6 +24,17 @@ public interface CoursePublicService {
      * @since 0.1.0
      */
     PublicCourseView course(long courseId, Long userId);
+
+    /**
+     * Loads the chapter and lesson outline of one published course.
+     *
+     * @param courseId course primary key
+     * @param userId current user id, {@code null} when anonymous
+     * @return syllabus whose lessons carry the caller specific playable flag
+     * @author Caspian
+     * @since 0.1.0
+     */
+    CourseSyllabusView syllabus(long courseId, Long userId);
 
     /**
      * Lists one page of published courses.

@@ -17,9 +17,13 @@ import com.lp.common.exception.BizException;
 import com.lp.course.client.LearnEntitlementClient;
 import com.lp.course.dto.CourseInternalView;
 import com.lp.course.dto.CoursePageView;
+import com.lp.course.dto.CourseSyllabusView;
 import com.lp.course.dto.PublicCourseView;
+import com.lp.course.dto.PublicLessonView;
 import com.lp.course.entity.Course;
 import com.lp.course.entity.CourseCategory;
+import com.lp.course.entity.CourseChapter;
+import com.lp.course.entity.CourseLesson;
 import com.lp.course.mapper.CourseCategoryMapper;
 import com.lp.course.mapper.CourseMapper;
 import com.lp.course.service.CourseInternalService;
@@ -190,6 +194,130 @@ class CoursePublicServiceImplTest {
 
         assertEquals(1, page.getItems().size());
         assertEquals(0L, missing.getTotal());
+    }
+
+    /**
+     * An anonymous caller sees the whole outline but only trial lessons are playable.
+     *
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Test
+    void syllabusMarksOnlyTrialLessonsPlayableForAnonymous() {
+        when(courseInternalService.course(7L))
+                .thenReturn(
+                        new CourseInternalView(
+                                7L, "Course 7", "cover-7", 9900L, 2, 55L, 4L, "Teacher A"));
+        when(courseMapper.selectChapters(7L))
+                .thenReturn(List.of(chapter(10L, "Basics", 1), chapter(11L, "Advanced", 2)));
+        when(courseMapper.selectLessons(7L))
+                .thenReturn(
+                        List.of(
+                                lesson(100L, 10L, "Intro", 1, 300, 1),
+                                lesson(101L, 10L, "Setup", 0, 600, 2),
+                                lesson(102L, 11L, "Deep dive", 0, 900, 1)));
+
+        CourseSyllabusView syllabus = coursePublicService.syllabus(7L, null);
+
+        assertEquals(2, syllabus.getChapters().size());
+        assertFalse(syllabus.isOwned());
+        PublicLessonView trial = syllabus.getChapters().get(0).getLessons().get(0);
+        PublicLessonView paid = syllabus.getChapters().get(0).getLessons().get(1);
+        assertTrue(trial.isFree());
+        assertTrue(trial.isPlayable());
+        assertFalse(paid.isPlayable());
+        assertEquals(600, paid.getDurationSec());
+        verify(learnEntitlementClient, never()).ownedCourseIds(anyLong(), anyList());
+    }
+
+    /**
+     * A buyer sees every lesson as playable.
+     *
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Test
+    void syllabusMarksEverythingPlayableForOwner() {
+        when(courseInternalService.course(7L))
+                .thenReturn(
+                        new CourseInternalView(
+                                7L, "Course 7", "cover-7", 9900L, 2, 55L, 4L, "Teacher A"));
+        when(learnEntitlementClient.ownedCourseIds(1001L, List.of(7L))).thenReturn(Set.of(7L));
+        when(courseMapper.selectChapters(7L)).thenReturn(List.of(chapter(10L, "Basics", 1)));
+        when(courseMapper.selectLessons(7L))
+                .thenReturn(List.of(lesson(100L, 10L, "Intro", 1, 300, 1)));
+
+        CourseSyllabusView syllabus = coursePublicService.syllabus(7L, 1001L);
+
+        assertTrue(syllabus.isOwned());
+        assertTrue(syllabus.getChapters().get(0).getLessons().get(0).isPlayable());
+    }
+
+    /**
+     * Draft and pending-review courses stay invisible on both public reads.
+     *
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Test
+    void hidesUnpublishedCourses() {
+        CourseInternalView draft =
+                new CourseInternalView(9L, "Draft", "cover-9", 0L, 0, 57L, 2L, "Teacher C");
+        when(courseInternalService.course(9L)).thenReturn(draft);
+
+        BizException detail =
+                assertThrows(BizException.class, () -> coursePublicService.course(9L, null));
+        BizException syllabus =
+                assertThrows(BizException.class, () -> coursePublicService.syllabus(9L, null));
+
+        assertEquals(40401, detail.getCode());
+        assertEquals(40401, syllabus.getCode());
+        verifyNoInteractions(courseMapper);
+    }
+
+    /**
+     * Builds a chapter row.
+     *
+     * @param id chapter id
+     * @param title chapter title
+     * @param sort display order
+     * @return row
+     * @author Caspian
+     * @since 0.1.0
+     */
+    private CourseChapter chapter(long id, String title, int sort) {
+        CourseChapter chapter = new CourseChapter();
+        chapter.setId(id);
+        chapter.setCourseId(7L);
+        chapter.setTitle(title);
+        chapter.setSort(sort);
+        return chapter;
+    }
+
+    /**
+     * Builds a lesson row.
+     *
+     * @param id lesson id
+     * @param chapterId owning chapter id
+     * @param title lesson title
+     * @param free 1 for a trial lesson
+     * @param durationSec duration in seconds
+     * @param sort display order
+     * @return row
+     * @author Caspian
+     * @since 0.1.0
+     */
+    private CourseLesson lesson(
+            long id, long chapterId, String title, int free, int durationSec, int sort) {
+        CourseLesson lesson = new CourseLesson();
+        lesson.setId(id);
+        lesson.setCourseId(7L);
+        lesson.setChapterId(chapterId);
+        lesson.setTitle(title);
+        lesson.setIsFree(free);
+        lesson.setVideoDurationSec(durationSec);
+        lesson.setSort(sort);
+        return lesson;
     }
 
     /**
