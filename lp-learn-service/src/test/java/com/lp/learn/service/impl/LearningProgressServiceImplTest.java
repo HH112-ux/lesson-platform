@@ -5,18 +5,19 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.lp.common.exception.BizException;
 import com.lp.common.exception.ErrorCode;
+import com.lp.learn.access.LessonAccessGuard;
 import com.lp.learn.client.LessonInternalClient;
 import com.lp.learn.dto.LessonPlayInfo;
 import com.lp.learn.dto.LessonProgressView;
 import com.lp.learn.entity.LearningProgress;
 import com.lp.learn.mapper.LearningProgressMapper;
-import com.lp.learn.service.EntitlementService;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -55,7 +56,7 @@ class LearningProgressServiceImplTest {
 
     @Mock private LessonInternalClient lessonInternalClient;
 
-    @Mock private EntitlementService entitlementService;
+    @Mock private LessonAccessGuard lessonAccessGuard;
 
     @Mock private LearningProgressMapper learningProgressMapper;
 
@@ -71,7 +72,7 @@ class LearningProgressServiceImplTest {
     void setUp() {
         progressService =
                 new LearningProgressServiceImpl(
-                        lessonInternalClient, entitlementService, learningProgressMapper, CLOCK);
+                        lessonInternalClient, lessonAccessGuard, learningProgressMapper, CLOCK);
     }
 
     /**
@@ -83,7 +84,6 @@ class LearningProgressServiceImplTest {
     @Test
     void firstReportStoresPositionWithoutWatchedTime() {
         when(lessonInternalClient.lesson(LESSON_ID)).thenReturn(lesson(false));
-        when(entitlementService.hasEntitlement(USER_ID, COURSE_ID)).thenReturn(true);
 
         LessonProgressView view = progressService.report(USER_ID, LESSON_ID, 100);
 
@@ -102,7 +102,6 @@ class LearningProgressServiceImplTest {
     @Test
     void normalHeartbeatAccumulatesWatchedTime() {
         when(lessonInternalClient.lesson(LESSON_ID)).thenReturn(lesson(false));
-        when(entitlementService.hasEntitlement(USER_ID, COURSE_ID)).thenReturn(true);
         when(learningProgressMapper.selectOne(USER_ID, LESSON_ID))
                 .thenReturn(existing(100, 100, 100, 0, 10));
 
@@ -123,7 +122,6 @@ class LearningProgressServiceImplTest {
     @Test
     void rewindDoesNotAddWatchedTimeOrLowerMax() {
         when(lessonInternalClient.lesson(LESSON_ID)).thenReturn(lesson(false));
-        when(entitlementService.hasEntitlement(USER_ID, COURSE_ID)).thenReturn(true);
         when(learningProgressMapper.selectOne(USER_ID, LESSON_ID))
                 .thenReturn(existing(300, 300, 300, 0, 10));
 
@@ -144,7 +142,6 @@ class LearningProgressServiceImplTest {
     @Test
     void advanceBeyondTrustedBoundIsTruncated() {
         when(lessonInternalClient.lesson(LESSON_ID)).thenReturn(lesson(false));
-        when(entitlementService.hasEntitlement(USER_ID, COURSE_ID)).thenReturn(true);
         when(learningProgressMapper.selectOne(USER_ID, LESSON_ID))
                 .thenReturn(existing(10, 10, 10, 0, 10));
 
@@ -165,7 +162,6 @@ class LearningProgressServiceImplTest {
     @Test
     void shortIntervalIsNotCounted() {
         when(lessonInternalClient.lesson(LESSON_ID)).thenReturn(lesson(false));
-        when(entitlementService.hasEntitlement(USER_ID, COURSE_ID)).thenReturn(true);
         when(learningProgressMapper.selectOne(USER_ID, LESSON_ID))
                 .thenReturn(existing(100, 100, 100, 0, 2));
 
@@ -184,7 +180,6 @@ class LearningProgressServiceImplTest {
     @Test
     void completionRequiresWatchedThresholdNotPosition() {
         when(lessonInternalClient.lesson(LESSON_ID)).thenReturn(lesson(false));
-        when(entitlementService.hasEntitlement(USER_ID, COURSE_ID)).thenReturn(true);
         when(learningProgressMapper.selectOne(USER_ID, LESSON_ID))
                 .thenReturn(existing(595, 595, 530, 0, 10));
 
@@ -203,7 +198,6 @@ class LearningProgressServiceImplTest {
     @Test
     void watchedThresholdTriggersCompletion() {
         when(lessonInternalClient.lesson(LESSON_ID)).thenReturn(lesson(false));
-        when(entitlementService.hasEntitlement(USER_ID, COURSE_ID)).thenReturn(true);
         when(learningProgressMapper.selectOne(USER_ID, LESSON_ID))
                 .thenReturn(existing(538, 538, 538, 0, 10));
 
@@ -223,7 +217,6 @@ class LearningProgressServiceImplTest {
     @Test
     void outOfRangeIsRejected() {
         when(lessonInternalClient.lesson(LESSON_ID)).thenReturn(lesson(false));
-        when(entitlementService.hasEntitlement(USER_ID, COURSE_ID)).thenReturn(true);
 
         BizException exception =
                 assertThrows(
@@ -242,8 +235,11 @@ class LearningProgressServiceImplTest {
      */
     @Test
     void crossUserAccessIsRejected() {
-        when(lessonInternalClient.lesson(LESSON_ID)).thenReturn(lesson(false));
-        when(entitlementService.hasEntitlement(USER_ID, COURSE_ID)).thenReturn(false);
+        LessonPlayInfo lesson = lesson(false);
+        when(lessonInternalClient.lesson(LESSON_ID)).thenReturn(lesson);
+        doThrow(new BizException(ErrorCode.LEARN_NOT_ENTITLED))
+                .when(lessonAccessGuard)
+                .requireAccess(USER_ID, lesson);
 
         BizException exception =
                 assertThrows(

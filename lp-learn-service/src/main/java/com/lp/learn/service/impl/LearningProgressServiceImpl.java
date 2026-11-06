@@ -2,13 +2,13 @@ package com.lp.learn.service.impl;
 
 import com.lp.common.exception.BizException;
 import com.lp.common.exception.ErrorCode;
+import com.lp.learn.access.LessonAccessGuard;
 import com.lp.learn.client.LessonInternalClient;
 import com.lp.learn.dto.CourseProgressView;
 import com.lp.learn.dto.LessonPlayInfo;
 import com.lp.learn.dto.LessonProgressView;
 import com.lp.learn.entity.LearningProgress;
 import com.lp.learn.mapper.LearningProgressMapper;
-import com.lp.learn.service.EntitlementService;
 import com.lp.learn.service.LearningProgressService;
 import java.time.Clock;
 import java.time.Duration;
@@ -55,7 +55,7 @@ public class LearningProgressServiceImpl implements LearningProgressService {
 
     private final LessonInternalClient lessonInternalClient;
 
-    private final EntitlementService entitlementService;
+    private final LessonAccessGuard lessonAccessGuard;
 
     private final LearningProgressMapper learningProgressMapper;
 
@@ -65,7 +65,7 @@ public class LearningProgressServiceImpl implements LearningProgressService {
      * Creates the service with its dependencies.
      *
      * @param lessonInternalClient lesson metadata reader
-     * @param entitlementService ownership check
+     * @param lessonAccessGuard entitlement and free preview check
      * @param learningProgressMapper progress persistence
      * @author Caspian
      * @since 0.1.0
@@ -73,11 +73,11 @@ public class LearningProgressServiceImpl implements LearningProgressService {
     @Autowired
     public LearningProgressServiceImpl(
             LessonInternalClient lessonInternalClient,
-            EntitlementService entitlementService,
+            LessonAccessGuard lessonAccessGuard,
             LearningProgressMapper learningProgressMapper) {
         this(
                 lessonInternalClient,
-                entitlementService,
+                lessonAccessGuard,
                 learningProgressMapper,
                 Clock.systemDefaultZone());
     }
@@ -86,7 +86,7 @@ public class LearningProgressServiceImpl implements LearningProgressService {
      * Creates the service with an explicit clock, used to make the elapsed interval deterministic.
      *
      * @param lessonInternalClient lesson metadata reader
-     * @param entitlementService ownership check
+     * @param lessonAccessGuard entitlement and free preview check
      * @param learningProgressMapper progress persistence
      * @param clock clock used to compute the interval since the previous report
      * @author Caspian
@@ -94,11 +94,11 @@ public class LearningProgressServiceImpl implements LearningProgressService {
      */
     LearningProgressServiceImpl(
             LessonInternalClient lessonInternalClient,
-            EntitlementService entitlementService,
+            LessonAccessGuard lessonAccessGuard,
             LearningProgressMapper learningProgressMapper,
             Clock clock) {
         this.lessonInternalClient = lessonInternalClient;
-        this.entitlementService = entitlementService;
+        this.lessonAccessGuard = lessonAccessGuard;
         this.learningProgressMapper = learningProgressMapper;
         this.clock = clock;
     }
@@ -118,9 +118,7 @@ public class LearningProgressServiceImpl implements LearningProgressService {
     @Transactional(rollbackFor = Exception.class)
     public LessonProgressView report(long userId, long lessonId, int positionSeconds) {
         LessonPlayInfo lesson = lessonInternalClient.lesson(lessonId);
-        if (!lesson.isFree() && !entitlementService.hasEntitlement(userId, lesson.getCourseId())) {
-            throw new BizException(ErrorCode.LEARN_NOT_ENTITLED);
-        }
+        lessonAccessGuard.requireAccess(userId, lesson);
         if (positionSeconds < 0
                 || (lesson.getDurationSec() > 0 && positionSeconds > lesson.getDurationSec())) {
             throw new BizException(ErrorCode.LEARN_BIZ_ERROR);
@@ -189,9 +187,7 @@ public class LearningProgressServiceImpl implements LearningProgressService {
      */
     @Override
     public CourseProgressView courseProgress(long userId, long courseId) {
-        if (!entitlementService.hasEntitlement(userId, courseId)) {
-            throw new BizException(ErrorCode.LEARN_NOT_ENTITLED);
-        }
+        lessonAccessGuard.requireCourseAccess(userId, courseId);
         List<LessonProgressView> lessons =
                 learningProgressMapper.selectByUserCourse(userId, courseId).stream()
                         .map(

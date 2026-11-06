@@ -29,6 +29,8 @@ public class LearnProperties {
 
     private String minioBucket = "lp-media";
 
+    private boolean freePreviewEnabled = true;
+
     /**
      * Returns the base URL of the course-service internal API.
      *
@@ -181,5 +183,27 @@ public class LearnProperties {
      */
     public void setMinioBucket(String minioBucket) {
         this.minioBucket = minioBucket;
+    }
+
+    /**
+     * Tells whether free trial lessons can be opened without a purchase.
+     *
+     * @return {@code true} by default; {@code false} makes every lesson entitlement-only
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public boolean isFreePreviewEnabled() {
+        return freePreviewEnabled;
+    }
+
+    /**
+     * Sets the free trial switch.
+     *
+     * @param freePreviewEnabled {@code false} to require an entitlement for free lessons too
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public void setFreePreviewEnabled(boolean freePreviewEnabled) {
+        this.freePreviewEnabled = freePreviewEnabled;
     }
 }
