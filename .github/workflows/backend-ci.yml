@@ -8,6 +8,9 @@ on:
   push:
     branches:
       - develop
+  # Merge queue builds a temporary merge group; without this event the required
+  # checks never report and queued pull requests wait forever.
+  merge_group:
 
 jobs:
   backend-build:
