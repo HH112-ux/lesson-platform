@@ -15,6 +15,8 @@ import { shallowRef } from 'vue'
 export type RouteName =
   | 'home'
   | 'course-detail'
+  | 'checkout'
+  | 'order-result'
   | 'my-courses'
   | 'player'
   | 'login'
@@ -37,6 +39,8 @@ export interface RouteLocation {
 }
 
 const NUMERIC = /^\d+$/
+
+const ORDER_NO = /^[A-Za-z0-9_-]+$/
 
 /**
  * Resolves a pathname into a route.
@@ -81,9 +85,20 @@ export function resolveRoute(pathname: string, search = ''): RouteLocation {
     if (segments[0] === 'courses' && NUMERIC.test(segments[1])) {
       return route('course-detail', { courseId: segments[1] })
     }
+    if (segments[0] === 'checkout' && NUMERIC.test(segments[1])) {
+      return route('checkout', { courseId: segments[1] })
+    }
     if (segments[0] === 'learning' && segments[1] === 'my-courses') {
       return route('my-courses')
     }
+  }
+  if (
+    segments.length === 3
+    && segments[0] === 'orders'
+    && segments[2] === 'result'
+    && ORDER_NO.test(segments[1])
+  ) {
+    return route('order-result', { orderNo: segments[1] })
   }
   if (
     segments.length === 3
