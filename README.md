@@ -66,7 +66,7 @@ bash scripts/smoke.sh
 
 - 开关：`infra/.env` 的 `LP_PAY_MOCK_ENABLED`，**默认 `false`**。
 - 打开后，`trade-service` 用 `MockPaymentGateway` / `MockSignatureVerifier` 替换未配置的真实渠道适配器，接口与真实渠道相同。
-- 回调仍是 `POST /api/v1/payments/mock/callback` 走 `PaymentService.handleNotify`：HMAC-SHA256 验签、渠道校验、金额校验、幂等、权益发放一个都不少；只是签名方在本机（`LP_PAY_MOCK_SECRET`）。
+- 回调仍是 `GET /api/v1/payments/mock/callback` 走 `PaymentService.handleNotify`：HMAC-SHA256 验签、渠道校验、金额校验、幂等、权益发放一个都不少；只是签名方在本机（`LP_PAY_MOCK_SECRET`）。
 - 验签失败、篡改金额或缺少签名返回 `62016`，订单不会变为已支付。
 - `prod` / `staging` profile 下把开关设为 `true`，服务**启动直接失败**并提示不允许。
 
