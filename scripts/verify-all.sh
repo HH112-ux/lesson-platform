@@ -95,7 +95,8 @@ abort_with_log() {
 # Removes only rows whose course title starts with one of the drill prefixes. Demo seed
 # courses use different titles, so the seed data is never touched.
 cleanup_drill_data() {
-  "${COMPOSE[@]}" exec -T mysql mysql -uroot -p"$MYSQL_ROOT_PASSWORD" <<'SQL'
+  # A default schema is required for the temporary tables below.
+  "${COMPOSE[@]}" exec -T mysql mysql -uroot -p"$MYSQL_ROOT_PASSWORD" lp_oms <<'SQL'
 CREATE TEMPORARY TABLE drill_course (id BIGINT UNSIGNED PRIMARY KEY);
 INSERT IGNORE INTO drill_course (id)
 SELECT id FROM lp_cms.course
