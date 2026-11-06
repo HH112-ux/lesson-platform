@@ -21,7 +21,7 @@ const orderNo = currentRoute.value.params.orderNo
           </p>
 
           <p class="lp-alert notice">
-            订单状态查询接口尚未上线，本页无法实时确认结果，请以「我的课程」中的开通状态为准。
+            支付结果以服务端回调为准，请稍后在「我的订单」中确认状态；课程开通后可到「我的课程」开始学习。
           </p>
 
           <div class="actions">
