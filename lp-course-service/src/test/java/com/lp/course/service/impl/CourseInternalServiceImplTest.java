@@ -2,6 +2,7 @@ package com.lp.course.service.impl;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -15,18 +16,22 @@ import static org.mockito.Mockito.when;
 
 import com.lp.common.exception.BizException;
 import com.lp.course.dto.CourseInternalView;
+import com.lp.course.dto.CourseReviewAuditView;
 import com.lp.course.dto.CourseReviewResultView;
 import com.lp.course.dto.LessonInternalView;
 import com.lp.course.dto.PendingCoursePageView;
 import com.lp.course.dto.PendingCourseView;
 import com.lp.course.entity.Course;
 import com.lp.course.entity.CourseLesson;
+import com.lp.course.entity.CourseReviewAudit;
 import com.lp.course.mapper.CourseMapper;
+import com.lp.course.mapper.CourseReviewAuditMapper;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -41,6 +46,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 class CourseInternalServiceImplTest {
 
     @Mock private CourseMapper courseMapper;
+
+    @Mock private CourseReviewAuditMapper courseReviewAuditMapper;
 
     @InjectMocks private CourseInternalServiceImpl courseInternalService;
 
@@ -198,6 +205,13 @@ class CourseInternalServiceImplTest {
                                                 && price.compareTo(new BigDecimal("99.00")) == 0),
                         eq(55L),
                         any(LocalDateTime.class));
+        CourseReviewAudit audit = captureAudit();
+        assertEquals(7L, audit.getCourseId());
+        assertEquals(1, audit.getAction());
+        assertEquals(1, audit.getFromStatus());
+        assertEquals(2, audit.getToStatus());
+        assertEquals(55L, audit.getReviewerId());
+        assertNull(audit.getRemark());
     }
 
     /**
@@ -217,6 +231,11 @@ class CourseInternalServiceImplTest {
 
         assertEquals(0, result.getStatus());
         assertEquals(1230L, result.getPriceFen());
+        CourseReviewAudit audit = captureAudit();
+        assertEquals(2, audit.getAction());
+        assertEquals(1, audit.getFromStatus());
+        assertEquals(0, audit.getToStatus());
+        assertEquals("missing outline", audit.getRemark());
     }
 
     /**
@@ -252,6 +271,64 @@ class CourseInternalServiceImplTest {
                         () -> courseInternalService.review(7L, true, 100L, null, 55L));
 
         assertEquals(61005, exception.getCode());
+        verify(courseReviewAuditMapper, never()).insert(any(CourseReviewAudit.class));
+    }
+
+    /**
+     * The audit history is projected newest first and keeps the stored order.
+     *
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Test
+    void listsReviewAuditsNewestFirst() {
+        when(courseMapper.selectById(7L)).thenReturn(course(2, "99.00", 7L, 3L));
+        when(courseReviewAuditMapper.selectByCourseId(7L))
+                .thenReturn(List.of(audit(2L, 2, 0, "missing outline"), audit(1L, 1, 2, null)));
+
+        List<CourseReviewAuditView> audits = courseInternalService.reviewAudits(7L);
+
+        assertEquals(2, audits.size());
+        assertEquals(2L, audits.get(0).auditId());
+        assertEquals(2, audits.get(0).action());
+        assertEquals("missing outline", audits.get(0).remark());
+        assertEquals(1L, audits.get(1).auditId());
+        assertEquals(2, audits.get(1).toStatus());
+    }
+
+    /**
+     * Auditing a missing course fails with {@code 40401} instead of an empty list.
+     *
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Test
+    void rejectsReviewAuditsOfMissingCourse() {
+        when(courseMapper.selectById(99L)).thenReturn(null);
+
+        BizException exception =
+                assertThrows(BizException.class, () -> courseInternalService.reviewAudits(99L));
+
+        assertEquals(40401, exception.getCode());
+    }
+
+    private CourseReviewAudit captureAudit() {
+        ArgumentCaptor<CourseReviewAudit> captor = ArgumentCaptor.forClass(CourseReviewAudit.class);
+        verify(courseReviewAuditMapper).insert(captor.capture());
+        return captor.getValue();
+    }
+
+    private CourseReviewAudit audit(long id, int action, int toStatus, String remark) {
+        CourseReviewAudit audit = new CourseReviewAudit();
+        audit.setId(id);
+        audit.setCourseId(7L);
+        audit.setAction(action);
+        audit.setFromStatus(1);
+        audit.setToStatus(toStatus);
+        audit.setReviewerId(55L);
+        audit.setRemark(remark);
+        audit.setCreatedAt(LocalDateTime.of(2026, 11, 6, 10, 0));
+        return audit;
     }
 
     private Course course(int status, String price, long courseId, long teacherId) {

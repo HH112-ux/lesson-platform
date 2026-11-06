@@ -1,6 +1,7 @@
 package com.lp.course.service;
 
 import com.lp.course.dto.CourseInternalView;
+import com.lp.course.dto.CourseReviewAuditView;
 import com.lp.course.dto.CourseReviewResultView;
 import com.lp.course.dto.CourseStatsView;
 import com.lp.course.dto.LessonInternalView;
@@ -87,6 +88,17 @@ public interface CourseInternalService {
      */
     CourseReviewResultView review(
             long courseId, boolean approved, Long priceFen, String remark, long reviewerId);
+
+    /**
+     * Lists the review audit history of one course, newest decision first.
+     *
+     * @param courseId course primary key
+     * @return audit entries, possibly empty
+     * @throws com.lp.common.exception.BizException with {@code 40401} when the course is absent
+     * @author Caspian
+     * @since 0.1.0
+     */
+    List<CourseReviewAuditView> reviewAudits(long courseId);
 
     /**
      * Returns course counts grouped by status for the operations dashboard.

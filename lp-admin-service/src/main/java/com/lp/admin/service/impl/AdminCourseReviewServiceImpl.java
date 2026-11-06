@@ -1,11 +1,13 @@
 package com.lp.admin.service.impl;
 
 import com.lp.admin.client.CourseReviewClient;
+import com.lp.admin.dto.AdminCourseReviewAuditView;
 import com.lp.admin.dto.AdminPendingCoursePageView;
 import com.lp.admin.dto.AdminReviewResultView;
 import com.lp.admin.service.AdminCourseReviewService;
 import com.lp.common.exception.BizException;
 import com.lp.common.exception.ErrorCode;
+import java.util.List;
 import org.springframework.stereotype.Service;
 
 /**
@@ -69,5 +71,18 @@ public class AdminCourseReviewServiceImpl implements AdminCourseReviewService {
             throw new BizException(ErrorCode.PARAM_INVALID, "remark is required on rejection");
         }
         return courseReviewClient.review(courseId, approved, priceFen, remark, reviewerId);
+    }
+
+    /**
+     * Lists the review audit history of one course.
+     *
+     * @param courseId course primary key
+     * @return audit entries, newest decision first
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Override
+    public List<AdminCourseReviewAuditView> reviewAudits(long courseId) {
+        return courseReviewClient.reviewAudits(courseId);
     }
 }

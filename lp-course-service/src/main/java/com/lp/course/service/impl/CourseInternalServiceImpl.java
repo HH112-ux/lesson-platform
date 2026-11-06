@@ -3,6 +3,7 @@ package com.lp.course.service.impl;
 import com.lp.common.exception.BizException;
 import com.lp.common.exception.ErrorCode;
 import com.lp.course.dto.CourseInternalView;
+import com.lp.course.dto.CourseReviewAuditView;
 import com.lp.course.dto.CourseReviewResultView;
 import com.lp.course.dto.CourseStatsView;
 import com.lp.course.dto.LessonInternalView;
@@ -11,12 +12,15 @@ import com.lp.course.dto.PendingCoursePageView;
 import com.lp.course.dto.PendingCourseView;
 import com.lp.course.entity.Course;
 import com.lp.course.entity.CourseLesson;
+import com.lp.course.entity.CourseReviewAudit;
 import com.lp.course.mapper.CourseMapper;
+import com.lp.course.mapper.CourseReviewAuditMapper;
 import com.lp.course.service.CourseInternalService;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Default {@link CourseInternalService} backed by {@link CourseMapper}.
@@ -31,6 +35,14 @@ import org.springframework.stereotype.Service;
 public class CourseInternalServiceImpl implements CourseInternalService {
 
     private final CourseMapper courseMapper;
+
+    private final CourseReviewAuditMapper courseReviewAuditMapper;
+
+    /** Audit action of an approved course. */
+    private static final int ACTION_APPROVE = 1;
+
+    /** Audit action of a rejected course. */
+    private static final int ACTION_REJECT = 2;
 
     /** Course status of a submitted course waiting for the operations review queue. */
     private static final int STATUS_PENDING_REVIEW = 1;
@@ -51,14 +63,17 @@ public class CourseInternalServiceImpl implements CourseInternalService {
     private static final int MAX_REMARK_LENGTH = 300;
 
     /**
-     * Creates the service with its mapper dependency.
+     * Creates the service with its mapper dependencies.
      *
      * @param courseMapper mapper reading the {@code lp_cms} course tables
+     * @param courseReviewAuditMapper mapper appending review audit entries
      * @author Caspian
      * @since 0.1.0
      */
-    public CourseInternalServiceImpl(CourseMapper courseMapper) {
+    public CourseInternalServiceImpl(
+            CourseMapper courseMapper, CourseReviewAuditMapper courseReviewAuditMapper) {
         this.courseMapper = courseMapper;
+        this.courseReviewAuditMapper = courseReviewAuditMapper;
     }
 
     /**
@@ -173,9 +188,11 @@ public class CourseInternalServiceImpl implements CourseInternalService {
      * @since 0.1.0
      */
     @Override
+    @Transactional
     public CourseReviewResultView review(
             long courseId, boolean approved, Long priceFen, String remark, long reviewerId) {
         LocalDateTime reviewedAt = LocalDateTime.now();
+        String remarkText = null;
         int updated;
         if (approved) {
             BigDecimal price = priceFen == null ? null : BigDecimal.valueOf(priceFen, 2);
@@ -185,16 +202,21 @@ public class CourseInternalServiceImpl implements CourseInternalService {
             if (trimmed.isEmpty()) {
                 throw new BizException(ErrorCode.PARAM_INVALID, "remark is required on rejection");
             }
-            updated =
-                    courseMapper.reject(
-                            courseId,
-                            trimmed.substring(0, Math.min(trimmed.length(), MAX_REMARK_LENGTH)),
-                            reviewerId,
-                            reviewedAt);
+            remarkText = trimmed.substring(0, Math.min(trimmed.length(), MAX_REMARK_LENGTH));
+            updated = courseMapper.reject(courseId, remarkText, reviewerId, reviewedAt);
         }
         if (updated == 0) {
             throw new BizException(ErrorCode.COURSE_REVIEW_STATE_INVALID);
         }
+        CourseReviewAudit audit = new CourseReviewAudit();
+        audit.setCourseId(courseId);
+        audit.setAction(approved ? ACTION_APPROVE : ACTION_REJECT);
+        audit.setFromStatus(STATUS_PENDING_REVIEW);
+        audit.setToStatus(approved ? STATUS_PUBLISHED : STATUS_DRAFT);
+        audit.setReviewerId(reviewerId);
+        audit.setRemark(remarkText);
+        audit.setCreatedAt(reviewedAt);
+        courseReviewAuditMapper.insert(audit);
         long effectivePriceFen =
                 approved && priceFen != null ? priceFen : currentPriceFen(courseId);
         return new CourseReviewResultView(
@@ -202,6 +224,25 @@ public class CourseInternalServiceImpl implements CourseInternalService {
                 approved ? STATUS_PUBLISHED : STATUS_DRAFT,
                 effectivePriceFen,
                 reviewedAt);
+    }
+
+    /**
+     * Lists the review audit history of one course, newest decision first.
+     *
+     * @param courseId course primary key
+     * @return audit entries, possibly empty
+     * @throws BizException when the course is absent or logically deleted
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Override
+    public List<CourseReviewAuditView> reviewAudits(long courseId) {
+        if (courseMapper.selectById(courseId) == null) {
+            throw new BizException(ErrorCode.NOT_FOUND);
+        }
+        return courseReviewAuditMapper.selectByCourseId(courseId).stream()
+                .map(this::toView)
+                .toList();
     }
 
     /**
@@ -254,5 +295,17 @@ public class CourseInternalServiceImpl implements CourseInternalService {
                 lesson.getTitle(),
                 lesson.getIsFree() != null && lesson.getIsFree() == 1,
                 lesson.getSort() == null ? 0 : lesson.getSort());
+    }
+
+    private CourseReviewAuditView toView(CourseReviewAudit audit) {
+        return new CourseReviewAuditView(
+                audit.getId(),
+                audit.getCourseId(),
+                audit.getAction(),
+                audit.getFromStatus(),
+                audit.getToStatus(),
+                audit.getReviewerId(),
+                audit.getRemark(),
+                audit.getCreatedAt());
     }
 }

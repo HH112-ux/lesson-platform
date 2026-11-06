@@ -5,6 +5,7 @@ import com.lp.common.exception.ErrorCode;
 import com.lp.common.result.Result;
 import com.lp.common.web.TraceIds;
 import com.lp.course.dto.CourseInternalView;
+import com.lp.course.dto.CourseReviewAuditView;
 import com.lp.course.dto.CourseReviewRequest;
 import com.lp.course.dto.CourseReviewResultView;
 import com.lp.course.dto.CourseStatsView;
@@ -126,6 +127,21 @@ public class CourseInternalController {
     @GetMapping("/stats")
     public Result<CourseStatsView> stats(HttpServletRequest request) {
         return Result.ok(courseInternalService.stats(), TraceIds.resolve(request));
+    }
+
+    /**
+     * Returns the review audit history of one course, newest decision first.
+     *
+     * @param courseId course primary key
+     * @param request current request, used to resolve the trace id
+     * @return audit entries, {@code 40401} when the course is absent
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @GetMapping("/{courseId}/review-audits")
+    public Result<List<CourseReviewAuditView>> reviewAudits(
+            @PathVariable long courseId, HttpServletRequest request) {
+        return Result.ok(courseInternalService.reviewAudits(courseId), TraceIds.resolve(request));
     }
 
     /**

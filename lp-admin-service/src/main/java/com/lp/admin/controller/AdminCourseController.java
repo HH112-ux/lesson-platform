@@ -1,5 +1,6 @@
 package com.lp.admin.controller;
 
+import com.lp.admin.dto.AdminCourseReviewAuditView;
 import com.lp.admin.dto.AdminPendingCoursePageView;
 import com.lp.admin.dto.AdminReviewResultView;
 import com.lp.admin.dto.ReviewCourseRequest;
@@ -11,6 +12,7 @@ import com.lp.common.result.Result;
 import com.lp.common.web.TraceIds;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.Arrays;
+import java.util.List;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -96,6 +98,26 @@ public class AdminCourseController {
                 adminCourseReviewService.review(
                         courseId, body.isApproved(), body.getPriceFen(), body.getRemark(), userId),
                 TraceIds.resolve(request));
+    }
+
+    /**
+     * Lists the review audit history of one course.
+     *
+     * @param roles gateway injected roles, comma separated
+     * @param courseId course primary key
+     * @param request current request, used to resolve the trace id
+     * @return audit entries, newest decision first
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @GetMapping("/{courseId}/review-audits")
+    public Result<List<AdminCourseReviewAuditView>> reviewAudits(
+            @RequestHeader(value = IdentityHeaders.USER_ROLES, required = false) String roles,
+            @PathVariable("courseId") long courseId,
+            HttpServletRequest request) {
+        requireReviewer(roles);
+        return Result.ok(
+                adminCourseReviewService.reviewAudits(courseId), TraceIds.resolve(request));
     }
 
     private void requireReviewer(String roles) {
