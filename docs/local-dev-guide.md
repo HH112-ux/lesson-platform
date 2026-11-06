@@ -168,6 +168,13 @@ curl http://localhost:8080/actuator/health
 - 网关监听 8080，`/actuator/health` 返回 `UP` 即代表骨架可用。
 - 七个下游服务已在 8101–8107 提供 `/actuator/health`，但业务接口尚未实现；访问对应业务路由返回 404 属预期，不影响本地起停验证。
 - 端口被占用时用 `lsof -i :8080` 定位后释放。
+- **course / learn / trade 三个服务启动前必须设置 `LP_INTERNAL_TOKEN`**（无默认值，缺失会直接启动失败）：
+
+```bash
+export LP_INTERNAL_TOKEN="local-internal-token"
+```
+
+`/internal/v1/**` 全部要求请求头 `X-Internal-Token` 与该值一致；脚本或手工 curl 调内部接口时需显式带上，例如 `-H "X-Internal-Token: $LP_INTERNAL_TOKEN"`。
 
 ### 4.1 认证密钥与登录链路（M1）
 
@@ -244,11 +251,13 @@ curl -s -X POST http://localhost:8080/api/v1/auth/miniapp-login \
 # 待投递数、放弃数（Gauge，中继每批后与每 15 秒刷新）
 curl -s http://localhost:8103/actuator/prometheus | grep entitlement_outbox
 
-# 列出放弃投递的记录（不经网关，直接打服务端口）
-curl -s 'http://localhost:8103/internal/v1/entitlement-outbox/failed?pageNum=1&pageSize=20'
+# 列出放弃投递的记录（不经网关，直接打服务端口；需内部令牌）
+curl -s -H "X-Internal-Token: $LP_INTERNAL_TOKEN" \
+  'http://localhost:8103/internal/v1/entitlement-outbox/failed?pageNum=1&pageSize=20'
 
 # 人工重投：复位为待投递，由中继按原退避节奏重新投递
-curl -s -X POST http://localhost:8103/internal/v1/entitlement-outbox/1/retry
+curl -s -X POST -H "X-Internal-Token: $LP_INTERNAL_TOKEN" \
+  http://localhost:8103/internal/v1/entitlement-outbox/1/retry
 ```
 
 - 指标名：`entitlement_outbox_pending`、`entitlement_outbox_failed`；刷新间隔由 `lp.trade.outbox-metrics-delay-ms`（默认 15000）控制。
