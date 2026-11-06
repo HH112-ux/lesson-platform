@@ -2,6 +2,11 @@
 import { computed, ref } from 'vue'
 import { GATEWAY_HEALTH_PATH } from '@lp/shared'
 import { describeGatewayHealth } from './utils/health'
+import PurchaseView from './views/PurchaseView.vue'
+
+// The shell stays dependency free: a single path check is enough while the only real page
+// is the purchase landing opened from the mini program.
+const isPurchaseRoute = window.location.pathname.replace(/\/+$/, '') === '/purchase'
 
 const checking = ref(false)
 const reachable = ref<boolean | null>(null)
@@ -27,7 +32,11 @@ async function probeGateway(): Promise<void> {
 </script>
 
 <template>
-  <main class="page">
+  <PurchaseView v-if="isPurchaseRoute" />
+  <main
+    v-else
+    class="page"
+  >
     <h1>课程平台</h1>
     <p class="hint">
       前端骨架已就绪，业务页面待后续批次实现。
