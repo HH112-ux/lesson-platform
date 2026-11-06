@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import PageState from '../components/PageState.vue'
-import { listCategoryTree, listCourses, type CategoryNode, type CourseCard } from '../api/courses'
-import { listMyCourses } from '../api/learning'
+import { listCategories, listCourses, type Category, type CourseCard } from '../api/courses'
 import { currentRoute } from '../router'
 import { describeError, isUnauthorized } from '../utils/errors'
 import { formatCents } from '../utils/format'
@@ -13,8 +12,8 @@ const PAGE_SIZE = 12
 const query = currentRoute.value.query
 const keyword = ref(query.get('keyword') ?? '')
 const appliedKeyword = ref(keyword.value.trim())
-const categoryId = ref<number | null>(readCategory(query.get('categoryId')))
-const pageNum = ref(readPage(query.get('pageNum')))
+const categoryId = ref<number | null>(readCategory(query.get('category')))
+const pageNum = ref(readPage(query.get('page')))
 
 const courses = ref<CourseCard[]>([])
 const total = ref(0)
@@ -22,17 +21,16 @@ const loading = ref(false)
 const errorText = ref('')
 const unauthorized = ref(false)
 
-const categories = ref<CategoryNode[]>([])
+const categories = ref<Category[]>([])
 const categoryError = ref('')
-
-const ownedIds = ref(new Set<number>())
-const ownedError = ref('')
 
 const pageCount = computed(() => (
   total.value > 0 ? Math.ceil(total.value / PAGE_SIZE) : 0
 ))
 
-const totalLabel = computed(() => (total.value > 0 ? `共 ${total.value} 门课程` : ''))
+const summaryLabel = computed(() => (
+  total.value > 0 ? `共 ${total.value} 门课程` : '按分类或关键词找到想学的课程'
+))
 
 function readCategory(raw: string | null): number | null {
   if (!raw || !/^\d+$/.test(raw)) {
@@ -57,10 +55,10 @@ async function load(): Promise<void> {
     const page = await listCourses({
       keyword: appliedKeyword.value || undefined,
       categoryId: categoryId.value,
-      pageNum: pageNum.value,
-      pageSize: PAGE_SIZE,
+      page: pageNum.value,
+      size: PAGE_SIZE,
     })
-    courses.value = page.records ?? []
+    courses.value = page.items ?? []
     total.value = page.total ?? courses.value.length
   } catch (error) {
     courses.value = []
@@ -75,27 +73,11 @@ async function load(): Promise<void> {
 /** Loads the category chips; a failure only hides the filter row. */
 async function loadCategories(): Promise<void> {
   try {
-    categories.value = await listCategoryTree()
+    categories.value = await listCategories()
     categoryError.value = ''
   } catch (error) {
     categories.value = []
     categoryError.value = `分类加载失败：${describeError(error)}`
-  }
-}
-
-/** Loads owned course ids so the cards can carry the purchase badge. */
-async function loadOwned(): Promise<void> {
-  if (!isSignedIn.value) {
-    ownedIds.value = new Set()
-    ownedError.value = ''
-    return
-  }
-  try {
-    const page = await listMyCourses(1, 100)
-    ownedIds.value = new Set((page.records ?? []).map((item) => item.courseId))
-    ownedError.value = ''
-  } catch (error) {
-    ownedError.value = `已购标记加载失败：${describeError(error)}`
   }
 }
 
@@ -127,7 +109,7 @@ function retry(): void {
   void load()
 }
 
-void Promise.all([load(), loadCategories(), loadOwned()])
+void Promise.all([load(), loadCategories()])
 </script>
 
 <template>
@@ -139,7 +121,7 @@ void Promise.all([load(), loadCategories(), loadOwned()])
             全部课程
           </h1>
           <p class="lp-muted lp-small">
-            {{ totalLabel || '按分类或关键词找到想学的课程' }}
+            {{ summaryLabel }}
           </p>
         </div>
 
@@ -184,27 +166,20 @@ void Promise.all([load(), loadCategories(), loadOwned()])
         </button>
         <button
           v-for="item in categories"
-          :key="item.id"
+          :key="item.categoryId"
           type="button"
           class="chip"
-          :class="{ active: categoryId === item.id }"
-          @click="selectCategory(item.id)"
+          :class="{ active: categoryId === item.categoryId }"
+          @click="selectCategory(item.categoryId)"
         >
           {{ item.name }}
         </button>
       </div>
       <p
         v-else-if="categoryError"
-        class="lp-small lp-subtle"
+        class="lp-small lp-subtle category-error"
       >
         {{ categoryError }}
-      </p>
-
-      <p
-        v-if="ownedError"
-        class="lp-small lp-subtle owned-hint"
-      >
-        {{ ownedError }}
       </p>
 
       <PageState
@@ -249,7 +224,7 @@ void Promise.all([load(), loadCategories(), loadOwned()])
               class="cover-fallback"
             >{{ course.title.slice(0, 2) }}</span>
             <span
-              v-if="ownedIds.has(course.courseId)"
+              v-if="course.owned"
               class="owned"
             >已购</span>
           </div>
@@ -258,7 +233,7 @@ void Promise.all([load(), loadCategories(), loadOwned()])
               {{ course.title }}
             </h2>
             <p class="lp-muted lp-small">
-              {{ course.lessonCount ? `${course.lessonCount} 课时` : '课程详情见内页' }}
+              {{ course.instructorName || '课程' }} · {{ course.lessonCount }} 课时
             </p>
             <p class="lp-price price">
               {{ course.price === 0 ? '免费' : `¥${formatCents(course.price)}` }}
@@ -349,8 +324,8 @@ void Promise.all([load(), loadCategories(), loadOwned()])
   color: var(--lp-primary);
 }
 
-.owned-hint {
-  margin-bottom: 12px;
+.category-error {
+  margin-bottom: 16px;
 }
 
 .course {

@@ -78,4 +78,21 @@ public interface AuthService {
      * @since 0.1.0
      */
     MeResponse me(long userId);
+
+    /**
+     * Issues a browser session for an already authenticated user.
+     *
+     * <p>Used by trade-service after a purchase ticket is redeemed, so a browser that was opened
+     * from the miniapp can continue the purchase without a password. The caller is authenticated
+     * with the shared internal token, never by a user supplied id at the edge.
+     *
+     * @param userId account id already proven by the ticket
+     * @param source source platform recorded with the refresh session
+     * @return a new access and refresh token pair
+     * @throws BizException {@code 40101} when the account is missing, {@code 40301} when it is not
+     *     active
+     * @author Caspian
+     * @since 0.1.0
+     */
+    RefreshResponse issueSession(long userId, String source);
 }

@@ -12,7 +12,7 @@
 
   <artifactId>lp-trade-service</artifactId>
   <name>lp-trade-service</name>
-  <description>Trade domain service skeleton: cart, coupons, orders, dual-channel payments and refunds</description>
+  <description>Trade domain service: cart, coupons, orders, Alipay payments and refunds</description>
 
   <dependencies>
     <dependency>
@@ -22,6 +22,11 @@
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-actuator</artifactId>
+    </dependency>
+    <!-- Purchase tickets are one-time, 15 minute Redis entries; see PurchaseTicketStore. -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-data-redis</artifactId>
     </dependency>
     <dependency>
       <groupId>com.lp</groupId>

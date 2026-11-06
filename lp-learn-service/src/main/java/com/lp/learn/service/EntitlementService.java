@@ -1,5 +1,7 @@
 package com.lp.learn.service;
 
+import java.util.List;
+
 /**
  * Grants and checks course access.
  *
@@ -34,4 +36,15 @@ public interface EntitlementService {
      * @since 0.1.0
      */
     boolean hasEntitlement(long userId, long courseId);
+
+    /**
+     * Returns the subset of the given course ids the student actively owns.
+     *
+     * @param userId student user id
+     * @param courseIds candidate course ids
+     * @return owned ids, empty when none matches
+     * @author Caspian
+     * @since 0.1.0
+     */
+    List<Long> ownedCourseIds(long userId, List<Long> courseIds);
 }

@@ -120,7 +120,8 @@ public class CourseInternalServiceImpl implements CourseInternalService {
                 course.getPrice().movePointRight(2).longValueExact(),
                 course.getStatus(),
                 course.getOwnerTeacherId(),
-                lessonCount);
+                lessonCount,
+                course.getInstructorName());
     }
 
     private LessonInternalView toView(CourseLesson lesson) {
