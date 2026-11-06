@@ -1,16 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { apiRequest, ApiError, storeTokens } from '../api/client'
-import {
-  describePurchaseError,
-  formatPrice,
-  ORDER_STATUS_PAID,
-  readTicket,
-  type CourseDetail,
-  type OrderView,
-  type PayView,
-  type RedeemResult,
-} from '../utils/purchase'
+import { getCourse, type CourseCard } from '../api/courses'
+import { createOrder, isOrderPaid, payOrder } from '../api/orders'
+import { loadProfile } from '../api/auth'
+import { describePurchaseError, readTicket, type RedeemResult } from '../utils/purchase'
+import { describeError } from '../utils/errors'
+import { formatCents } from '../utils/format'
+import { signIn } from '../utils/session'
 
 type Phase = 'loading' | 'error' | 'ready' | 'done'
 
@@ -18,20 +15,21 @@ const ticket = readTicket(window.location.search)
 const phase = ref<Phase>('loading')
 const loadingText = ref('正在验证购买链接…')
 const errorText = ref('')
-const course = ref<CourseDetail | null>(null)
+const course = ref<CourseCard | null>(null)
 const alreadyOwned = ref(false)
+const offline = ref(false)
 const orderNo = ref('')
 const buying = ref(false)
 const notice = ref('')
 const redeemed = ref(false)
 const redeemedCourseId = ref<number | null>(null)
 
-const priceText = computed(() => formatPrice(course.value?.price))
-const showOriginal = computed(
-  () =>
-    typeof course.value?.originalPrice === 'number'
-    && course.value.originalPrice > (course.value?.price ?? 0),
-)
+const priceText = computed(() => {
+  if (!course.value) {
+    return '--'
+  }
+  return course.value.price === 0 ? '免费' : `¥${formatCents(course.value.price)}`
+})
 
 /** Leaves the one-off ticket out of the address bar once it has been consumed. */
 function stripTicket(): void {
@@ -45,6 +43,28 @@ function fail(error: unknown): void {
 }
 
 /**
+ * Caches the profile so the header reflects the redeemed session.
+ *
+ * @param accessToken freshly issued token
+ * @param refreshToken freshly issued refresh token
+ * @author Caspian
+ * @since 0.2.0
+ */
+async function cacheProfile(accessToken: string, refreshToken: string): Promise<void> {
+  try {
+    const profile = await loadProfile()
+    signIn(accessToken, refreshToken, {
+      id: profile.id,
+      nickname: profile.nickname,
+      avatarUrl: profile.avatarUrl ?? null,
+      roles: profile.roles,
+    })
+  } catch {
+    // The purchase flow only needs the tokens; the header falls back to the visitor state.
+  }
+}
+
+/**
  * Loads the course detail with the freshly issued token.
  *
  * @param courseId course identifier returned by redeem
@@ -55,9 +75,10 @@ async function loadCourse(courseId: number): Promise<void> {
   phase.value = 'loading'
   loadingText.value = '正在加载课程…'
   try {
-    const detail = await apiRequest<CourseDetail>(`/api/v1/courses/${courseId}`)
+    const detail = await getCourse(courseId)
     course.value = detail
-    alreadyOwned.value = detail.entitled === true
+    alreadyOwned.value = detail.owned === true
+    offline.value = detail.status === 3
     phase.value = 'ready'
   } catch (error) {
     fail(error)
@@ -82,6 +103,7 @@ async function redeemAndLoad(): Promise<void> {
     stripTicket()
     redeemed.value = true
     redeemedCourseId.value = result.courseId
+    await cacheProfile(result.accessToken, result.refreshToken)
     await loadCourse(result.courseId)
   } catch (error) {
     if (error instanceof ApiError && (error.code === 40101 || error.code === 40102)) {
@@ -110,22 +132,14 @@ async function buy(): Promise<void> {
   buying.value = true
   notice.value = ''
   try {
-    const order = await apiRequest<OrderView>('/api/v1/orders', {
-      method: 'POST',
-      body: JSON.stringify({
-        courseId: course.value.id,
-        idempotencyKey: crypto.randomUUID(),
-      }),
-    })
+    const order = await createOrder(course.value.courseId)
     orderNo.value = order.orderNo
-    if (order.status === ORDER_STATUS_PAID || order.payAmount <= 0) {
+    if (isOrderPaid(order)) {
       phase.value = 'done'
       return
     }
-    const pay = await apiRequest<PayView>(`/api/v1/payments/${order.orderNo}/pay`, {
-      method: 'POST',
-    })
-    const payUrl = pay.payParams?.payUrl
+    const payment = await payOrder(order.orderNo)
+    const payUrl = payment.payParams?.payUrl
     if (payUrl) {
       window.location.assign(payUrl)
       return
@@ -137,7 +151,7 @@ async function buy(): Promise<void> {
       notice.value = '你已拥有该课程'
       return
     }
-    notice.value = describePurchaseError(error)
+    notice.value = describeError(error)
   } finally {
     buying.value = false
   }
@@ -195,23 +209,22 @@ onMounted(() => {
       class="card"
     >
       <h1>{{ course.title }}</h1>
-      <p
-        v-if="course.subtitle"
-        class="muted"
-      >
-        {{ course.subtitle }}
+      <p class="muted">
+        {{ course.instructorName || '平台讲师' }} · {{ course.lessonCount }} 课时
       </p>
 
       <p class="price">
-        <span class="now">¥{{ priceText }}</span>
-        <span
-          v-if="showOriginal"
-          class="before"
-        >¥{{ formatPrice(course.originalPrice) }}</span>
+        <span class="now">{{ priceText }}</span>
       </p>
 
       <p
-        v-if="alreadyOwned"
+        v-if="offline"
+        class="notice"
+      >
+        课程已下架，暂时无法购买
+      </p>
+      <p
+        v-else-if="alreadyOwned"
         class="notice"
       >
         你已拥有该课程
@@ -228,7 +241,7 @@ onMounted(() => {
       </p>
 
       <button
-        v-if="!alreadyOwned"
+        v-if="!alreadyOwned && !offline"
         type="button"
         class="primary"
         :disabled="buying"
@@ -295,11 +308,6 @@ h1 {
   font-size: 26px;
   font-weight: 600;
   color: #ff5b1e;
-}
-
-.before {
-  color: #8f959e;
-  text-decoration: line-through;
 }
 
 .notice {

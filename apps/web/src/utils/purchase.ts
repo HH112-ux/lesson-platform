@@ -16,39 +16,6 @@ export interface RedeemResult {
   courseId: number
 }
 
-/** Course fields used by the purchase page. */
-export interface CourseDetail {
-  id: number
-  title: string
-  subtitle?: string
-  coverUrl?: string
-  price: number
-  originalPrice?: number
-  entitled?: boolean
-}
-
-/** Order projection returned by {@code POST /api/v1/orders}. */
-export interface OrderView {
-  orderNo: string
-  status: number
-  channel: number
-  totalAmount: number
-  discountAmount: number
-  payAmount: number
-  courseId: number
-  paidAt?: string | null
-}
-
-/** Prepay payload returned by {@code POST /api/v1/payments/{orderNo}/pay}. */
-export interface PayView {
-  payNo: string
-  channel: number
-  payParams: Record<string, string>
-}
-
-/** Order status meaning "paid without a channel round trip", aligned with OrderStatus. */
-export const ORDER_STATUS_PAID = 2
-
 /**
  * Reads the one-off ticket from a query string.
  *
@@ -89,16 +56,4 @@ export function describePurchaseError(error: unknown): string {
         ? error.message
         : '操作失败，请稍后重试'
   }
-}
-
-/**
- * Formats a yuan amount with two decimals.
- *
- * @param amount amount in yuan, possibly missing
- * @returns display text such as {@code 99.00}
- * @author Caspian
- * @since 0.1.0
- */
-export function formatPrice(amount: number | undefined): string {
-  return typeof amount === 'number' && Number.isFinite(amount) ? amount.toFixed(2) : '--'
 }

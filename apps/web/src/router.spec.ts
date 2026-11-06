@@ -33,6 +33,15 @@ describe('resolveRoute', () => {
     expect(resolveRoute('/health').name).toBe('health')
   })
 
+  it('maps the cashier and payment result pages', () => {
+    expect(resolveRoute('/checkout/9').name).toBe('checkout')
+    expect(resolveRoute('/checkout/9').params.courseId).toBe('9')
+
+    const result = resolveRoute('/orders/LP20261106001/result')
+    expect(result.name).toBe('order-result')
+    expect(result.params.orderNo).toBe('LP20261106001')
+  })
+
   it('parses the query string', () => {
     const route = resolveRoute('/purchase', '?ticket=abc')
     expect(route.query.get('ticket')).toBe('abc')
