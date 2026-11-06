@@ -1,6 +1,7 @@
 package com.lp.trade.mapper;
 
 import com.lp.trade.entity.AdminOrderRow;
+import com.lp.trade.entity.CourseSaleRow;
 import com.lp.trade.entity.TradeOrder;
 import com.lp.trade.entity.TradeOrderItem;
 import java.math.BigDecimal;
@@ -350,4 +351,68 @@ public interface TradeOrderMapper {
             @Param("to") LocalDateTime to,
             @Param("offset") long offset,
             @Param("limit") long limit);
+
+    /**
+     * Counts orders created inside the half open time window.
+     *
+     * @param from inclusive lower bound
+     * @param to exclusive upper bound
+     * @return matching orders
+     * @author Caspian
+     * @since 0.2.0
+     */
+    @Select(
+            "SELECT COUNT(*) FROM trade_order WHERE deleted = 0 "
+                    + "AND created_at >= #{from} AND created_at < #{to}")
+    long countCreatedBetween(@Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
+
+    /**
+     * Counts paid orders created inside the half open time window.
+     *
+     * @param from inclusive lower bound
+     * @param to exclusive upper bound
+     * @return matching paid orders
+     * @author Caspian
+     * @since 0.2.0
+     */
+    @Select(
+            "SELECT COUNT(*) FROM trade_order WHERE deleted = 0 AND status = 1 "
+                    + "AND created_at >= #{from} AND created_at < #{to}")
+    long countPaidBetween(@Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
+
+    /**
+     * Sums the settled revenue inside the half open time window.
+     *
+     * @param from inclusive lower bound
+     * @param to exclusive upper bound
+     * @return revenue in yuan, {@code null} when nothing is paid in the window
+     * @author Caspian
+     * @since 0.2.0
+     */
+    @Select(
+            "SELECT SUM(pay_amount) FROM trade_order WHERE deleted = 0 AND status = 1 "
+                    + "AND created_at >= #{from} AND created_at < #{to}")
+    BigDecimal sumPaidBetween(@Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
+
+    /**
+     * Ranks the best selling courses inside the half open time window.
+     *
+     * @param from inclusive lower bound
+     * @param to exclusive upper bound
+     * @param limit maximum rows
+     * @return one row per course, highest order count first
+     * @author Caspian
+     * @since 0.2.0
+     */
+    @Select(
+            "SELECT i.course_id AS courseId, i.course_title AS title, COUNT(*) AS orderCount "
+                    + "FROM trade_order_item i INNER JOIN trade_order o ON o.id = i.order_id "
+                    + "WHERE i.deleted = 0 AND o.deleted = 0 AND o.status = 1 "
+                    + "AND o.created_at >= #{from} AND o.created_at < #{to} "
+                    + "GROUP BY i.course_id, i.course_title "
+                    + "ORDER BY COUNT(*) DESC, i.course_id ASC LIMIT #{limit}")
+    List<CourseSaleRow> selectTopCourses(
+            @Param("from") LocalDateTime from,
+            @Param("to") LocalDateTime to,
+            @Param("limit") int limit);
 }
