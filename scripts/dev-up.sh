@@ -57,7 +57,12 @@ pnpm --filter @lp/web build
 pnpm --filter @lp/admin build
 
 log "starting containers"
-"${COMPOSE[@]}" up -d --build --wait
+# RocketMQ and Nacos stay in the compose file for future use but are not part of the MVP
+# runtime; on a laptop the broker can be OOM killed, so only the needed services are
+# started and waited on.
+SERVICES=(mysql redis minio auth-service course-service trade-service learn-service
+          ugc-service admin-service ai-service gateway web admin)
+"${COMPOSE[@]}" up -d --build --wait "${SERVICES[@]}"
 
 log "applying Flyway migrations"
 for pair in "lp_ums:auth" "lp_cms:course" "lp_oms:trade" "lp_lms:learn" \
