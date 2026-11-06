@@ -6,12 +6,14 @@ import com.lp.course.dto.TeacherChapterRequest;
 import com.lp.course.dto.TeacherChapterView;
 import com.lp.course.dto.TeacherCoursePageView;
 import com.lp.course.dto.TeacherCourseRequest;
+import com.lp.course.dto.TeacherCourseStatusCounts;
 import com.lp.course.dto.TeacherCourseView;
 import com.lp.course.dto.TeacherLessonRequest;
 import com.lp.course.dto.TeacherLessonView;
 import com.lp.course.entity.Course;
 import com.lp.course.entity.CourseChapter;
 import com.lp.course.entity.CourseLesson;
+import com.lp.course.entity.TeacherCourseStatusRow;
 import com.lp.course.mapper.TeacherCourseMapper;
 import com.lp.course.service.TeacherCourseService;
 import java.math.BigDecimal;
@@ -92,9 +94,11 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
         if (status != null && (status < STATUS_DRAFT || status > STATUS_OFFLINE)) {
             throw new BizException(ErrorCode.PARAM_INVALID, "status is out of range");
         }
+        TeacherCourseStatusCounts counts =
+                toCounts(teacherCourseMapper.countStatusByOwner(actor.teacherId()));
         long total = teacherCourseMapper.countByOwner(actor.teacherId(), status);
         if (total == 0) {
-            return new TeacherCoursePageView(List.of(), 0, safePage, safeSize);
+            return new TeacherCoursePageView(List.of(), 0, safePage, safeSize, counts);
         }
         List<TeacherCourseView> items =
                 teacherCourseMapper
@@ -106,7 +110,38 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
                         .stream()
                         .map(this::toView)
                         .toList();
-        return new TeacherCoursePageView(items, total, safePage, safeSize);
+        return new TeacherCoursePageView(items, total, safePage, safeSize, counts);
+    }
+
+    /**
+     * Converts the aggregated row into the response counters.
+     *
+     * @param row aggregated counters, may be {@code null} when the query returns no row
+     * @return counters with missing values treated as zero
+     * @author Caspian
+     * @since 0.2.0
+     */
+    private TeacherCourseStatusCounts toCounts(TeacherCourseStatusRow row) {
+        if (row == null) {
+            return TeacherCourseStatusCounts.empty();
+        }
+        return new TeacherCourseStatusCounts(
+                zeroIfNull(row.getDraft()),
+                zeroIfNull(row.getPending()),
+                zeroIfNull(row.getPublished()),
+                zeroIfNull(row.getOffline()));
+    }
+
+    /**
+     * Returns zero for a missing counter.
+     *
+     * @param value counter read from the aggregate row
+     * @return the value, or zero when {@code null}
+     * @author Caspian
+     * @since 0.2.0
+     */
+    private int zeroIfNull(Integer value) {
+        return value == null ? 0 : value;
     }
 
     /**
