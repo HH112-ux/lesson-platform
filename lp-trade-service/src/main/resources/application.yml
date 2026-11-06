@@ -52,6 +52,14 @@ lp:
   internal:
     # Shared secret for /internal/v1/**; no default, so a missing LP_INTERNAL_TOKEN fails startup.
     token: ${LP_INTERNAL_TOKEN}
+  pay:
+    # Local mock payment provider. Development only: enabling it on prod or staging aborts
+    # startup (MockPayProfileGuard). Callbacks are still HMAC verified by MockSignatureVerifier;
+    # only the signer lives on the local machine.
+    mock:
+      enabled: ${LP_PAY_MOCK_ENABLED:false}
+      secret: ${LP_PAY_MOCK_SECRET:lp_mock_pay_dev_secret}
+      gateway-base-url: ${LP_PAY_MOCK_GATEWAY_BASE_URL:http://127.0.0.1:8080}
 
 management:
   endpoints:

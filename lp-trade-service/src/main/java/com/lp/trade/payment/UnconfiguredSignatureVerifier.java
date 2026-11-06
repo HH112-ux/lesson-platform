@@ -4,6 +4,7 @@ import com.lp.common.exception.BizException;
 import com.lp.common.exception.ErrorCode;
 import com.lp.trade.dto.PaymentNotification;
 import java.util.Map;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 
 /**
@@ -17,6 +18,11 @@ import org.springframework.stereotype.Service;
  * @since 0.1.0
  */
 @Service
+@ConditionalOnProperty(
+        prefix = "lp.pay.mock",
+        name = "enabled",
+        havingValue = "false",
+        matchIfMissing = true)
 public class UnconfiguredSignatureVerifier implements SignatureVerifier {
 
     /**

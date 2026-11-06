@@ -2,6 +2,7 @@ package com.lp.trade;
 
 import com.lp.common.internal.InternalTokenConfig;
 import com.lp.common.web.GlobalExceptionHandler;
+import com.lp.trade.config.MockPayProperties;
 import com.lp.trade.config.TradeProperties;
 import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.boot.SpringApplication;
@@ -24,7 +25,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
  */
 @SpringBootApplication
 @MapperScan("com.lp.trade.mapper")
-@EnableConfigurationProperties(TradeProperties.class)
+@EnableConfigurationProperties({TradeProperties.class, MockPayProperties.class})
 @EnableScheduling
 @Import({GlobalExceptionHandler.class, InternalTokenConfig.class})
 public class TradeServiceApplication {
