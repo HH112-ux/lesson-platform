@@ -946,7 +946,7 @@ erDiagram
 | 40102 | 凭证已过期 | access token 过期，或 refresh 无效/已吊销/已被轮换使用 |
 | 40301 | 无权限 | 角色/归属校验失败 |
 | 40302 | 未购买该课程 | 播放签名与学习接口校验权益失败 |
-| 40303 | 非本人课程 | 教师访问他人课程（`owner_teacher_id` 不匹配） |
+| 40303 | 已停用（保留编码） | 教师越权统一返回 `40301`，该码不再下发 |
 | 40401 | 资源不存在 | — |
 | 40901 | 状态冲突 | 重复购买、订单状态不允许、课程状态不允许、注册账号重复 |
 | 42901 | 请求过于频繁 | 网关限流 |
@@ -1153,6 +1153,7 @@ spec:
 
 | 方法 | 路径 | 用途 | 请求 | 响应 | 主要错误码 |
 |---|---|---|---|---|---|
+| GET | `/api/v1/admin/menus` | 按角色与权限码返回侧边栏菜单树（读取 `X-User-Permissions`，父节点只要有可见子节点即保留） | — | `[{key,name,path,permission,type,children[]}]`（`type` 1 菜单 / 2 按钮） | 40301 |
 | POST | `/api/v1/admin/courses` | 建课（草稿） | `{categoryId,title,subtitle,coverUrl,description,price,instructorId,level}` | `{courseId,status:0}` | 40001,40301 |
 | PUT | `/api/v1/admin/courses/{courseId}` | 编辑 | 同建课字段（可部分） | `{updated:true}` | 40301,40901 |
 | POST | `/api/v1/admin/courses/{courseId}/submit` | 提交审核（运营代提交） | `{}` | `{status:1}` | 40901 |
@@ -1187,31 +1188,36 @@ spec:
 | POST | `/api/v1/admin/ai/model-config/test` | **连通性测试** | `{}` | `{ok:bool,latencyMs,model,error?}` | 40301,50303,50304,50306 |
 | POST | `/api/v1/admin/ai/model-config/rotate-key` | **密钥轮换**（旧钥保留 24h 双活） | `{apiKey}` | `{keyVersion,apiKeyMasked}` | 40001,40301 |
 
+> 权限码沿用 `sys_menu` 现有 `admin:*` 体系：`admin:dashboard:view`、`admin:course:list`、`admin:course:review`、`admin:user:list`、`admin:order:list`、`admin:teacher:audit`。`/api/v1/admin/menus` 只返回调用方权限码命中的节点（父节点有可见子节点即保留）；`ADMIN`/`OPS` 之外的调用方返回 `40301`。
+
 ## 5.10 教师域（course-service，`/api/v1/teacher`）
 
-鉴权要求：`X-User-Roles` 含 `TEACHER` 且 `teacher_profile.audit_status=1`；**每条请求都在 service 层按 `owner_teacher_id = 当前用户对应 teacher_profile.id` 过滤**，不做前端信任，越权返回 `40303`。
+鉴权要求：`X-User-Roles` 含 `TEACHER`，且存在 `teacher_profile.user_id = X-User-Id` 的启用档案；`ADMIN` 可读写任意课程，但建课与列表仍要求本人教师档案。**每条请求都在 service 层按 `owner_teacher_id = 当前用户对应 teacher_profile.id` 过滤**，不接受前端传教师 ID，越权返回 `40301`。
+
+**编辑与状态规则**（与 3.2 状态机一致）：草稿（`0`）可编辑；待审核（`1`）对教师只读，不可撤回、不可重复提交；已上架（`2`）教师不可直接编辑，须由运营下架为 `3`；已下架（`3`）可编辑，编辑成功即回草稿（`3→0`）并须重新提交审核。教师提交的 `price` 是拟定价格，运营在审核通过（`1→2`）时确认最终价格（`priceFen` 可选覆盖）。
 
 | 方法 | 路径 | 用途 | 请求 | 响应 | 主要错误码 |
 |---|---|---|---|---|---|
-| GET | `/api/v1/teacher/overview` | 教师总览 | — | `{courseCount,publishedCount,pendingReviewCount,totalRevenue30d,learnerCount30d}` | 40101,40301,40303 |
-| GET | `/api/v1/teacher/courses` | 我的课程列表 | query:`status,keyword,pageNum,pageSize` | 分页 `{records:[{courseId,title,coverUrl,status,price,salesCount,updatedAt,reviewRemark?}]}` | 40101,40301 |
-| GET | `/api/v1/teacher/courses/{courseId}` | 我的课程详情（含章节/课时） | — | `{courseId,title,subtitle,description,coverUrl,price,level,status,reviewRemark,chapters:[{id,title,lessons:[{id,title,isFree,durationSec,status}]}]}` | 40303,40401 |
-| POST | `/api/v1/teacher/courses` | 建课草稿 | `{categoryId,title,subtitle?,coverUrl,description,level}` | `{courseId,status:0}` | 40001,40301,40901 |
-| PUT | `/api/v1/teacher/courses/{courseId}` | 编辑本人课程（草稿/驳回/已下架可改，**不含 price**；已下架课程编辑后回草稿 `3→0` 须重新审核） | `{title?,subtitle?,coverUrl?,description?,categoryId?,level?}` | `{updated:true}` | 40303,40901,40401 |
-| POST | `/api/v1/teacher/courses/{courseId}/submit` | 提交审核（`0→1`；待审核期间只读，不可撤回、不可重复提交） | `{}` | `{status:1,submittedAt}` | 40303,40901 |
-| POST | `/api/v1/teacher/courses/{courseId}/publish` | 本人课程再上架（`3→2`；仅内容未变更可直接上架，编辑过须回草稿复审） | `{}` | `{status:2}` | 40303,40901 |
-| POST | `/api/v1/teacher/courses/{courseId}/unpublish` | 本人课程下架（`2→3`） | `{reason}` | `{status:3}` | 40303,40901 |
-| POST | `/api/v1/teacher/courses/{courseId}/chapters` | 建章节 | `{title,sort}` | `{chapterId}` | 40303,40001 |
-| PUT | `/api/v1/teacher/chapters/{chapterId}` | 改章节 | `{title?,sort?,status?}` | `{updated:true}` | 40303,40401 |
-| DELETE | `/api/v1/teacher/chapters/{chapterId}` | 删章节（逻辑删，级联隐藏课时） | — | `{deleted:true}` | 40303,40901,40401 |
-| POST | `/api/v1/teacher/chapters/{chapterId}/lessons` | 建课时 | `{title,isFree,sort,coverUrl?}` | `{lessonId}` | 40303,40001 |
-| PUT | `/api/v1/teacher/lessons/{lessonId}` | 改课时 | `{title?,isFree?,sort?,coverUrl?,status?}` | `{updated:true}` | 40303,40401 |
-| DELETE | `/api/v1/teacher/lessons/{lessonId}` | 删课时（逻辑删） | — | `{deleted:true}` | 40303,40401 |
-| POST | `/api/v1/teacher/lessons/{lessonId}/video` | 上传视频（multipart，同步校验） | form-data `file` | `{videoUrl,durationSec,codec,width,height,sizeBytes}` | 40303,40002,50001,61003 |
-| GET | `/api/v1/teacher/courses/{courseId}/dashboard` | **课程数据看板** | query:`dateFrom,dateTo`（≤90 天） | `{summary:{salesCount,revenue,refundAmount,newLearnerCount,avgProgressPercent,commentCount},trend:[{date,paidOrderCount,revenue,newLearnerCount}]}` | 40303,40401 |
-| GET | `/api/v1/teacher/courses/{courseId}/comments` | 本人课程评论查看（只读，不能处置） | query:`status,pageNum` | 分页 `{records:[{id,content,status,createdAt}]}` | 40303,40401 |
+| GET | `/api/v1/teacher/overview` | 教师总览（规划中） | — | `{courseCount,publishedCount,pendingReviewCount,totalRevenue30d,learnerCount30d}` | 40101,40301 |
+| GET | `/api/v1/teacher/courses` | 我的课程列表 | query:`status,pageNum,pageSize` | 分页 `{items:[{courseId,title,subtitle,coverUrl,description,price,originalPrice,categoryId,level,status,reviewRemark,lessonCount,submittedAt,updatedAt}],total,page,size}`；`price` 单位分 | 40001,40101,40301 |
+| GET | `/api/v1/teacher/courses/{courseId}` | 我的课程详情（不含章节/课时，目录走 5.4 公开接口） | — | 同上单条 | 40301,40401 |
+| POST | `/api/v1/teacher/courses` | 建课草稿 | `{categoryId,title,subtitle?,coverUrl,description?,price,originalPrice?,level}` | 课程详情，`status:0` | 40001,40101,40301 |
+| PUT | `/api/v1/teacher/courses/{courseId}` | 编辑本人课程（草稿/已下架可改，字段可选；已下架编辑后回草稿 `3→0` 须重新审核） | 同建课字段，均可选 | 课程详情 | 40001,40301,40401,40901 |
+| POST | `/api/v1/teacher/courses/{courseId}/submit` | 提交审核（`0→1` 或 `3→1`；至少 1 个带视频与有效时长的课时；待审核期间只读） | `{}` | 课程详情，`status:1` | 40001,40301,40401,40901 |
+| POST | `/api/v1/teacher/courses/{courseId}/publish` | 本人课程再上架（`3→2`；仅内容未变更可直接上架，编辑过须回草稿复审） | `{}` | `{status:2}` | 40301,40901 |
+| POST | `/api/v1/teacher/courses/{courseId}/unpublish` | 本人课程下架（`2→3`） | `{reason}` | `{status:3}` | 40301,40901 |
+| GET | `/api/v1/teacher/courses/{courseId}/chapters` | 章节+课时目录（含隐藏项） | — | `[{chapterId,title,sort,status,lessons:[{lessonId,chapterId,title,videoUrl,durationSec,free,sort,status}]}]` | 40301,40401 |
+| POST | `/api/v1/teacher/courses/{courseId}/chapters` | 建章节（草稿/已下架课程；已下架改动回草稿） | `{title,sort?,status?}` | 章节详情 | 40001,40301,40401,40901 |
+| PUT | `/api/v1/teacher/courses/{courseId}/chapters/{chapterId}` | 改章节（字段可选） | `{title?,sort?,status?}` | 章节详情 | 40001,40301,40401,40901 |
+| DELETE | `/api/v1/teacher/courses/{courseId}/chapters/{chapterId}` | 删章节（逻辑删，级联隐藏课时） | — | `data:null` | 40301,40401,40901 |
+| POST | `/api/v1/teacher/courses/{courseId}/chapters/{chapterId}/lessons` | 建课时（`videoUrl` 与 `durationSec>0` 必填） | `{title,videoUrl,durationSec,isFree?,sort?,status?}` | 课时详情 | 40001,40301,40401,40901 |
+| PUT | `/api/v1/teacher/courses/{courseId}/chapters/{chapterId}/lessons/{lessonId}` | 改课时（字段可选） | `{title?,videoUrl?,durationSec?,isFree?,sort?,status?}` | 课时详情 | 40001,40301,40401,40901 |
+| DELETE | `/api/v1/teacher/courses/{courseId}/chapters/{chapterId}/lessons/{lessonId}` | 删课时（逻辑删） | — | `data:null` | 40301,40401,40901 |
+| POST | `/api/v1/teacher/lessons/{lessonId}/video` | 上传视频（multipart，同步校验） | form-data `file` | `{videoUrl,durationSec,codec,width,height,sizeBytes}` | 40301,40002,50001,61003 |
+| GET | `/api/v1/teacher/courses/{courseId}/dashboard` | **课程数据看板** | query:`dateFrom,dateTo`（≤90 天） | `{summary:{salesCount,revenue,refundAmount,newLearnerCount,avgProgressPercent,commentCount},trend:[{date,paidOrderCount,revenue,newLearnerCount}]}` | 40301,40401 |
+| GET | `/api/v1/teacher/courses/{courseId}/comments` | 本人课程评论查看（只读，不能处置） | query:`status,pageNum` | 分页 `{records:[{id,content,status,createdAt}]}` | 40301,40401 |
 
-> 教师接口的归属校验统一走 `CourseOwnerChecker.check(courseId, teacherId)`，`chapter/lesson` 通过 `course_id` 反查；删除有已售订单的课时需先下架（`40901`）。
+> 教师接口的归属校验统一在 service 层按 `course.owner_teacher_id = 当前用户 teacher_profile.id` 完成（`ADMIN` 例外），`chapter/lesson` 再以 `course_id + chapter_id` 双条件反查；删除有已售订单的课时需先下架（`40901`）。
 
 ## 5.11 接口与数据模型一致性校验
 
@@ -1272,7 +1278,7 @@ spec:
 | 重复头/大小写变体 | 统一规范化后取首个并告警 |
 | body/path 冒充他人 | 强校验期直接拒绝；归属校验（订单、评论、会话） |
 | 学员调管理接口 | `X-User-Source=admin` + 服务端角色校验（OPS/ADMIN），双保险 |
-| **教师访问他人课程** | `X-User-Id` → `teacher_profile.id` → 与 `course.owner_teacher_id` 比对；`chapter/lesson` 经 `course_id` 反查；不匹配返回 `40303` |
+| **教师访问他人课程** | `X-User-Id` → `teacher_profile.id` → 与 `course.owner_teacher_id` 比对；`chapter/lesson` 经 `course_id` 反查；不匹配返回 `40301` |
 | 回调被注入身份 | 支付回调走公开路径，只验签、不使用用户头 |
 | **支付宝回调伪造** | RSA2 验签（支付宝公钥）+ 校验 `app_id`、`out_trade_no`、`total_amount`；拒绝非本应用通知 |
 | **小程序 code 重放** | `code` 只能用一次；auth-service 换 `openid` 后立即丢弃，不做缓存；同一 `openid` 短时间高频登录触发风控（5 次/分钟） |
@@ -1703,7 +1709,7 @@ flowchart LR
 |---|---|
 | 认证 | 注册/登录/刷新/退出、Token 过期、越权、**小程序 code 登录与 code 重放**、**绑定手机号冲突（不自动合并账号，15.2 D8）**、注销冷静期申请与撤销 |
 | 课程 | 列表/搜索/详情/目录、未购不可播、上下架；**待审核只读/不可撤回/不可重复提交、已下架编辑回草稿复审**（C06-03/C06-04）；**无评分展示**（07 §2.5） |
-| **教师端** | 建课→提交→审核→上架全流程；**用教师 A 访问教师 B 的课程/章节/课时/看板必须全部 40303**；教师不能改 price；未通过入驻审核不能建课；**审核通过与定价上架同一动作（无「待上架」态，C06-02）** |
+| **教师端** | 建课→提交→审核→上架全流程；**用教师 A 访问教师 B 的课程/章节/课时/看板必须全部 40301**；教师不能改 price；未通过入驻审核不能建课；**审核通过与定价上架同一动作（无「待上架」态，C06-02）** |
 | 交易 | 购物车（仅 Web）、优惠券、下单幂等、超时关单（30 分钟，15.2 D11）、**支付宝回调与微信回调各一套**、退款（**7 天/进度 ≤ 20% 准入与全额退款，15.2 D6**）、**渠道与来源端不匹配（小程序传 alipay）必须拒绝**、**重付仅限原渠道（C06-05）**、**0 元课程下单被拒（`62008`，D9）** |
 | **对账** | 两渠道账单比对、差异识别（长款/短款）、重跑幂等、`uk_channel_date_type` 覆盖更新 |
 | 学习 | 播放签名有效期、进度幂等、**完课判定（进度 ≥ 90% 且有效观看 ≥ 90%，拖动不计入，15.2 D7）**、小程序内播放 |
@@ -1720,7 +1726,7 @@ flowchart LR
 | 功能 | 第 5 章接口全部实现（含教师域与双通道支付），契约测试通过 |
 | 交易 | Web 支付成功率 ≥ 98%，小程序支付成功率 ≥ 97%，两渠道回调幂等 100% |
 | **对账** | 两渠道连续 3 个账单日 `diff_count = 0`，差异单可在 24h 内定位到具体 `payment_record`/`refund_request` |
-| 教师端 | 教师全流程可用；越权用例 100% 返回 `40303`；教师无法修改价格 |
+| 教师端 | 教师全流程可用；越权用例 100% 返回 `40301`；教师无法修改价格 |
 | 越权 | 安全用例 100% 拦截，跨用户数据 0 例 |
 | AI（BYO） | 未配置模型时 AI 入口关闭且主链路不受影响；配置后四项功能可用；配额用尽降级到本地规则；学伴无法回答率 ≤ 50%（灰度）、审核与人工一致率 ≥ 85% |
 | 视频上传 | 非法视频（非 MP4 / 非 H.264 / >1080p / 时长越界 / 超大）100% 被 `61003` 拦截 |
@@ -2123,7 +2129,7 @@ DoD：学伴无法回答率 ≤ 30%、找课点击率 +10%、售后 FAQ 命中�
 | 成功 | 0 | — |
 | 参数 | 40001–40002 | 校验/格式 |
 | 认证 | 40101–40102 | 未登录/过期 |
-| 权限 | 40301–40303 | 40301 角色不足、40302 权益不足、**40303 非本人课程（教师越权）** |
+| 权限 | 40301–40301 | 40301 角色不足、40302 权益不足、**40301 非本人课程（教师越权）** |
 | 资源 | 40401 | 不存在 |
 | 冲突 | 40901 | 重复/状态不允许（注册账号重复走此码） |
 | 限流 | 42901 | — |
@@ -2178,7 +2184,7 @@ DoD：学伴无法回答率 ≤ 30%、找课点击率 +10%、售后 FAQ 命中�
 - [ ] 体验版验收通过，正式版审核通过并发布
 
 **教师端**
-- [ ] 教师访问他人课程（改课/看数据）用例全部返回 40303
+- [ ] 教师访问他人课程（改课/看数据）用例全部返回 40301
 - [ ] 教师无法修改课程价格（写接口不含 price 字段）
 - [ ] 未通过入驻审核的账号无法进入教师工作台
 

@@ -18,6 +18,8 @@ public class CourseChapter {
 
     private Integer sort;
 
+    private Integer status;
+
     /**
      * Returns the chapter id.
      *
@@ -104,5 +106,27 @@ public class CourseChapter {
      */
     public void setSort(Integer sort) {
         this.sort = sort;
+    }
+
+    /**
+     * Returns the visibility flag.
+     *
+     * @return 1 visible, 0 hidden
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public Integer getStatus() {
+        return status;
+    }
+
+    /**
+     * Sets the visibility flag.
+     *
+     * @param status 1 visible, 0 hidden
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public void setStatus(Integer status) {
+        this.status = status;
     }
 }
