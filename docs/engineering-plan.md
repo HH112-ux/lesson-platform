@@ -1173,7 +1173,7 @@ spec:
 | POST | `/api/v1/admin/courses/{courseId}/chapters` | 建章节 | `{title,sort}` | `{chapterId}` | 40301 |
 | POST | `/api/v1/admin/chapters/{chapterId}/lessons` | 建课时 | `{title,isFree,sort,coverUrl}` | `{lessonId}` | 40301 |
 | POST | `/api/v1/admin/lessons/{lessonId}/video` | 上传视频（multipart） | form-data `file` | `{videoUrl,durationSec,codec,width,height,sizeBytes}` | 40002,50001,61003 |
-| GET | `/api/v1/admin/users` | 用户分页 | query:`keyword,status,pageNum,pageSize` | 分页 | 40301 |
+| GET | `/api/v1/admin/users` | 用户分页（`keyword` 匹配用户名/昵称/手机号） | query:`keyword,status,pageNum,pageSize` | 分页 `{records:[{userId,username,nickname,phone,status,roles[],createdAt}],total,pageNum,pageSize}` | 40301 |
 | PUT | `/api/v1/admin/users/{userId}/status` | 启用/禁用 | `{status}` | `{updated:true}` | 40301 |
 | PUT | `/api/v1/admin/users/{userId}/roles` | 分配角色 | `{roleIds[]}` | `{updated:true}` | 40301 |
 | GET | `/api/v1/admin/orders` | 订单分页 | query:`status,orderNo,userId,dateFrom,dateTo,pageNum` | 分页 | 40301 |
