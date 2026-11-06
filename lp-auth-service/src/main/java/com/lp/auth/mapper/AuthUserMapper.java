@@ -1,7 +1,9 @@
 package com.lp.auth.mapper;
 
+import com.lp.auth.entity.AdminUserRow;
 import com.lp.auth.entity.UserAccount;
 import com.lp.auth.entity.UserWechat;
+import java.time.LocalDateTime;
 import java.util.List;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
@@ -177,4 +179,60 @@ public interface AuthUserMapper {
      */
     @Select("SELECT COUNT(*) FROM sys_user WHERE deleted = 0")
     long countUsers();
+
+    /**
+     * Counts accounts registered at or after the given instant.
+     *
+     * <p>The caller passes the boundary so the statement stays portable across MySQL and the H2
+     * test database.
+     *
+     * @param since inclusive lower bound of {@code created_at}
+     * @return matching live accounts
+     * @author Caspian
+     * @since 0.2.0
+     */
+    @Select("SELECT COUNT(*) FROM sys_user WHERE deleted = 0 AND created_at >= #{since}")
+    long countCreatedSince(@Param("since") LocalDateTime since);
+
+    /**
+     * Counts live accounts matching the console filters.
+     *
+     * @param keyword matches username, nickname or phone; {@code null} or blank matches all
+     * @param status account status filter, {@code null} for all statuses
+     * @return matching accounts
+     * @author Caspian
+     * @since 0.2.0
+     */
+    @Select(
+            "<script>SELECT COUNT(*) FROM sys_user WHERE deleted = 0 "
+                    + "<if test='keyword != null and keyword != \"\"'>AND (username LIKE "
+                    + "CONCAT('%', #{keyword}, '%') OR nickname LIKE CONCAT('%', #{keyword}, '%') "
+                    + "OR phone LIKE CONCAT('%', #{keyword}, '%')) </if>"
+                    + "<if test='status != null'>AND status = #{status} </if></script>")
+    long countForAdmin(@Param("keyword") String keyword, @Param("status") Integer status);
+
+    /**
+     * Lists one page of live accounts, newest registration first.
+     *
+     * @param keyword matches username, nickname or phone; {@code null} or blank matches all
+     * @param status account status filter, {@code null} for all statuses
+     * @param offset zero based row offset
+     * @param limit maximum rows
+     * @return matching account rows
+     * @author Caspian
+     * @since 0.2.0
+     */
+    @Select(
+            "<script>SELECT id AS userId, username, nickname, phone, status, "
+                    + "created_at AS createdAt FROM sys_user WHERE deleted = 0 "
+                    + "<if test='keyword != null and keyword != \"\"'>AND (username LIKE "
+                    + "CONCAT('%', #{keyword}, '%') OR nickname LIKE CONCAT('%', #{keyword}, '%') "
+                    + "OR phone LIKE CONCAT('%', #{keyword}, '%')) </if>"
+                    + "<if test='status != null'>AND status = #{status} </if>"
+                    + "ORDER BY id DESC LIMIT #{limit} OFFSET #{offset}</script>")
+    List<AdminUserRow> selectPageForAdmin(
+            @Param("keyword") String keyword,
+            @Param("status") Integer status,
+            @Param("offset") long offset,
+            @Param("limit") long limit);
 }

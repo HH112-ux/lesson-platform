@@ -1008,7 +1008,7 @@ erDiagram
 
 **鉴权边界**：网关白名单只放行 `register`/`login`/`refresh`/`logout`，`/api/v1/auth/me` 必须携带 access token；`/api/v1/admin/**` 由网关做粗粒度角色门禁，角色不含 `ADMIN` 或 `OPS` 时返回 HTTP `403` + `40301`，细粒度权限码由各接口自行校验。角色与权限码来自 `sys_role`/`sys_role_menu`/`sys_menu`，并随 access token 的 `roles`/`permissions` 声明下发、由网关透传为 `X-User-Roles`/`X-User-Permissions`。
 
-**内部接口（不经网关对外）**：`GET /internal/v1/users/stats` 返回 `{totalUsers}`（未删除账号数），供 admin-service 看板聚合，请求头同其他内部接口校验 `X-Internal-Token`。
+**内部接口（不经网关对外）**：`GET /internal/v1/users/stats` 返回 `{totalUsers,newUsers}`（未删除账号数、近 7 日新增账号数），供 admin-service 看板聚合；`GET /internal/v1/users?keyword=&status=&pageNum=&pageSize=` 返回 `{records:[{userId,username,nickname,phone,status,roles[],createdAt}],total,pageNum,pageSize}`，`keyword` 匹配用户名/昵称/手机号，供运营端用户列表。两者请求头同其他内部接口校验 `X-Internal-Token`。
 
 ## 5.4 课程与内容域（course-service）
 
