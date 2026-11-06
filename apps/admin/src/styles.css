@@ -1,0 +1,162 @@
+/**
+ * Global styles of the operations console.
+ *
+ * @author Caspian
+ * @since 0.2.0
+ */
+
+:root {
+  --lp-bg: #f5f6f7;
+  --lp-surface: #ffffff;
+  --lp-text: #1f2329;
+  --lp-muted: #646a73;
+  --lp-border: #dee0e3;
+  --lp-primary: #3370ff;
+  --lp-primary-hover: #245bdb;
+  --lp-danger: #d83931;
+  --lp-success: #2ea121;
+  --lp-warning: #de7802;
+  --lp-radius: 8px;
+  font-family: system-ui, -apple-system, 'Segoe UI', 'PingFang SC', sans-serif;
+  color: var(--lp-text);
+  background: var(--lp-bg);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+a {
+  color: var(--lp-primary);
+  text-decoration: none;
+}
+
+.lp-muted {
+  color: var(--lp-muted);
+}
+
+.lp-card {
+  background: var(--lp-surface);
+  border: 1px solid var(--lp-border);
+  border-radius: var(--lp-radius);
+  padding: 20px;
+}
+
+.lp-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 16px;
+  border: 1px solid var(--lp-border);
+  border-radius: 6px;
+  background: var(--lp-surface);
+  color: var(--lp-text);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.lp-btn:hover:not(:disabled) {
+  border-color: var(--lp-primary);
+  color: var(--lp-primary);
+}
+
+.lp-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.lp-btn--primary {
+  border-color: var(--lp-primary);
+  background: var(--lp-primary);
+  color: #ffffff;
+}
+
+.lp-btn--primary:hover:not(:disabled) {
+  background: var(--lp-primary-hover);
+  color: #ffffff;
+}
+
+.lp-btn--danger {
+  border-color: var(--lp-danger);
+  color: var(--lp-danger);
+}
+
+.lp-input,
+.lp-textarea {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--lp-border);
+  border-radius: 6px;
+  font-size: 14px;
+  font-family: inherit;
+  color: var(--lp-text);
+  background: var(--lp-surface);
+}
+
+.lp-input:focus,
+.lp-textarea:focus {
+  outline: none;
+  border-color: var(--lp-primary);
+}
+
+.lp-field {
+  display: block;
+  margin-bottom: 16px;
+}
+
+.lp-label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 13px;
+  color: var(--lp-muted);
+}
+
+.lp-alert {
+  padding: 10px 12px;
+  border-radius: 6px;
+  border: 1px solid #f5c6c2;
+  background: #fef1f0;
+  color: var(--lp-danger);
+  font-size: 13px;
+}
+
+.lp-tag {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  background: #eef3ff;
+  color: var(--lp-primary);
+}
+
+.lp-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.lp-table th,
+.lp-table td {
+  padding: 12px 10px;
+  border-bottom: 1px solid var(--lp-border);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.lp-table th {
+  color: var(--lp-muted);
+  font-weight: 500;
+  background: #fafafa;
+}
+
+.lp-empty {
+  padding: 48px 0;
+  text-align: center;
+  color: var(--lp-muted);
+}
