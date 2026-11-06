@@ -43,6 +43,14 @@ public class IdentityProperties {
     public Jwt jwt = new Jwt();
 
     /**
+     * Paths that accept both anonymous and authenticated callers.
+     *
+     * <p>A missing or invalid token is treated as anonymous; a valid token still injects the
+     * identity headers so the catalog can mark owned courses. Never use this for write paths.
+     */
+    public List<String> optionalAuth = List.of();
+
+    /**
      * Returns the enforcement mode.
      *
      * @return obs, soft or hard
@@ -106,6 +114,28 @@ public class IdentityProperties {
      */
     public void setWhitelist(List<String> whitelist) {
         this.whitelist = whitelist == null ? List.of() : List.copyOf(whitelist);
+    }
+
+    /**
+     * Returns the optional authentication path patterns.
+     *
+     * @return immutable optional-auth patterns
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public List<String> getOptionalAuth() {
+        return optionalAuth;
+    }
+
+    /**
+     * Sets the optional authentication path patterns.
+     *
+     * @param optionalAuth Ant style patterns
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public void setOptionalAuth(List<String> optionalAuth) {
+        this.optionalAuth = optionalAuth == null ? List.of() : List.copyOf(optionalAuth);
     }
 
     /**

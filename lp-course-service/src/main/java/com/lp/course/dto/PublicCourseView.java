@@ -24,6 +24,10 @@ public class PublicCourseView {
 
     private final long lessonCount;
 
+    private final String instructorName;
+
+    private final boolean owned;
+
     /**
      * Creates a fully populated projection.
      *
@@ -33,6 +37,8 @@ public class PublicCourseView {
      * @param price price in fen
      * @param status 0 draft, 1 pending review, 2 published, 3 offline
      * @param lessonCount number of live lessons
+     * @param instructorName instructor display name, may be {@code null}
+     * @param owned whether the current user already owns the course
      * @author Caspian
      * @since 0.1.0
      */
@@ -42,13 +48,17 @@ public class PublicCourseView {
             String coverUrl,
             long price,
             int status,
-            long lessonCount) {
+            long lessonCount,
+            String instructorName,
+            boolean owned) {
         this.courseId = courseId;
         this.title = title;
         this.coverUrl = coverUrl;
         this.price = price;
         this.status = status;
         this.lessonCount = lessonCount;
+        this.instructorName = instructorName;
+        this.owned = owned;
     }
 
     /**
@@ -115,5 +125,27 @@ public class PublicCourseView {
      */
     public long getLessonCount() {
         return lessonCount;
+    }
+
+    /**
+     * Returns the instructor display name.
+     *
+     * @return display name, {@code null} when no profile is linked
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public String getInstructorName() {
+        return instructorName;
+    }
+
+    /**
+     * Tells whether the current user already owns the course.
+     *
+     * @return {@code true} when an active entitlement exists; always {@code false} when anonymous
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public boolean isOwned() {
+        return owned;
     }
 }

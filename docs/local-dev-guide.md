@@ -211,7 +211,13 @@ curl -s -X POST http://localhost:8080/api/v1/auth/logout \
   -d '{"refreshToken":"<refreshToken>"}'
 
 # 受保护路径缺少 token 返回 40101，token 过期返回 40102
-curl -s http://localhost:8080/api/v1/courses
+curl -s http://localhost:8080/api/v1/orders
+
+# 公开目录：未登录可访问（可选鉴权），带 token 时返回 owned 标记
+curl -s 'http://localhost:8080/api/v1/categories'
+curl -s 'http://localhost:8080/api/v1/courses?category=design&keyword=插画&page=1&size=20'
+curl -s 'http://localhost:8080/api/v1/courses/1' \
+  -H "Authorization: Bearer <accessToken>"
 ```
 
 - 账号需先写入 `lp_ums.sys_user`（密码为 BCrypt 哈希）；M1 当前已实现注册、登录、刷新、退出与小程序 code 登录（默认关闭），找回密码与更多第三方登录在后续切片。
@@ -265,6 +271,27 @@ curl -s -X POST -H "X-Internal-Token: $LP_INTERNAL_TOKEN" \
 - 指标名：`entitlement_outbox_pending`、`entitlement_outbox_failed`；刷新间隔由 `lp.trade.outbox-metrics-delay-ms`（默认 15000）控制。
 - 建议告警：`entitlement_outbox_failed > 0` 持续 5 分钟即处理，说明已放弃投递、需要人工重投或对账。
 - 重投只对 `status=2`（放弃）记录生效，记录不存在或非放弃态返回 `40401`；接口只在内网可达，不经网关转发。
+
+### 4.4 网页购买 ticket（小程序 → 浏览器）
+
+- 依赖：Redis（`LP_REDIS_HOST`/`LP_REDIS_PORT`，默认 `127.0.0.1:6379`）与 auth-service 的内部会话接口。
+- 配置：`LP_WEB_BASE_URL`（默认 `http://127.0.0.1:5173`，用于拼接 `https://<web-host>/purchase?ticket=...`）、`LP_AUTH_SERVICE_BASE_URL`（默认 `http://127.0.0.1:8101`）。
+- 签发要求登录态；兑换接口允许匿名（浏览器首次打开时没有会话），但若浏览器已登录为其他用户，会返回 `62015` 且不消费 ticket。
+- Redis 键与 TTL：`lp:trade:purchase-ticket:{sha256(ticket)}` 15 分钟；`...:issued:{sha256}` 与 `...:used:{sha256}` 各 24 小时，仅用于区分过期/已用/不存在。
+
+```bash
+# 1) 小程序侧签发（需 accessToken）
+curl -s -X POST http://localhost:8080/api/v1/orders/purchase-ticket \
+  -H "Authorization: Bearer $ACCESS_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"courseId":1}'
+
+# 2) 浏览器打开返回的 url，或直接兑换拿 token 对
+curl -s -X POST http://localhost:8080/api/v1/orders/purchase-ticket/redeem \
+  -H 'Content-Type: application/json' -d '{"ticket":"<ticket>"}'
+```
+
+- 兑换成功的响应含 `accessToken/refreshToken/expiresIn/courseId`，浏览器据此建立会话后继续 `POST /api/v1/orders`。
+- 错误码：`62012` 过期、`62013` 已使用、`62014` 不存在、`62015` 归属其他用户；ticket 不会写入日志。
 
 ## 5. Web 前端
 

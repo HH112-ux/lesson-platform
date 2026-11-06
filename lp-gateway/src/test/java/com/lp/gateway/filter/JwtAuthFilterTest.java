@@ -69,6 +69,7 @@ class JwtAuthFilterTest {
     void setUp() {
         properties = new IdentityProperties();
         properties.setEnforceMode("hard");
+        properties.setOptionalAuth(List.of("/api/v1/courses/**", "/api/v1/categories/**"));
         filter =
                 new JwtAuthFilter(
                         properties,
@@ -133,7 +134,7 @@ class JwtAuthFilterTest {
     @Test
     void rejectsMissingTokenInHardMode() {
         CapturingChain chain = new CapturingChain();
-        MockServerWebExchange exchange = exchange("/api/v1/courses");
+        MockServerWebExchange exchange = exchange("/api/v1/orders");
         filter.filter(exchange, chain).block();
 
         assertThat(chain.called).isFalse();
@@ -152,7 +153,7 @@ class JwtAuthFilterTest {
         CapturingChain chain = new CapturingChain();
         MockServerWebExchange exchange =
                 exchangeWithToken(
-                        "/api/v1/courses", token(7L, List.of("STUDENT"), Duration.ofMinutes(-1)));
+                        "/api/v1/orders", token(7L, List.of("STUDENT"), Duration.ofMinutes(-1)));
         filter.filter(exchange, chain).block();
 
         assertThat(chain.called).isFalse();
@@ -168,11 +169,68 @@ class JwtAuthFilterTest {
     @Test
     void rejectsMalformedToken() {
         CapturingChain chain = new CapturingChain();
-        MockServerWebExchange exchange = exchangeWithToken("/api/v1/courses", "not-a-jwt");
+        MockServerWebExchange exchange = exchangeWithToken("/api/v1/orders", "not-a-jwt");
         filter.filter(exchange, chain).block();
 
         assertThat(chain.called).isFalse();
         assertThat(bodyOf(exchange)).contains("40101");
+    }
+
+    /**
+     * Catalog routes are readable anonymously so the web home page works before login.
+     *
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Test
+    void letsCatalogThroughWithoutToken() {
+        CapturingChain chain = new CapturingChain();
+        filter.filter(exchange("/api/v1/courses"), chain).block();
+
+        assertThat(chain.called).isTrue();
+        assertThat(chain.exchange().getRequest().getHeaders().getFirst(IdentityHeaders.USER_ID))
+                .isNull();
+    }
+
+    /**
+     * A valid token on a catalog route still injects identity, which drives the owned flag.
+     *
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Test
+    void injectsIdentityOnOptionalPath() {
+        CapturingChain chain = new CapturingChain();
+        filter.filter(
+                        exchangeWithToken(
+                                "/api/v1/courses",
+                                token(9L, List.of("STUDENT"), Duration.ofMinutes(15))),
+                        chain)
+                .block();
+
+        assertThat(chain.exchange().getRequest().getHeaders().getFirst(IdentityHeaders.USER_ID))
+                .isEqualTo("9");
+    }
+
+    /**
+     * An expired token must not block public browsing; it degrades to anonymous.
+     *
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Test
+    void treatsExpiredTokenAsAnonymousOnOptionalPath() {
+        CapturingChain chain = new CapturingChain();
+        filter.filter(
+                        exchangeWithToken(
+                                "/api/v1/courses",
+                                token(9L, List.of("STUDENT"), Duration.ofMinutes(-1))),
+                        chain)
+                .block();
+
+        assertThat(chain.called).isTrue();
+        assertThat(chain.exchange().getRequest().getHeaders().getFirst(IdentityHeaders.USER_ID))
+                .isNull();
     }
 
     /**

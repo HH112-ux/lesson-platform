@@ -1,9 +1,18 @@
 package com.lp.course.service.impl;
 
+import com.lp.course.client.LearnEntitlementClient;
+import com.lp.course.dto.CourseCategoryView;
 import com.lp.course.dto.CourseInternalView;
+import com.lp.course.dto.CoursePageView;
 import com.lp.course.dto.PublicCourseView;
+import com.lp.course.entity.Course;
+import com.lp.course.entity.CourseCategory;
+import com.lp.course.mapper.CourseCategoryMapper;
+import com.lp.course.mapper.CourseMapper;
 import com.lp.course.service.CourseInternalService;
 import com.lp.course.service.CoursePublicService;
+import java.util.List;
+import java.util.Set;
 import org.springframework.stereotype.Service;
 
 /**
@@ -18,36 +27,162 @@ import org.springframework.stereotype.Service;
 @Service
 public class CoursePublicServiceImpl implements CoursePublicService {
 
+    /** Maximum page size accepted from the catalog API. */
+    private static final int MAX_PAGE_SIZE = 100;
+
     private final CourseInternalService courseInternalService;
 
+    private final CourseMapper courseMapper;
+
+    private final CourseCategoryMapper courseCategoryMapper;
+
+    private final LearnEntitlementClient learnEntitlementClient;
+
     /**
-     * Creates the service with the internal reader.
+     * Creates the service with its readers.
      *
      * @param courseInternalService shared course projection
+     * @param courseMapper catalog page queries
+     * @param courseCategoryMapper category queries
+     * @param learnEntitlementClient owned course lookup
      * @author Caspian
      * @since 0.1.0
      */
-    public CoursePublicServiceImpl(CourseInternalService courseInternalService) {
+    public CoursePublicServiceImpl(
+            CourseInternalService courseInternalService,
+            CourseMapper courseMapper,
+            CourseCategoryMapper courseCategoryMapper,
+            LearnEntitlementClient learnEntitlementClient) {
         this.courseInternalService = courseInternalService;
+        this.courseMapper = courseMapper;
+        this.courseCategoryMapper = courseCategoryMapper;
+        this.learnEntitlementClient = learnEntitlementClient;
     }
 
     /**
      * Loads one course and strips internal only fields.
      *
      * @param courseId course primary key
+     * @param userId current user id, may be {@code null}
      * @return public projection
      * @author Caspian
      * @since 0.1.0
      */
     @Override
-    public PublicCourseView course(long courseId) {
+    public PublicCourseView course(long courseId, Long userId) {
         CourseInternalView course = courseInternalService.course(courseId);
+        boolean owned =
+                userId != null
+                        && learnEntitlementClient
+                                .ownedCourseIds(userId, List.of(courseId))
+                                .contains(courseId);
         return new PublicCourseView(
                 course.getCourseId(),
                 course.getTitle(),
                 course.getCoverUrl(),
                 course.getPrice(),
                 course.getStatus(),
-                course.getLessonCount());
+                course.getLessonCount(),
+                course.getInstructorName(),
+                owned);
+    }
+
+    /**
+     * Lists one page of published courses, newest first.
+     *
+     * @param category category id or slug
+     * @param keyword title/subtitle fragment
+     * @param page one based page number
+     * @param size page size
+     * @param userId current user id, may be {@code null}
+     * @return page of published courses
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Override
+    public CoursePageView list(String category, String keyword, int page, int size, Long userId) {
+        int safePage = Math.max(page, 1);
+        int safeSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
+        String safeKeyword = keyword == null || keyword.isBlank() ? null : keyword.trim();
+
+        Long categoryId = resolveCategoryId(category);
+        if (categoryId != null && categoryId <= 0) {
+            return new CoursePageView(List.of(), 0, safePage, safeSize);
+        }
+        long total = courseMapper.countPublished(categoryId, safeKeyword);
+        if (total == 0) {
+            return new CoursePageView(List.of(), 0, safePage, safeSize);
+        }
+        long offset = (long) (safePage - 1) * safeSize;
+        List<Course> rows =
+                courseMapper.selectPublishedPage(categoryId, safeKeyword, offset, safeSize);
+        Set<Long> owned =
+                userId == null
+                        ? Set.of()
+                        : learnEntitlementClient.ownedCourseIds(
+                                userId, rows.stream().map(Course::getId).toList());
+        List<PublicCourseView> items =
+                rows.stream().map(row -> toView(row, owned.contains(row.getId()))).toList();
+        return new CoursePageView(items, total, safePage, safeSize);
+    }
+
+    /**
+     * Returns the visible taxonomy.
+     *
+     * @return categories in display order
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Override
+    public List<CourseCategoryView> categories() {
+        return courseCategoryMapper.selectVisible().stream()
+                .map(
+                        category ->
+                                new CourseCategoryView(
+                                        category.getId(), category.getName(), category.getSlug()))
+                .toList();
+    }
+
+    /**
+     * Resolves the catalog filter to a category id.
+     *
+     * @param category numeric id or slug, may be {@code null}
+     * @return category id, {@code null} for no filter, or {@code -1} when the filter is unknown
+     * @author Caspian
+     * @since 0.1.0
+     */
+    private Long resolveCategoryId(String category) {
+        if (category == null || category.isBlank()) {
+            return null;
+        }
+        String value = category.trim();
+        CourseCategory found;
+        if (value.chars().allMatch(Character::isDigit)) {
+            found = courseCategoryMapper.selectVisibleById(Long.parseLong(value));
+        } else {
+            found = courseCategoryMapper.selectVisibleBySlug(value);
+        }
+        return found == null ? -1L : found.getId();
+    }
+
+    /**
+     * Maps a catalog row to the public card; the price conversion mirrors the internal reader.
+     *
+     * @param course catalog row
+     * @param owned whether the caller owns the course
+     * @return public card
+     * @author Caspian
+     * @since 0.1.0
+     */
+    private PublicCourseView toView(Course course, boolean owned) {
+        return new PublicCourseView(
+                course.getId(),
+                course.getTitle(),
+                course.getCoverUrl(),
+                course.getPrice().movePointRight(2).longValueExact(),
+                course.getStatus(),
+                course.getLessonCount() == null ? 0L : course.getLessonCount(),
+                course.getInstructorName(),
+                owned);
     }
 }
