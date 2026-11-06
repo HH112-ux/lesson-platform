@@ -23,6 +23,13 @@ public class LearnProperties {
 
     private String minioEndpoint = "http://127.0.0.1:9000";
 
+    /**
+     * Region used when signing. Set explicitly so the SDK does not call GetBucketLocation at
+     * request time: the endpoint is the browser facing one and need not be reachable from inside
+     * the service container.
+     */
+    private String minioRegion = "us-east-1";
+
     private String minioAccessKey = "";
 
     private String minioSecretKey = "";
@@ -117,6 +124,28 @@ public class LearnProperties {
      */
     public void setMinioEndpoint(String minioEndpoint) {
         this.minioEndpoint = minioEndpoint;
+    }
+
+    /**
+     * Returns the region used to sign playback URLs.
+     *
+     * @return region name, {@code us-east-1} for a stock MinIO deployment
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public String getMinioRegion() {
+        return minioRegion;
+    }
+
+    /**
+     * Sets the region used to sign playback URLs.
+     *
+     * @param minioRegion region name configured on the object storage server
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public void setMinioRegion(String minioRegion) {
+        this.minioRegion = minioRegion;
     }
 
     /**

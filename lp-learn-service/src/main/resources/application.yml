@@ -36,6 +36,8 @@ lp:
     # Playback URLs are signed by learn-service; the client never receives the object key.
     play-token-ttl: ${LP_PLAY_TOKEN_TTL:10m}
     minio-endpoint: ${LP_MINIO_ENDPOINT:http://127.0.0.1:9000}
+    # Fixed so presigning needs no network call; the endpoint above is browser facing.
+    minio-region: ${LP_MINIO_REGION:us-east-1}
     # Local defaults mirror infra/docker-compose.yml; production values come from K8s Secret.
     minio-access-key: ${LP_MINIO_ACCESS_KEY:${LP_MINIO_ROOT_USER:lpminio}}
     minio-secret-key: ${LP_MINIO_SECRET_KEY:${LP_MINIO_ROOT_PASSWORD:lp_minio_dev}}

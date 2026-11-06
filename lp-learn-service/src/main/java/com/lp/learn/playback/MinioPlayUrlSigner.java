@@ -79,6 +79,10 @@ public class MinioPlayUrlSigner implements PlayUrlSigner {
                     minioClient =
                             MinioClient.builder()
                                     .endpoint(learnProperties.getMinioEndpoint())
+                                    // Signing stays local: without a region the SDK probes
+                                    // GetBucketLocation, and the endpoint is only guaranteed to
+                                    // be reachable from the browser.
+                                    .region(learnProperties.getMinioRegion())
                                     .credentials(accessKey, secretKey)
                                     .build();
                 }
