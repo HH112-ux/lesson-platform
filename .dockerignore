@@ -1,12 +1,13 @@
 # Build artifacts and local secrets never belong in the Docker build context.
 .git
 .mvn/wrapper/maven-wrapper.jar
-target
-**/target
+# Maven output is excluded except the runnable jars copied by docker/backend.Dockerfile.
+# Frontend dist folders stay in the context because docker/web.Dockerfile and
+# docker/admin.Dockerfile copy them into nginx.
+**/target/*
+!**/target/*.jar
 node_modules
 **/node_modules
-dist
-**/dist
 .screenshots
 infra/.env
 infra/jwt
