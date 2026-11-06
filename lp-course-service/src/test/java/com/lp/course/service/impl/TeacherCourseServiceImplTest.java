@@ -14,8 +14,10 @@ import static org.mockito.Mockito.when;
 import com.lp.common.exception.BizException;
 import com.lp.course.dto.TeacherCoursePageView;
 import com.lp.course.dto.TeacherCourseRequest;
+import com.lp.course.dto.TeacherCourseStatusCounts;
 import com.lp.course.dto.TeacherCourseView;
 import com.lp.course.entity.Course;
+import com.lp.course.entity.TeacherCourseStatusRow;
 import com.lp.course.mapper.TeacherCourseMapper;
 import java.math.BigDecimal;
 import java.util.List;
@@ -237,6 +239,7 @@ class TeacherCourseServiceImplTest {
     @Test
     void listFiltersByCallerTeacherProfile() {
         when(teacherCourseMapper.selectTeacherIdByUser(1001L)).thenReturn(55L);
+        when(teacherCourseMapper.countStatusByOwner(55L)).thenReturn(statusRow(1, 0, 2, 3));
         when(teacherCourseMapper.countByOwner(55L, null)).thenReturn(1L);
         when(teacherCourseMapper.selectPageByOwner(55L, null, 0L, 20L))
                 .thenReturn(List.of(draft(9L, 55L, 0)));
@@ -246,6 +249,27 @@ class TeacherCourseServiceImplTest {
         assertEquals(1, page.total());
         assertEquals(9L, page.items().get(0).courseId());
         assertNull(page.items().get(0).reviewRemark());
+        assertEquals(new TeacherCourseStatusCounts(1, 0, 2, 3), page.counts());
+    }
+
+    /**
+     * Builds an aggregated counter row.
+     *
+     * @param draft draft count
+     * @param pending pending count
+     * @param published published count
+     * @param offline offline count
+     * @return counter row
+     * @author Caspian
+     * @since 0.2.0
+     */
+    private TeacherCourseStatusRow statusRow(int draft, int pending, int published, int offline) {
+        TeacherCourseStatusRow row = new TeacherCourseStatusRow();
+        row.setDraft(draft);
+        row.setPending(pending);
+        row.setPublished(published);
+        row.setOffline(offline);
+        return row;
     }
 
     /**

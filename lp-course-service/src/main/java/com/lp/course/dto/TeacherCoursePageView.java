@@ -9,8 +9,13 @@ import java.util.List;
  * @param total total matching courses
  * @param page one based page number
  * @param size requested page size
+ * @param counts owned course counters per status, independent of the current filter
  * @author Caspian
  * @since 0.1.0
  */
 public record TeacherCoursePageView(
-        List<TeacherCourseView> items, long total, int page, int size) {}
+        List<TeacherCourseView> items,
+        long total,
+        int page,
+        int size,
+        TeacherCourseStatusCounts counts) {}

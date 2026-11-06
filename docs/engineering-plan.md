@@ -1207,7 +1207,7 @@ spec:
 | 方法 | 路径 | 用途 | 请求 | 响应 | 主要错误码 |
 |---|---|---|---|---|---|
 | GET | `/api/v1/teacher/overview` | 教师总览（规划中） | — | `{courseCount,publishedCount,pendingReviewCount,totalRevenue30d,learnerCount30d}` | 40101,40301 |
-| GET | `/api/v1/teacher/courses` | 我的课程列表 | query:`status,pageNum,pageSize` | 分页 `{items:[{courseId,title,subtitle,coverUrl,description,price,originalPrice,categoryId,level,status,reviewRemark,lessonCount,submittedAt,updatedAt}],total,page,size}`；`price` 单位分 | 40001,40101,40301 |
+| GET | `/api/v1/teacher/courses` | 我的课程列表 | query:`status,pageNum,pageSize` | 分页 `{items:[{courseId,title,subtitle,coverUrl,description,price,originalPrice,categoryId,level,status,reviewRemark,lessonCount,submittedAt,updatedAt}],total,page,size,counts:{draft,pending,published,offline}}`；`price` 单位分；`counts` 为本人全部课程按状态计数，不受 `status` 过滤与分页影响 | 40001,40101,40301 |
 | GET | `/api/v1/teacher/courses/{courseId}` | 我的课程详情（不含章节/课时，目录走 5.4 公开接口） | — | 同上单条 | 40301,40401 |
 | POST | `/api/v1/teacher/courses` | 建课草稿 | `{categoryId,title,subtitle?,coverUrl,description?,price,originalPrice?,level}` | 课程详情，`status:0` | 40001,40101,40301 |
 | PUT | `/api/v1/teacher/courses/{courseId}` | 编辑本人课程（草稿/已下架可改，字段可选；已下架编辑后回草稿 `3→0` 须重新审核） | 同建课字段，均可选 | 课程详情 | 40001,40301,40401,40901 |

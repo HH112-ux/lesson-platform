@@ -3,6 +3,7 @@ package com.lp.course.mapper;
 import com.lp.course.entity.Course;
 import com.lp.course.entity.CourseChapter;
 import com.lp.course.entity.CourseLesson;
+import com.lp.course.entity.TeacherCourseStatusRow;
 import java.time.LocalDateTime;
 import java.util.List;
 import org.apache.ibatis.annotations.Insert;
@@ -71,6 +72,27 @@ public interface TeacherCourseMapper {
                     + "<if test='teacherId != null'>AND owner_teacher_id = #{teacherId} </if>"
                     + "<if test='status != null'>AND status = #{status} </if></script>")
     long countByOwner(@Param("teacherId") Long teacherId, @Param("status") Integer status);
+
+    /**
+     * Counts the courses owned by one teacher grouped by status.
+     *
+     * <p>The statement ignores the list filter on purpose: the console needs every tab badge at
+     * once. It is backed by {@code idx_owner_status}, so no extra index is required.
+     *
+     * @param teacherId {@code teacher_profile.id}, {@code null} for every teacher
+     * @return one row with a counter per status, or {@code null} when nothing matches
+     * @author Caspian
+     * @since 0.2.0
+     */
+    @Select(
+            "<script>SELECT COALESCE(SUM(status = 0), 0) AS draft, "
+                    + "COALESCE(SUM(status = 1), 0) AS pending, "
+                    + "COALESCE(SUM(status = 2), 0) AS published, "
+                    + "COALESCE(SUM(status = 3), 0) AS offline "
+                    + "FROM course WHERE deleted = 0 "
+                    + "<if test='teacherId != null'>AND owner_teacher_id = #{teacherId}</if>"
+                    + "</script>")
+    TeacherCourseStatusRow countStatusByOwner(@Param("teacherId") Long teacherId);
 
     /**
      * Lists one page of the teacher's courses, most recently updated first.
