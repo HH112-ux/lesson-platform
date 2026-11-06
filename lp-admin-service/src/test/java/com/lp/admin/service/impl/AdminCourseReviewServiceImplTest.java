@@ -80,4 +80,18 @@ class AdminCourseReviewServiceImplTest {
         assertEquals(40001, exception.getCode());
         assertFalse(exception.getMessage().isBlank());
     }
+
+    /**
+     * The audit query is forwarded unchanged to course-service.
+     *
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Test
+    void forwardsAuditQuery() {
+        when(courseReviewClient.reviewAudits(7L)).thenReturn(List.of());
+
+        assertTrue(service.reviewAudits(7L).isEmpty());
+        verify(courseReviewClient).reviewAudits(7L);
+    }
 }

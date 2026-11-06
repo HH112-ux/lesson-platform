@@ -1,11 +1,13 @@
 package com.lp.admin.client;
 
+import com.lp.admin.dto.AdminCourseReviewAuditView;
 import com.lp.admin.dto.AdminPendingCoursePageView;
 import com.lp.admin.dto.AdminReviewResultView;
 import com.lp.common.exception.BizException;
 import com.lp.common.exception.ErrorCode;
 import com.lp.common.internal.InternalHeaders;
 import com.lp.common.result.Result;
+import java.util.List;
 import java.util.Map;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
@@ -32,6 +34,9 @@ public class HttpCourseReviewClient implements CourseReviewClient {
 
     private static final ParameterizedTypeReference<Result<AdminReviewResultView>> REVIEW_TYPE =
             new ParameterizedTypeReference<>() {};
+
+    private static final ParameterizedTypeReference<Result<List<AdminCourseReviewAuditView>>>
+            AUDIT_LIST_TYPE = new ParameterizedTypeReference<>() {};
 
     private final RestClient restClient;
 
@@ -126,6 +131,30 @@ public class HttpCourseReviewClient implements CourseReviewClient {
                             .body(body)
                             .retrieve()
                             .body(REVIEW_TYPE);
+            return unwrap(result);
+        } catch (RestClientException exception) {
+            throw new BizException(ErrorCode.CHANNEL_UPSTREAM_ERROR);
+        }
+    }
+
+    /**
+     * Lists the review audit history of one course.
+     *
+     * @param courseId course primary key
+     * @return audit entries, newest decision first
+     * @throws BizException when the upstream call fails
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Override
+    public List<AdminCourseReviewAuditView> reviewAudits(long courseId) {
+        try {
+            Result<List<AdminCourseReviewAuditView>> result =
+                    restClient
+                            .get()
+                            .uri("/internal/v1/courses/{courseId}/review-audits", courseId)
+                            .retrieve()
+                            .body(AUDIT_LIST_TYPE);
             return unwrap(result);
         } catch (RestClientException exception) {
             throw new BizException(ErrorCode.CHANNEL_UPSTREAM_ERROR);

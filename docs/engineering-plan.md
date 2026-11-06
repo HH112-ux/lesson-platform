@@ -523,6 +523,21 @@ erDiagram
 
 索引：`idx_category_status(category_id, status)`、`idx_owner_status(owner_teacher_id, status, updated_at)`（教师工作台主查询）、`idx_instructor(instructor_id)`、`idx_status_published(status, published_at)`、`FULLTEXT ft_title_subtitle(title, subtitle) WITH PARSER ngram`。
 
+**course_review_audit 课程审核审计流水**
+
+| 字段 | 类型 | 约束 | 说明 |
+|---|---|---|---|
+| id | BIGINT UNSIGNED | PK | — |
+| course_id | BIGINT UNSIGNED | NOT NULL | `course.id` |
+| action | TINYINT | NOT NULL | 1 通过/2 驳回 |
+| from_status | TINYINT | NOT NULL | 决策前状态，固定为 1 待审核 |
+| to_status | TINYINT | NOT NULL | 决策后状态：2 已上架/0 草稿 |
+| reviewer_id | BIGINT UNSIGNED | NOT NULL | 审核人用户 id |
+| remark | VARCHAR(300) | NULL | 审核意见，驳回时必填 |
+| created_at | DATETIME(3) | NOT NULL | 决策时间 |
+
+索引：`idx_course_created(course_id, created_at)`。该表**只追加不更新**；`course` 行上的 `reviewed_by/reviewed_at` 只保留最近一次结果，完整历史以本表为准。
+
 **course_instructor 多讲师**
 
 `id, course_id, teacher_id, role_type TINYINT(1 主讲/2 助教), sort` + 公共字段；唯一 `uk_course_teacher(course_id, teacher_id)`；索引 `idx_course(course_id)`。
@@ -1026,6 +1041,7 @@ erDiagram
 | GET | `/internal/v1/courses` | 内部接口，不经网关对外：批量课程摘要（交易校验与下单取价） | query:`ids`（逗号分隔，必填） | `[{courseId,title,coverUrl,price,status,teacherId,lessonCount}]` | 40001 |
 | GET | `/internal/v1/courses/{courseId}/lessons` | 内部接口，不经网关对外：课时列表（`free` 为试看标记） | — | `[{lessonId,chapterId,title,free,sort}]` | 40401 |
 | GET | `/internal/v1/courses/stats` | 内部接口，不经网关对外：课程按状态计数（运营看板数据源） | — | `{total,draft,pendingReview,published,offline}` | — |
+| GET | `/internal/v1/courses/{courseId}/review-audits` | 内部接口，不经网关对外：课程审核审计流水（按决策时间倒序） | — | `[{auditId,courseId,action,fromStatus,toStatus,reviewerId,remark,createdAt}]`；`action` 1 通过/2 驳回 | 40401 |
 | POST | `/api/v1/comments` | 发评论 | `{courseId,lessonId?,parentId?,content}` | `{id,status:0}` | 40001,40301(未购),64001 |
 | DELETE | `/api/v1/comments/{commentId}` | 删本人评论（逻辑删） | — | `{deleted:true}` | 40301,40401 |
 | POST | `/api/v1/reports` | 举报 | `{targetType,targetId,reasonType,content}` | `{id}` | 40001,64002 |
@@ -1167,6 +1183,7 @@ spec:
 | POST | `/api/v1/admin/courses/{courseId}/submit` | 提交审核（运营代提交） | `{}` | `{status:1}` | 40901 |
 | GET | `/api/v1/admin/courses/pending` | 课程审核队列（`status=1`，按提交时间正序） | query:`pageNum,pageSize` | 分页 `{records:[{courseId,title,coverUrl,ownerTeacherId,price,submittedAt}],total,pageNum,pageSize}`；`price` 单位元 | 40301 |
 | POST | `/api/v1/admin/courses/{courseId}/review` | **审核课程**（通过：定价并上架同一动作 `1→2`，无「待上架」中间态；驳回→草稿，`remark` 必填） | `{approved:bool,priceFen?,remark?}` | `{courseId,status:0\|2,priceFen,reviewedAt}` | 40001,40301,40401,61005 |
+| GET | `/api/v1/admin/courses/{courseId}/review-audits` | 课程审核审计流水（按决策时间倒序，供运营追溯） | — | `[{auditId,courseId,action,fromStatus,toStatus,reviewerId,remark,createdAt}]`；`action` 1 通过/2 驳回 | 40301,40401,50201 |
 | POST | `/api/v1/admin/courses/{courseId}/publish` | 上架并定价（运营；已下架未变更可直接再上架 `3→2`，内容变更过须回草稿复审） | `{price?,categoryId?}` | `{status:2}` | 40301,40901 |
 | POST | `/api/v1/admin/courses/{courseId}/unpublish` | 下架 | `{reason}` | `{status:3}` | 40301 |
 | POST | `/api/v1/admin/entitlements/grant` | 运营发放课程权益（免费课开通/客诉补偿，不产生订单，15.2 D9） | `{userId,courseId,reason}` | `{entitlementId}` | 40001,40301,40901(已有权益) |

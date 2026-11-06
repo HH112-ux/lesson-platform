@@ -1,7 +1,9 @@
 package com.lp.admin.service;
 
+import com.lp.admin.dto.AdminCourseReviewAuditView;
 import com.lp.admin.dto.AdminPendingCoursePageView;
 import com.lp.admin.dto.AdminReviewResultView;
+import java.util.List;
 
 /**
  * Operations course review use cases exposed to the console.
@@ -36,4 +38,14 @@ public interface AdminCourseReviewService {
      */
     AdminReviewResultView review(
             long courseId, boolean approved, Long priceFen, String remark, long reviewerId);
+
+    /**
+     * Lists the review audit history of one course, newest decision first.
+     *
+     * @param courseId course primary key
+     * @return audit entries, possibly empty
+     * @author Caspian
+     * @since 0.1.0
+     */
+    List<AdminCourseReviewAuditView> reviewAudits(long courseId);
 }
