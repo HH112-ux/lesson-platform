@@ -7,6 +7,7 @@ import com.lp.common.web.TraceIds;
 import com.lp.course.dto.CourseInternalView;
 import com.lp.course.dto.CourseReviewRequest;
 import com.lp.course.dto.CourseReviewResultView;
+import com.lp.course.dto.CourseStatsView;
 import com.lp.course.dto.LessonInternalView;
 import com.lp.course.dto.PendingCoursePageView;
 import com.lp.course.service.CourseInternalService;
@@ -112,6 +113,19 @@ public class CourseInternalController {
             HttpServletRequest request) {
         return Result.ok(
                 courseInternalService.pendingCourses(pageNum, pageSize), TraceIds.resolve(request));
+    }
+
+    /**
+     * Returns course counts grouped by status.
+     *
+     * @param request current request, used to resolve the trace id
+     * @return course statistics for the operations dashboard
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @GetMapping("/stats")
+    public Result<CourseStatsView> stats(HttpServletRequest request) {
+        return Result.ok(courseInternalService.stats(), TraceIds.resolve(request));
     }
 
     /**
