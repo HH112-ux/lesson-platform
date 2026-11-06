@@ -29,6 +29,31 @@ export interface PayView {
 /** Order status meaning "paid"; aligned with the backend {@code OrderStatus}. */
 export const ORDER_STATUS_PAID = 2
 
+/** Page of orders; the list endpoint is not live yet, the shape follows the platform page envelope. */
+export interface OrderPage {
+  pageNum: number
+  pageSize: number
+  total: number
+  records: OrderView[]
+}
+
+/**
+ * Loads one page of the signed-in user's orders.
+ *
+ * @param pageNum 1-based page number
+ * @param pageSize page size
+ * @returns the page of orders
+ * @author Caspian
+ * @since 0.2.0
+ */
+export function listOrders(pageNum: number, pageSize: number): Promise<OrderPage> {
+  const params = new URLSearchParams({
+    pageNum: String(pageNum),
+    pageSize: String(pageSize),
+  })
+  return apiRequest<OrderPage>(`/api/v1/orders?${params.toString()}`)
+}
+
 /**
  * Creates an order for a course.
  *
