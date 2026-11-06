@@ -199,13 +199,24 @@ chore(deps): upgrade wechatpay-java to 0.2.12
 
 - 适用分支：`main` 与 `develop`。规则：必须经 PR 合入；required status check `docs-check` 必过；`enforce_admins=true`，**管理员同样受约束**；`required_approving_review_count=0`（单人仓库无法自批，合并不等待 approve）；禁止 force push、禁止删除分支；合并后自动删除源分支。
 - 合并方式：`gh pr merge --squash`；approve 为 0，不需要也不得使用 `--admin` 绕过评审。若常规合并被拦，说明保护配置与本节不符，**停止并报告负责人**，不得绕过。
+- 已启用：`required_linear_history=true`、`required_conversation_resolution=true`、squash 默认标题取 PR 标题、merge queue（`merge_group` 已在 CI 中触发）；`require_code_owner_reviews=false`（单人仓库例外，见 7.3）。
 - 7.1 的 bootstrap 例外自保护开启起失效；直推 `develop` 须改走 PR 合入。
+
+### 7.3 本机 Git 规范落地与例外
+
+- 依据：负责人本机 `/Users/caspian/.trae-cn/memory/references/git-convention.md`；提交信息、分支、PR 与合并规则以该文档为底线，与本节重复处不再复述。
+- 已落地：提交信息英文 Conventional Commits 由 `scripts/check-commit-msg.sh` 校验（零 Node 依赖，等价 commitlint）；PR 标题在 `docs-check` 内用同一脚本校验；squash 默认标题取 PR 标题；`main`/`develop` 要求 linear history、会话解决、up-to-date、强制检查、禁强推禁删除；`.github/CODEOWNERS` 已登记归属。
+- 明确例外：
+  1. 分支模型保留 `main + develop`（三环境流转，见第五节），不采用单 `main`。
+  2. 单人仓库阶段 `required_approving_review_count=0`，且不启用 “Require review from Code Owners”，避免自批死锁；成员加入后恢复 1 人 approve 并开启 code owner review。
+  3. 不引入 Node/commitlint 工具链，校验以 shell 脚本为准。
+- Merge queue：CI 已监听 `merge_group` 事件，队列中的合并组会正常跑必需检查。
 
 ---
 
 ## 八、PR 评审、合并与发布版本
 
-**PR 标题**：与 commit header 同格式（squash 后该标题即进入 `main`）。**标题本身也计入长度约束**：squash 合并时 GitHub 会在标题后追加 ` (#<PR号>)`，因此 PR 标题**建议 ≤ 55 字符**，为后缀留出余量，避免合并后撞 60 字符上限；校验脚本会先剥离该后缀再判定格式与长度。
+**PR 标题**：与 commit header 同格式（squash 后该标题即进入 `main`）。**标题本身也计入长度约束**：squash 合并时 GitHub 会在标题后追加 ` (#<PR号>)`，因此 PR 标题**必须 ≤ 50 字符**（与提交 subject 同限，见 7.3）；校验脚本会先剥离该后缀再判定格式与长度。
 
 **PR 正文六段（缺一不可）**：变更说明 / 自测情况（命令与结果）/ 关联工单 / 风险点 / 数据库变更说明（是否含迁移、能否回滚）/ 回滚方案。
 

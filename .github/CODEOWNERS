@@ -1,0 +1,4 @@
+# Default owner for every path. Reviews stay optional while the repository has a
+# single maintainer; enable "Require review from Code Owners" once a second
+# maintainer joins.
+* @HH112-ux
