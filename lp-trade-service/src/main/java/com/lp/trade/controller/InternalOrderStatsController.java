@@ -3,6 +3,7 @@ package com.lp.trade.controller;
 import com.lp.common.result.Result;
 import com.lp.common.web.TraceIds;
 import com.lp.trade.dto.AdminOrderPageView;
+import com.lp.trade.dto.OrderMetricsView;
 import com.lp.trade.dto.OrderStatsView;
 import com.lp.trade.service.OrderAdminQueryService;
 import com.lp.trade.service.OrderStatsService;
@@ -93,5 +94,21 @@ public class InternalOrderStatsController {
                 orderAdminQueryService.page(
                         status, channel, orderNo, userId, dateFrom, dateTo, pageNum, pageSize),
                 TraceIds.resolve(request));
+    }
+
+    /**
+     * Returns the dashboard order metrics of the trailing window.
+     *
+     * @param days window length in days, defaults to 7 and is capped at 90
+     * @param request current request, used to resolve the trace id
+     * @return revenue, conversion and the best selling courses
+     * @author Caspian
+     * @since 0.2.0
+     */
+    @GetMapping("/metrics")
+    public Result<OrderMetricsView> metrics(
+            @RequestParam(value = "days", defaultValue = "7") int days,
+            HttpServletRequest request) {
+        return Result.ok(orderAdminQueryService.metrics(days), TraceIds.resolve(request));
     }
 }

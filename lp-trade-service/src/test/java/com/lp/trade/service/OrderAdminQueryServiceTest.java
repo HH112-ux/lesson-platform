@@ -2,13 +2,16 @@ package com.lp.trade.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.lp.trade.dto.AdminOrderPageView;
+import com.lp.trade.dto.OrderMetricsView;
 import com.lp.trade.entity.AdminOrderRow;
+import com.lp.trade.entity.CourseSaleRow;
 import com.lp.trade.mapper.TradeOrderMapper;
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -84,6 +87,53 @@ class OrderAdminQueryServiceTest {
         assertThat(page.records()).isEmpty();
         verify(tradeOrderMapper, never())
                 .selectPageForAdmin(any(), any(), any(), any(), any(), any(), anyLong(), anyLong());
+    }
+
+    /**
+     * Metrics convert counts to a rate, keep revenue and rank the courses.
+     *
+     * @author Caspian
+     * @since 0.2.0
+     */
+    @Test
+    void computesMetrics() {
+        CourseSaleRow sale = new CourseSaleRow();
+        sale.setCourseId(11L);
+        sale.setTitle("Java Basics");
+        sale.setOrderCount(4L);
+        when(tradeOrderMapper.sumPaidBetween(any(), any())).thenReturn(new BigDecimal("200.00"));
+        when(tradeOrderMapper.countCreatedBetween(any(), any())).thenReturn(4L);
+        when(tradeOrderMapper.countPaidBetween(any(), any())).thenReturn(1L);
+        when(tradeOrderMapper.selectTopCourses(any(), any(), anyInt())).thenReturn(List.of(sale));
+
+        OrderMetricsView metrics = orderAdminQueryService.metrics(7);
+
+        assertThat(metrics.gmv()).isEqualByComparingTo("200.00");
+        assertThat(metrics.orderCount()).isEqualTo(4L);
+        assertThat(metrics.paidOrderCount()).isEqualTo(1L);
+        assertThat(metrics.paidRate()).isEqualByComparingTo("0.2500");
+        assertThat(metrics.courseSalesTop5()).hasSize(1);
+        assertThat(metrics.courseSalesTop5().get(0).title()).isEqualTo("Java Basics");
+    }
+
+    /**
+     * An empty window reports a zero rate and zero revenue instead of failing.
+     *
+     * @author Caspian
+     * @since 0.2.0
+     */
+    @Test
+    void treatsEmptyWindowAsZero() {
+        when(tradeOrderMapper.sumPaidBetween(any(), any())).thenReturn(null);
+        when(tradeOrderMapper.countCreatedBetween(any(), any())).thenReturn(0L);
+        when(tradeOrderMapper.countPaidBetween(any(), any())).thenReturn(0L);
+        when(tradeOrderMapper.selectTopCourses(any(), any(), anyInt())).thenReturn(List.of());
+
+        OrderMetricsView metrics = orderAdminQueryService.metrics(0);
+
+        assertThat(metrics.gmv()).isEqualByComparingTo("0.00");
+        assertThat(metrics.paidRate()).isEqualByComparingTo("0");
+        assertThat(metrics.courseSalesTop5()).isEmpty();
     }
 
     private static LocalDateTime from() {
