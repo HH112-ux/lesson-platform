@@ -4,6 +4,7 @@ import com.lp.common.identity.IdentityHeaders;
 import com.lp.common.result.Result;
 import com.lp.common.web.TraceIds;
 import com.lp.course.dto.CoursePageView;
+import com.lp.course.dto.CourseSyllabusView;
 import com.lp.course.dto.PublicCourseView;
 import com.lp.course.service.CoursePublicService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -84,5 +85,23 @@ public class CoursePublicController {
             @RequestHeader(value = IdentityHeaders.USER_ID, required = false) Long userId,
             HttpServletRequest request) {
         return Result.ok(coursePublicService.course(courseId, userId), TraceIds.resolve(request));
+    }
+
+    /**
+     * Returns the chapter and lesson outline used by the course detail page.
+     *
+     * @param courseId course primary key
+     * @param userId gateway injected user id, absent when anonymous
+     * @param request current request, used to resolve the trace id
+     * @return syllabus, {@code 40401} when the course is absent or not published
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @GetMapping("/{courseId}/chapters")
+    public Result<CourseSyllabusView> chapters(
+            @PathVariable("courseId") long courseId,
+            @RequestHeader(value = IdentityHeaders.USER_ID, required = false) Long userId,
+            HttpServletRequest request) {
+        return Result.ok(coursePublicService.syllabus(courseId, userId), TraceIds.resolve(request));
     }
 }

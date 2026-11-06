@@ -1,17 +1,27 @@
 package com.lp.course.service.impl;
 
+import com.lp.common.exception.BizException;
+import com.lp.common.exception.ErrorCode;
 import com.lp.course.client.LearnEntitlementClient;
 import com.lp.course.dto.CourseCategoryView;
 import com.lp.course.dto.CourseInternalView;
 import com.lp.course.dto.CoursePageView;
+import com.lp.course.dto.CourseSyllabusView;
+import com.lp.course.dto.PublicChapterView;
 import com.lp.course.dto.PublicCourseView;
+import com.lp.course.dto.PublicLessonView;
 import com.lp.course.entity.Course;
 import com.lp.course.entity.CourseCategory;
+import com.lp.course.entity.CourseChapter;
+import com.lp.course.entity.CourseLesson;
 import com.lp.course.mapper.CourseCategoryMapper;
 import com.lp.course.mapper.CourseMapper;
 import com.lp.course.service.CourseInternalService;
 import com.lp.course.service.CoursePublicService;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import org.springframework.stereotype.Service;
 
@@ -29,6 +39,12 @@ public class CoursePublicServiceImpl implements CoursePublicService {
 
     /** Maximum page size accepted from the catalog API. */
     private static final int MAX_PAGE_SIZE = 100;
+
+    /** Status of a course that is browsable by anonymous callers. */
+    private static final int STATUS_PUBLISHED = 2;
+
+    /** Status of a course that was taken offline but stays readable by its detail page. */
+    private static final int STATUS_OFFLINE = 3;
 
     private final CourseInternalService courseInternalService;
 
@@ -71,6 +87,9 @@ public class CoursePublicServiceImpl implements CoursePublicService {
     @Override
     public PublicCourseView course(long courseId, Long userId) {
         CourseInternalView course = courseInternalService.course(courseId);
+        if (course.getStatus() != STATUS_PUBLISHED && course.getStatus() != STATUS_OFFLINE) {
+            throw new BizException(ErrorCode.NOT_FOUND);
+        }
         boolean owned =
                 userId != null
                         && learnEntitlementClient
@@ -85,6 +104,52 @@ public class CoursePublicServiceImpl implements CoursePublicService {
                 course.getLessonCount(),
                 course.getInstructorName(),
                 owned);
+    }
+
+    /**
+     * Loads the outline of one published course; drafts and courses pending review stay invisible.
+     *
+     * @param courseId course primary key
+     * @param userId current user id, may be {@code null}
+     * @return syllabus with a playable flag per lesson
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Override
+    public CourseSyllabusView syllabus(long courseId, Long userId) {
+        CourseInternalView course = courseInternalService.course(courseId);
+        if (course.getStatus() != STATUS_PUBLISHED) {
+            throw new BizException(ErrorCode.NOT_FOUND);
+        }
+        boolean owned =
+                userId != null
+                        && learnEntitlementClient
+                                .ownedCourseIds(userId, List.of(courseId))
+                                .contains(courseId);
+        List<CourseChapter> chapters = courseMapper.selectChapters(courseId);
+        Map<Long, List<CourseLesson>> lessonsByChapter = new LinkedHashMap<>();
+        for (CourseChapter chapter : chapters) {
+            lessonsByChapter.put(chapter.getId(), new ArrayList<>());
+        }
+        for (CourseLesson lesson : courseMapper.selectLessons(courseId)) {
+            List<CourseLesson> bucket = lessonsByChapter.get(lesson.getChapterId());
+            if (bucket != null) {
+                bucket.add(lesson);
+            }
+        }
+        List<PublicChapterView> chapterViews =
+                chapters.stream()
+                        .map(
+                                chapter ->
+                                        new PublicChapterView(
+                                                chapter.getId(),
+                                                chapter.getTitle(),
+                                                chapter.getSort() == null ? 0 : chapter.getSort(),
+                                                lessonsByChapter.get(chapter.getId()).stream()
+                                                        .map(lesson -> toLessonView(lesson, owned))
+                                                        .toList()))
+                        .toList();
+        return new CourseSyllabusView(courseId, owned, chapterViews);
     }
 
     /**
@@ -163,6 +228,26 @@ public class CoursePublicServiceImpl implements CoursePublicService {
             found = courseCategoryMapper.selectVisibleBySlug(value);
         }
         return found == null ? -1L : found.getId();
+    }
+
+    /**
+     * Maps a lesson row to the syllabus row.
+     *
+     * @param lesson lesson row
+     * @param owned whether the caller owns the course
+     * @return syllabus lesson with the playable flag resolved for the caller
+     * @author Caspian
+     * @since 0.1.0
+     */
+    private PublicLessonView toLessonView(CourseLesson lesson, boolean owned) {
+        boolean free = lesson.getIsFree() != null && lesson.getIsFree() == 1;
+        return new PublicLessonView(
+                lesson.getId(),
+                lesson.getTitle(),
+                free,
+                lesson.getVideoDurationSec() == null ? 0 : lesson.getVideoDurationSec(),
+                lesson.getSort() == null ? 0 : lesson.getSort(),
+                owned || free);
     }
 
     /**

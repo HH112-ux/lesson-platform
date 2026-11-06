@@ -1,6 +1,7 @@
 package com.lp.course.mapper;
 
 import com.lp.course.entity.Course;
+import com.lp.course.entity.CourseChapter;
 import com.lp.course.entity.CourseLesson;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
@@ -107,6 +108,20 @@ public interface CourseMapper {
             @Param("limit") long limit);
 
     /**
+     * Lists visible chapters of a course in display order.
+     *
+     * @param courseId course primary key
+     * @return chapters ordered by sort, possibly empty
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Select(
+            "SELECT id, course_id AS courseId, title, sort FROM course_chapter "
+                    + "WHERE course_id = #{courseId} AND deleted = 0 AND status = 1 "
+                    + "ORDER BY sort, id")
+    List<CourseChapter> selectChapters(@Param("courseId") long courseId);
+
+    /**
      * Lists visible lessons of a course in outline order.
      *
      * @param courseId course primary key
@@ -116,7 +131,8 @@ public interface CourseMapper {
      */
     @Select(
             "SELECT id, course_id AS courseId, chapter_id AS chapterId, title, "
-                    + "is_free AS isFree, sort FROM course_lesson "
+                    + "is_free AS isFree, sort, video_duration_sec AS videoDurationSec "
+                    + "FROM course_lesson "
                     + "WHERE course_id = #{courseId} AND deleted = 0 AND status = 1 "
                     + "ORDER BY chapter_id, sort, id")
     List<CourseLesson> selectLessons(@Param("courseId") long courseId);
