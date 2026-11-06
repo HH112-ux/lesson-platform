@@ -1073,6 +1073,10 @@ erDiagram
 
 > **内部接口（不经网关对外）**：`POST /internal/v1/entitlements`，请求 `{userId,courseId,orderId?,source}`，响应 `{granted:true}`；重复投递返回成功。
 
+> **outbox 死信运维接口（trade-service，不经网关）**：`GET /internal/v1/entitlement-outbox/failed?pageNum=1&pageSize=20` 分页列出 `status=2`（放弃）记录，字段 `id/orderId/courseId/userId/retryCount/lastError/updatedAt`；`POST /internal/v1/entitlement-outbox/{id}/retry` 把放弃记录复位为 `status=0`、`retry_count=0`、清空 `last_error`，由中继按原节奏重投，记录不存在或非放弃态返回 `40401`。
+
+> **outbox 指标与告警**：Micrometer Gauge `entitlement_outbox_pending`（待投递数）与 `entitlement_outbox_failed`（放弃数），中继每批结束后刷新、另有 15 秒定时刷新（`lp.trade.outbox-metrics-delay-ms`）。建议告警：**`entitlement_outbox_failed > 0` 持续 5 分钟**即触发（表示已放弃投递、需人工重投或对账）；`entitlement_outbox_pending` 持续上涨说明 learn-service 不可用或中继失败，同样告警。
+
 > **有效观看时长口径（V4）**：服务端**只用自己记录的 `updated_at` 与当前时间之差**作为本次真实间隔（不采用客户端上报的间隔，避免伪造）。本次可信增量 = `min(position 相对上次的推进量, 间隔 × 1.5)`：
 > - 位置回退（拖动往回）推进量为 0，不增加 `watched_sec`；
 > - 前进跳转超过上限时截断为上限，不报错，响应 `truncated=true`；

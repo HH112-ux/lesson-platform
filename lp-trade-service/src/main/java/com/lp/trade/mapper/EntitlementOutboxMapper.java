@@ -99,7 +99,53 @@ public interface EntitlementOutboxMapper {
      * @since 0.1.0
      */
     @Update(
-            "UPDATE entitlement_outbox SET status = 2, last_error = #{lastError} "
-                    + "WHERE id = #{id} AND status = 0")
-    int markGivenUp(@Param("id") long id, @Param("lastError") String lastError);
+            "UPDATE entitlement_outbox SET status = 2, retry_count = #{retryCount}, "
+                    + "last_error = #{lastError} WHERE id = #{id} AND status = 0")
+    int markGivenUp(
+            @Param("id") long id,
+            @Param("retryCount") int retryCount,
+            @Param("lastError") String lastError);
+
+    /**
+     * Counts rows in one delivery status.
+     *
+     * @param status 0 pending, 1 delivered, 2 given up
+     * @return row count
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Select("SELECT COUNT(*) FROM entitlement_outbox WHERE status = #{status} AND deleted = 0")
+    long countByStatus(@Param("status") int status);
+
+    /**
+     * Lists given up intents, newest first, for operations support.
+     *
+     * @param offset zero based row offset
+     * @param limit page size
+     * @return given up intents, possibly empty
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Select(
+            "SELECT id, order_id AS orderId, order_no AS orderNo, user_id AS userId, "
+                    + "course_id AS courseId, status, retry_count AS retryCount, "
+                    + "next_retry_at AS nextRetryAt, delivered_at AS deliveredAt, "
+                    + "last_error AS lastError, updated_at AS updatedAt FROM entitlement_outbox "
+                    + "WHERE status = 2 AND deleted = 0 "
+                    + "ORDER BY updated_at DESC, id DESC LIMIT #{limit} OFFSET #{offset}")
+    List<EntitlementOutbox> selectGivenUp(@Param("offset") long offset, @Param("limit") int limit);
+
+    /**
+     * Puts a given up intent back into the pending queue with a cleared attempt counter.
+     *
+     * @param id intent id
+     * @return affected rows, {@code 0} when the row is absent or no longer given up
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Update(
+            "UPDATE entitlement_outbox SET status = 0, retry_count = 0, last_error = NULL, "
+                    + "delivered_at = NULL, next_retry_at = CURRENT_TIMESTAMP(3) "
+                    + "WHERE id = #{id} AND status = 2 AND deleted = 0")
+    int resetForRetry(@Param("id") long id);
 }
