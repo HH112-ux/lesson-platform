@@ -1,3 +1,43 @@
 #!/usr/bin/env bash
-# pre-commit：文档规范校验
-exec "$(git rev-parse --show-toplevel)/scripts/check-docs.sh"
+# pre-commit：文档规范校验 + Java 格式门禁
+#
+# 1. 文档/命名规范：与旧行为一致，始终执行（纯 shell，毫秒级）。
+# 2. Java 格式：仅当暂存区含 *.java 变更时执行 spotless:check，避免拖慢纯文档提交。
+#    这里只检查、只提示，绝不自动 spotless:apply 或自动 git add，避免静默改写暂存内容。
+set -uo pipefail
+
+ROOT="$(git rev-parse --show-toplevel)"
+cd "$ROOT" || exit 1
+
+bash scripts/check-docs.sh || exit 1
+
+staged_java="$(git diff --cached --name-only --diff-filter=ACMR -- '*.java')"
+if [ -z "$staged_java" ]; then
+  exit 0
+fi
+
+# spotless 的 ratchet 基线是 origin/develop；拉取失败不阻断，由 CI 做最终判定。
+if ! git fetch --quiet origin develop 2>/dev/null; then
+  printf 'WARN git fetch origin develop 失败，spotless ratchet 基线可能过期\n'
+fi
+
+if command -v timeout >/dev/null 2>&1; then
+  timeout 180 ./mvnw -B -q spotless:check
+  status=$?
+else
+  ./mvnw -B -q spotless:check
+  status=$?
+fi
+
+if [ "$status" -eq 124 ]; then
+  printf 'FAIL spotless:check 超时（180s），可先手动执行 ./mvnw -B -q spotless:check 排查\n'
+fi
+
+if [ "$status" -ne 0 ]; then
+  printf 'FAIL Java 格式校验未通过，本次暂存的 Java 文件：\n'
+  printf '%s\n' "$staged_java" | sed 's/^/  - /'
+  printf '修复：./mvnw spotless:apply，修完重新 git add 后再提交。\n'
+  exit 1
+fi
+
+exit 0

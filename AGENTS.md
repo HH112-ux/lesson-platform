@@ -188,7 +188,9 @@ chore(deps): upgrade wechatpay-java to 0.2.12
 
 ### 7.1 本地钩子启用与 bootstrap 例外
 
-- **启用（每台机器执行一次）**：`git config core.hooksPath .githooks`。启用后 `pre-commit` 跑 `scripts/check-docs.sh`，`commit-msg` 跑 `scripts/check-commit-msg.sh`；两者均为纯 shell，不依赖 Node。
+- **启用（每台机器执行一次）**：`git config core.hooksPath .githooks`（或 `bash scripts/install-hooks.sh`）。启用后 `pre-commit` 始终跑 `scripts/check-docs.sh`，**暂存区含 `*.java` 时**再跑 `timeout 180 ./mvnw -B -q spotless:check`；`commit-msg` 跑 `scripts/check-commit-msg.sh`。除 Maven 外均为纯 shell，不依赖 Node。
+- **Java 改动提交前必跑格式校验**：`spotless:check` 由 `pre-commit` 拦截；失败时按提示执行 `./mvnw spotless:apply`，**修完必须重新 `git add`** 再提交。钩子只检查不修改，不会自动格式化或自动暂存。`--no-verify` 属于需要说明理由的例外，不得作为常态。
+- **ratchet 基线**：`spotless` 的 `ratchetFrom` 为 `origin/develop`，钩子提交前会 `git fetch --quiet origin develop`；fetch 失败只警告不阻断，但基线可能过期，需自行确认或重试 fetch。
 - **验证**：`bash scripts/check-docs.sh && echo "chore: smoke commit" > /tmp/msg && bash scripts/check-commit-msg.sh /tmp/msg`。
 - **bootstrap 例外**：仓库初始化阶段允许直接在 `develop` 上提交并推送（此时分支保护尚未开启）；保护开启后一律按第二节从 `origin/develop` 切分支、经 PR 合入，例外自动失效，无需另行审批。
 - CI 端同等校验见 `.github/workflows/docs-ci.yml`；本地钩子未启用不得作为跳过 CI 的理由。

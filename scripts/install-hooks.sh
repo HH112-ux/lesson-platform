@@ -41,4 +41,4 @@ printf 'OK core.hooksPath = %s\n' "$configured"
 for hook in $REQUIRED_HOOKS; do
   printf 'OK hook executable: %s\n' "$HOOKS_DIR/$hook"
 done
-printf 'Hooks enabled. Each commit now runs scripts/check-docs.sh and scripts/check-commit-msg.sh.\n'
+printf 'Hooks enabled. pre-commit runs scripts/check-docs.sh plus spotless:check for staged Java files; commit-msg runs scripts/check-commit-msg.sh.\n'
