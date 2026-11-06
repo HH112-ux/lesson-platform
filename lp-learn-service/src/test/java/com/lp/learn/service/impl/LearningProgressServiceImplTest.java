@@ -14,6 +14,7 @@ import com.lp.common.exception.BizException;
 import com.lp.common.exception.ErrorCode;
 import com.lp.learn.access.LessonAccessGuard;
 import com.lp.learn.client.LessonInternalClient;
+import com.lp.learn.dto.CourseProgressView;
 import com.lp.learn.dto.LessonPlayInfo;
 import com.lp.learn.dto.LessonProgressView;
 import com.lp.learn.entity.LearningProgress;
@@ -22,6 +23,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -206,6 +208,45 @@ class LearningProgressServiceImplTest {
         assertEquals(545, view.getWatchedSeconds());
         assertTrue(view.isCompleted());
         assertEquals(1, captureMerged().getCompleted());
+    }
+
+    /**
+     * Re-sending the same position adds nothing, so a retried heartbeat cannot inflate watch time.
+     *
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Test
+    void duplicateReportDoesNotAccumulateWatchedTime() {
+        when(lessonInternalClient.lesson(LESSON_ID)).thenReturn(lesson(false));
+        when(learningProgressMapper.selectOne(USER_ID, LESSON_ID))
+                .thenReturn(existing(110, 110, 110, 0, 30));
+
+        LessonProgressView view = progressService.report(USER_ID, LESSON_ID, 110);
+
+        assertEquals(110, view.getWatchedSeconds());
+        assertFalse(view.isTruncated());
+        assertEquals(110, captureMerged().getWatchedSeconds());
+    }
+
+    /**
+     * Course progress is gated only by the entitlement, so a course taken offline still lets its
+     * owners read the progress they already recorded.
+     *
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Test
+    void courseProgressOnlyRequiresEntitlement() {
+        when(learningProgressMapper.selectByUserCourse(USER_ID, COURSE_ID))
+                .thenReturn(List.of(existing(120, 300, 300, 1, 10)));
+
+        CourseProgressView view = progressService.courseProgress(USER_ID, COURSE_ID);
+
+        assertEquals(COURSE_ID, view.getCourseId());
+        assertEquals(1, view.getLessons().size());
+        assertTrue(view.getLessons().get(0).isCompleted());
+        verify(lessonAccessGuard).requireCourseAccess(USER_ID, COURSE_ID);
     }
 
     /**
