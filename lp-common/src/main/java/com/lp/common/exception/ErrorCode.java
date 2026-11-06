@@ -103,6 +103,9 @@ public enum ErrorCode {
     /** The ticket belongs to another user and cannot be redeemed by the caller. */
     PURCHASE_TICKET_USER_MISMATCH(62015, "purchase ticket belongs to another user"),
 
+    /** The callback signature did not match the payload or was missing. */
+    PAYMENT_SIGNATURE_INVALID(62016, "payment signature is invalid"),
+
     /** Learning domain failure. */
     LEARN_BIZ_ERROR(63001, "learning operation failed"),
 
