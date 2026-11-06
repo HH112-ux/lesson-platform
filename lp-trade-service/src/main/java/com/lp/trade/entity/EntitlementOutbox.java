@@ -23,6 +23,8 @@ public class EntitlementOutbox {
 
     private Long courseId;
 
+    private Integer action;
+
     private Integer status;
 
     private Integer retryCount;
@@ -165,6 +167,28 @@ public class EntitlementOutbox {
      */
     public void setCourseId(Long courseId) {
         this.courseId = courseId;
+    }
+
+    /**
+     * Returns the delivery action.
+     *
+     * @return 0 grant, 1 revoke
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public Integer getAction() {
+        return action;
+    }
+
+    /**
+     * Sets the delivery action.
+     *
+     * @param action 0 grant, 1 revoke
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public void setAction(Integer action) {
+        this.action = action;
     }
 
     /**

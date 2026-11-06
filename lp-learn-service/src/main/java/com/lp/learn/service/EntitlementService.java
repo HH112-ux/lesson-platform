@@ -27,6 +27,21 @@ public interface EntitlementService {
     void grant(long userId, long courseId, Long orderId, int source);
 
     /**
+     * Revokes access after a refund, keeping the row and its learning records.
+     *
+     * <p>Safe to call repeatedly. A delayed grant for the refunded order does not restore access,
+     * while a later purchase of the same course reactivates the row.
+     *
+     * @param userId student user id
+     * @param courseId course id
+     * @param orderId order that was refunded, {@code null} when unknown
+     * @throws com.lp.common.exception.BizException when a required field is missing
+     * @author Caspian
+     * @since 0.1.0
+     */
+    void revoke(long userId, long courseId, Long orderId);
+
+    /**
      * Tells whether the student currently owns the course.
      *
      * @param userId student user id

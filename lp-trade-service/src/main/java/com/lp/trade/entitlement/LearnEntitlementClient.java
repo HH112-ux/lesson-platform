@@ -69,4 +69,29 @@ public class LearnEntitlementClient {
             throw new BizException(ErrorCode.CHANNEL_UPSTREAM_ERROR);
         }
     }
+
+    /**
+     * Delivers one entitlement revocation after a refund.
+     *
+     * @param userId buyer user id
+     * @param courseId course id
+     * @param orderId refunded order id
+     * @throws BizException when the upstream call fails
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public void revoke(long userId, long courseId, long orderId) {
+        Map<String, Object> body =
+                Map.of("userId", userId, "courseId", courseId, "orderId", orderId);
+        try {
+            restClient
+                    .post()
+                    .uri("/internal/v1/entitlements/revoke")
+                    .body(body)
+                    .retrieve()
+                    .toBodilessEntity();
+        } catch (RestClientException exception) {
+            throw new BizException(ErrorCode.CHANNEL_UPSTREAM_ERROR);
+        }
+    }
 }

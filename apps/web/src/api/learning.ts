@@ -23,6 +23,8 @@ export interface MyCourseCard {
   progressPercent: number
   /** Lesson to resume from; {@code null} before the first playback. */
   lastLessonId: number | null
+  /** True when the order was refunded; access is revoked but progress stays visible. */
+  refunded: boolean
 }
 
 /** Stored progress of one lesson. */

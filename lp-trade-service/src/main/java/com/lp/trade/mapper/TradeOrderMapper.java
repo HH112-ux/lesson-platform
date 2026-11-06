@@ -175,6 +175,20 @@ public interface TradeOrderMapper {
     int markPaid(@Param("id") long id, @Param("paidAt") LocalDateTime paidAt);
 
     /**
+     * Marks a paid order as refunded.
+     *
+     * @param id order primary key
+     * @param refundedAt refund time
+     * @return affected rows, {@code 0} when the order is not paid any more
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Update(
+            "UPDATE trade_order SET status = 5, closed_at = #{refundedAt} "
+                    + "WHERE id = #{id} AND status = 1")
+    int markRefunded(@Param("id") long id, @Param("refundedAt") LocalDateTime refundedAt);
+
+    /**
      * Marks a pending order as closed.
      *
      * @param id order primary key

@@ -2,6 +2,7 @@ package com.lp.trade.entitlement;
 
 import com.lp.common.exception.BizException;
 import com.lp.trade.config.TradeProperties;
+import com.lp.trade.domain.EntitlementAction;
 import com.lp.trade.entity.EntitlementOutbox;
 import com.lp.trade.mapper.EntitlementOutboxMapper;
 import java.time.LocalDateTime;
@@ -16,8 +17,9 @@ import org.springframework.stereotype.Component;
  *
  * <p>The relay runs outside any business transaction. Delivery is at-least-once: a crash between
  * the remote call and {@code markDelivered} causes one more attempt, which learn-service absorbs
- * through {@code uk_user_course}. Failures use exponential backoff; after the configured attempt
- * limit the row is marked as given up and needs manual reconciliation.
+ * because grant and revoke both decide on the stored row. Failures use exponential backoff; after
+ * the configured attempt limit the row is marked as given up and needs manual reconciliation.
+ * Grants and revocations share this path, so a refund retries exactly like a purchase.
  *
  * @author Caspian
  * @since 0.1.0
@@ -86,8 +88,13 @@ public class EntitlementRelay {
 
     private void deliver(EntitlementOutbox outbox) {
         try {
-            learnEntitlementClient.grant(
-                    outbox.getUserId(), outbox.getCourseId(), outbox.getOrderId());
+            if (Integer.valueOf(EntitlementAction.REVOKE).equals(outbox.getAction())) {
+                learnEntitlementClient.revoke(
+                        outbox.getUserId(), outbox.getCourseId(), outbox.getOrderId());
+            } else {
+                learnEntitlementClient.grant(
+                        outbox.getUserId(), outbox.getCourseId(), outbox.getOrderId());
+            }
             entitlementOutboxMapper.markDelivered(outbox.getId(), LocalDateTime.now());
         } catch (RuntimeException exception) {
             handleFailure(outbox, exception);

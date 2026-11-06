@@ -2,6 +2,7 @@ package com.lp.learn.service.impl;
 
 import com.lp.learn.client.CourseInternalClient;
 import com.lp.learn.client.CourseSnapshot;
+import com.lp.learn.domain.EntitlementStatus;
 import com.lp.learn.dto.MyCourseView;
 import com.lp.learn.dto.PageView;
 import com.lp.learn.entity.LearningProgress;
@@ -21,7 +22,8 @@ import org.springframework.stereotype.Service;
  *
  * <p>Entitlements are the source of truth for access; course titles and covers come from the
  * course-service internal batch API. Entitlements whose course disappeared are skipped instead of
- * failing the whole page.
+ * failing the whole page. Refunded entitlements stay in the list with {@code refunded = true}: the
+ * student keeps reading progress, but the course is no longer accessible.
  *
  * <p>{@code progressPercent} is the completed lesson count divided by the live lesson count and
  * rounded half up to an integer, capped at 100. A course without live lessons reports 0. {@code
@@ -78,13 +80,13 @@ public class MyCourseServiceImpl implements MyCourseService {
     public PageView<MyCourseView> myCourses(long userId, int pageNum, int pageSize) {
         int safePageNum = pageNum < 1 ? 1 : pageNum;
         int safePageSize = pageSize < 1 ? DEFAULT_PAGE_SIZE : Math.min(pageSize, MAX_PAGE_SIZE);
-        long total = userEntitlementMapper.countActiveByUser(userId);
+        long total = userEntitlementMapper.countAllByUser(userId);
         if (total == 0) {
             return new PageView<>(safePageNum, safePageSize, 0, List.of());
         }
 
         List<UserEntitlement> entitlements =
-                userEntitlementMapper.selectActiveByUser(
+                userEntitlementMapper.selectAllByUser(
                         userId, (long) (safePageNum - 1) * safePageSize, safePageSize);
         if (entitlements.isEmpty()) {
             return new PageView<>(safePageNum, safePageSize, total, List.of());
@@ -121,7 +123,9 @@ public class MyCourseServiceImpl implements MyCourseService {
                                                     completedCounts.getOrDefault(
                                                             course.getCourseId(), 0),
                                                     course.getLessonCount()),
-                                            lastLessonIds.get(course.getCourseId()));
+                                            lastLessonIds.get(course.getCourseId()),
+                                            Integer.valueOf(EntitlementStatus.REVOKED)
+                                                    .equals(entitlement.getStatus()));
                                 })
                         .filter(view -> view != null)
                         .toList();

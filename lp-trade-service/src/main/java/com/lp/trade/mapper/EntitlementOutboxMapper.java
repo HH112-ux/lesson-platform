@@ -13,8 +13,9 @@ import org.apache.ibatis.annotations.Update;
 /**
  * Reads and writes {@code entitlement_outbox}.
  *
- * <p>The unique key {@code uk_order_course} makes the write inside the order transaction
- * idempotent: a duplicate insert is ignored and the first outstanding intent stays.
+ * <p>The unique key {@code uk_order_course_action} makes the write inside the order transaction
+ * idempotent: a duplicate insert is ignored and the first outstanding intent stays. Grants and
+ * revocations of the same order/course coexist because the action is part of the key.
  *
  * @author Caspian
  * @since 0.1.0
@@ -31,9 +32,9 @@ public interface EntitlementOutboxMapper {
      * @since 0.1.0
      */
     @Insert(
-            "INSERT INTO entitlement_outbox (order_id, order_no, user_id, course_id, status, "
-                    + "retry_count, next_retry_at) VALUES (#{orderId}, #{orderNo}, #{userId}, "
-                    + "#{courseId}, 0, 0, CURRENT_TIMESTAMP(3))")
+            "INSERT INTO entitlement_outbox (order_id, order_no, user_id, course_id, action, "
+                    + "status, retry_count, next_retry_at) VALUES (#{orderId}, #{orderNo}, "
+                    + "#{userId}, #{courseId}, #{action}, 0, 0, CURRENT_TIMESTAMP(3))")
     @Options(useGeneratedKeys = true, keyProperty = "id")
     int insert(EntitlementOutbox outbox);
 
@@ -47,7 +48,7 @@ public interface EntitlementOutboxMapper {
      */
     @Select(
             "SELECT id, order_id AS orderId, order_no AS orderNo, user_id AS userId, "
-                    + "course_id AS courseId, status, retry_count AS retryCount, "
+                    + "course_id AS courseId, action, status, retry_count AS retryCount, "
                     + "next_retry_at AS nextRetryAt, delivered_at AS deliveredAt, "
                     + "last_error AS lastError FROM entitlement_outbox "
                     + "WHERE status = 0 AND deleted = 0 "
@@ -128,7 +129,7 @@ public interface EntitlementOutboxMapper {
      */
     @Select(
             "SELECT id, order_id AS orderId, order_no AS orderNo, user_id AS userId, "
-                    + "course_id AS courseId, status, retry_count AS retryCount, "
+                    + "course_id AS courseId, action, status, retry_count AS retryCount, "
                     + "next_retry_at AS nextRetryAt, delivered_at AS deliveredAt, "
                     + "last_error AS lastError, updated_at AS updatedAt FROM entitlement_outbox "
                     + "WHERE status = 2 AND deleted = 0 "

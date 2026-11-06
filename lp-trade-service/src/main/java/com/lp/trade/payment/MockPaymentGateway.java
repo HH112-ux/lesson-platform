@@ -8,6 +8,7 @@ import com.lp.trade.dto.PrepayResult;
 import com.lp.trade.entity.PaymentRecord;
 import com.lp.trade.entity.TradeOrder;
 import com.lp.trade.mapper.TradeOrderMapper;
+import java.math.BigDecimal;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -81,5 +82,20 @@ public class MockPaymentGateway implements PaymentGateway {
         payParams.put("payNo", payNo);
         payParams.put("channel", Integer.toString(PaymentChannel.ALIPAY));
         return new PrepayResult(payNo, PaymentChannel.ALIPAY, payParams);
+    }
+
+    /**
+     * Accepts the refund immediately, mirroring a synchronous channel acknowledgement.
+     *
+     * @param payment successful payment
+     * @param refundNo local refund number, echoed into the channel reference
+     * @param amount amount in yuan
+     * @return deterministic mock channel refund number
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Override
+    public String refund(PaymentRecord payment, String refundNo, BigDecimal amount) {
+        return "MOCK-" + refundNo;
     }
 }

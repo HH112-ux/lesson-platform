@@ -24,4 +24,19 @@ public interface EntitlementService {
      * @since 0.1.0
      */
     void grant(long userId, long courseId, long orderId, String orderNo);
+
+    /**
+     * Records that the buyer must lose access to one course after a refund.
+     *
+     * <p>Delivered through the same outbox as a grant, so retries, backoff, the dead letter queue
+     * and operations replay apply unchanged. The learning records stay untouched.
+     *
+     * @param userId buyer user id
+     * @param courseId course id
+     * @param orderId refunded order id
+     * @param orderNo order number, kept for support and audit
+     * @author Caspian
+     * @since 0.1.0
+     */
+    void revoke(long userId, long courseId, long orderId, String orderNo);
 }
