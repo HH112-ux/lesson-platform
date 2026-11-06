@@ -4,6 +4,24 @@ const { describeError } = require('../../utils/format')
 
 const REPORT_INTERVAL_MS = 15000
 
+// Matches ErrorCode.LEARN_NOT_ENTITLED; a refunded course answers with it because the
+// entitlement row is revoked, so the page explains the refund instead of the raw error.
+const NOT_ENTITLED_CODE = 40302
+
+/**
+ * Turns a play token rejection into display text.
+ *
+ * @param {*} error rejection value of the request client
+ * @param {string} fallback text used for other failures
+ * @return {string} display text
+ */
+function describePlayError(error, fallback) {
+  if (error && error.code === NOT_ENTITLED_CODE) {
+    return '该课程已退款，学习权限已收回'
+  }
+  return describeError(error, fallback)
+}
+
 Page({
   data: {
     lessonId: 0,
@@ -53,7 +71,7 @@ Page({
         })
       })
       .catch((error) => {
-        this.setData({ loading: false, errorText: describeError(error, '课时加载失败') })
+        this.setData({ loading: false, errorText: describePlayError(error, '课时加载失败') })
       })
   },
 
@@ -83,7 +101,7 @@ Page({
         this.setData({ playUrl: play.playUrl, initialTime: this.pendingPosition })
       })
       .catch((error) => {
-        this.setData({ errorText: describeError(error, '视频播放失败，请稍后重试') })
+        this.setData({ errorText: describePlayError(error, '视频播放失败，请稍后重试') })
       })
   },
 
