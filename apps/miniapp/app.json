@@ -1,10 +1,15 @@
 {
-  "pages": ["pages/index/index"],
+  "pages": [
+    "pages/index/index",
+    "pages/course/course",
+    "pages/my-courses/my-courses",
+    "pages/player/player"
+  ],
   "window": {
     "navigationBarTitleText": "课程平台",
     "navigationBarBackgroundColor": "#ffffff",
     "navigationBarTextStyle": "black",
-    "backgroundColor": "#f7f8fa"
+    "backgroundColor": "#f5f6f7"
   },
   "style": "v2",
   "sitemapLocation": "sitemap.json"
