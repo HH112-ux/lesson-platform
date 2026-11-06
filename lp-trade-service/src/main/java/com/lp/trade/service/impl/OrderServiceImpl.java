@@ -6,8 +6,13 @@ import com.lp.common.identity.IdentityHeaders;
 import com.lp.trade.client.CourseInternalClient;
 import com.lp.trade.domain.OrderStatus;
 import com.lp.trade.domain.PaymentChannel;
+import com.lp.trade.dto.CancelOrderResult;
 import com.lp.trade.dto.CourseSnapshot;
 import com.lp.trade.dto.CreateOrderRequest;
+import com.lp.trade.dto.OrderDetailView;
+import com.lp.trade.dto.OrderItemView;
+import com.lp.trade.dto.OrderPageView;
+import com.lp.trade.dto.OrderSummaryView;
 import com.lp.trade.dto.OrderView;
 import com.lp.trade.entitlement.EntitlementService;
 import com.lp.trade.entity.Coupon;
@@ -15,12 +20,14 @@ import com.lp.trade.entity.TradeOrder;
 import com.lp.trade.entity.TradeOrderItem;
 import com.lp.trade.entity.UserCoupon;
 import com.lp.trade.mapper.CouponMapper;
+import com.lp.trade.mapper.PaymentMapper;
 import com.lp.trade.mapper.TradeOrderMapper;
 import com.lp.trade.service.OrderService;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
@@ -49,6 +56,12 @@ public class OrderServiceImpl implements OrderService {
 
     private static final BigDecimal ZERO = new BigDecimal("0.00");
 
+    /** Maximum page size accepted by the order list. */
+    private static final int MAX_PAGE_SIZE = 100;
+
+    /** Maximum cancel reason length, matching {@code trade_order.cancel_reason}. */
+    private static final int MAX_CANCEL_REASON_LENGTH = 200;
+
     private static final DateTimeFormatter ORDER_NO_TIME =
             DateTimeFormatter.ofPattern("yyyyMMddHHmmssSSS");
 
@@ -60,6 +73,8 @@ public class OrderServiceImpl implements OrderService {
 
     private final EntitlementService entitlementService;
 
+    private final PaymentMapper paymentMapper;
+
     /**
      * Creates the service with its dependencies.
      *
@@ -67,6 +82,7 @@ public class OrderServiceImpl implements OrderService {
      * @param couponMapper coupon persistence
      * @param courseInternalClient course-service reader
      * @param entitlementService ownership port
+     * @param paymentMapper payment persistence used to close attempts on cancel
      * @author Caspian
      * @since 0.1.0
      */
@@ -74,11 +90,13 @@ public class OrderServiceImpl implements OrderService {
             TradeOrderMapper tradeOrderMapper,
             CouponMapper couponMapper,
             CourseInternalClient courseInternalClient,
-            EntitlementService entitlementService) {
+            EntitlementService entitlementService,
+            PaymentMapper paymentMapper) {
         this.tradeOrderMapper = tradeOrderMapper;
         this.couponMapper = couponMapper;
         this.courseInternalClient = courseInternalClient;
         this.entitlementService = entitlementService;
+        this.paymentMapper = paymentMapper;
     }
 
     /**
@@ -253,6 +271,170 @@ public class OrderServiceImpl implements OrderService {
         TradeOrderItem item = tradeOrderMapper.selectFirstItem(order.getId());
         long courseId = item == null ? 0L : item.getCourseId();
         return buildView(order, courseId);
+    }
+
+    /**
+     * Lists one page of the buyer orders, newest first.
+     *
+     * @param userId authenticated buyer id
+     * @param status optional status filter
+     * @param pageNum one based page number
+     * @param pageSize page size
+     * @return order page
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Override
+    public OrderPageView list(long userId, Integer status, int pageNum, int pageSize) {
+        int safePage = Math.max(pageNum, 1);
+        int safeSize = Math.min(Math.max(pageSize, 1), MAX_PAGE_SIZE);
+        Integer filter = status != null && status >= 0 ? status : null;
+        long total = tradeOrderMapper.countByUser(userId, filter);
+        if (total == 0) {
+            return new OrderPageView(List.of(), 0, safePage, safeSize);
+        }
+        List<OrderSummaryView> records =
+                tradeOrderMapper
+                        .selectPageByUser(
+                                userId, filter, (long) (safePage - 1) * safeSize, safeSize)
+                        .stream()
+                        .map(
+                                order ->
+                                        new OrderSummaryView(
+                                                order.getId(),
+                                                order.getOrderNo(),
+                                                order.getStatus(),
+                                                order.getChannel(),
+                                                order.getPayAmount(),
+                                                order.getCreatedAt(),
+                                                List.of(
+                                                        toItemView(
+                                                                tradeOrderMapper.selectFirstItem(
+                                                                        order.getId())))))
+                        .toList();
+        return new OrderPageView(records, total, safePage, safeSize);
+    }
+
+    /**
+     * Loads one order of the buyer.
+     *
+     * @param userId authenticated buyer id
+     * @param orderId order primary key
+     * @return order detail
+     * @throws BizException when the order is absent or owned by someone else
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Override
+    public OrderDetailView detail(long userId, long orderId) {
+        TradeOrder order = requireOwnedOrder(userId, orderId);
+        List<OrderItemView> items =
+                tradeOrderMapper.selectItems(orderId).stream().map(this::toItemView).toList();
+        return new OrderDetailView(
+                order.getId(),
+                order.getOrderNo(),
+                order.getStatus(),
+                order.getChannel(),
+                order.getTotalAmount(),
+                order.getDiscountAmount(),
+                order.getPayAmount(),
+                order.getPayExpireAt(),
+                order.getPaidAt(),
+                order.getCreatedAt(),
+                order.getCancelReason(),
+                items);
+    }
+
+    /**
+     * Cancels a pending order and closes its pending payment attempts.
+     *
+     * @param userId authenticated buyer id
+     * @param orderId order primary key
+     * @param reason optional buyer supplied reason
+     * @return resulting status, always 2
+     * @throws BizException when the order is absent, owned by someone else or no longer pending
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public CancelOrderResult cancel(long userId, long orderId, String reason) {
+        TradeOrder order = requireOwnedOrder(userId, orderId);
+        int status = order.getStatus();
+        if (status == OrderStatus.CANCELLED) {
+            return new CancelOrderResult(orderId, OrderStatus.CANCELLED);
+        }
+        if (status != OrderStatus.PENDING) {
+            throw new BizException(
+                    ErrorCode.TRADE_BIZ_ERROR, "only a pending order can be cancelled");
+        }
+        int updated =
+                tradeOrderMapper.markCancelled(
+                        orderId, normalizeReason(reason), LocalDateTime.now());
+        if (updated == 0) {
+            // A concurrent cancel or payment won the race; report the resulting state.
+            TradeOrder latest = tradeOrderMapper.selectById(orderId);
+            if (latest != null && latest.getStatus() == OrderStatus.CANCELLED) {
+                return new CancelOrderResult(orderId, OrderStatus.CANCELLED);
+            }
+            throw new BizException(ErrorCode.TRADE_BIZ_ERROR, "order is no longer cancellable");
+        }
+        paymentMapper.closePendingByOrderId(orderId);
+        return new CancelOrderResult(orderId, OrderStatus.CANCELLED);
+    }
+
+    /**
+     * Loads an order and rejects callers that do not own it.
+     *
+     * @param userId authenticated buyer id
+     * @param orderId order primary key
+     * @return order owned by the caller
+     * @throws BizException {@code 40401} when absent, {@code 40301} when owned by someone else
+     * @author Caspian
+     * @since 0.1.0
+     */
+    private TradeOrder requireOwnedOrder(long userId, long orderId) {
+        TradeOrder order = tradeOrderMapper.selectById(orderId);
+        if (order == null) {
+            throw new BizException(ErrorCode.NOT_FOUND);
+        }
+        if (order.getUserId() == null || order.getUserId() != userId) {
+            throw new BizException(ErrorCode.FORBIDDEN);
+        }
+        return order;
+    }
+
+    /**
+     * Trims the cancel reason and caps it at the column length.
+     *
+     * @param reason raw reason
+     * @return normalized reason, {@code null} when blank
+     * @author Caspian
+     * @since 0.1.0
+     */
+    private String normalizeReason(String reason) {
+        if (reason == null || reason.isBlank()) {
+            return null;
+        }
+        String trimmed = reason.trim();
+        return trimmed.length() > MAX_CANCEL_REASON_LENGTH
+                ? trimmed.substring(0, MAX_CANCEL_REASON_LENGTH)
+                : trimmed;
+    }
+
+    /**
+     * Maps an order line to the response row; an order without lines maps to a zero priced row.
+     *
+     * @param item stored line
+     * @return response row
+     * @author Caspian
+     * @since 0.1.0
+     */
+    private OrderItemView toItemView(TradeOrderItem item) {
+        if (item == null) {
+            return new OrderItemView(0L, "", ZERO);
+        }
+        return new OrderItemView(item.getCourseId(), item.getCourseTitle(), item.getPrice());
     }
 
     private OrderView buildView(TradeOrder order, long courseId) {

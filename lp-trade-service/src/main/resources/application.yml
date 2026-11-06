@@ -13,6 +13,12 @@ spring:
     hikari:
       maximum-pool-size: 5
       minimum-idle: 1
+  # Purchase tickets live in Redis under lp:trade:purchase-ticket:{sha256}; TTL 15 minutes.
+  data:
+    redis:
+      host: ${LP_REDIS_HOST:127.0.0.1}
+      port: ${LP_REDIS_PORT:6379}
+      timeout: 2s
   # Schema history is managed by the flyway CLI (scripts/flyway.sh), not at application startup.
   # Nacos config centre placeholder. The client is not on the classpath yet, so these keys are
   # inert and the service always starts with the local defaults below. Once M1 adds
@@ -39,6 +45,10 @@ lp:
     # Eventual consistency window: a pending grant is delivered within one relay delay.
     outbox-relay-delay-ms: ${LP_ENTITLEMENT_RELAY_DELAY_MS:5000}
     outbox-max-retries: ${LP_ENTITLEMENT_MAX_RETRIES:10}
+    # Browser base URL used in the purchase ticket deep link. Never hardcode a domain in code.
+    web-base-url: ${LP_WEB_BASE_URL:http://127.0.0.1:5173}
+    # auth-service internal session API, called after a ticket is redeemed.
+    auth-base-url: ${LP_AUTH_SERVICE_BASE_URL:http://127.0.0.1:8101}
   internal:
     # Shared secret for /internal/v1/**; no default, so a missing LP_INTERNAL_TOKEN fails startup.
     token: ${LP_INTERNAL_TOKEN}

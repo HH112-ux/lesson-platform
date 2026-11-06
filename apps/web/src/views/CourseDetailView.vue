@@ -192,7 +192,7 @@ void loadChapters()
                     :key="lesson.lessonId"
                     class="lesson"
                   >
-                    <template v-if="owned || lesson.free">
+                    <template v-if="(owned || lesson.free) && lesson.playable !== false">
                       <a :href="lessonHref(lesson.lessonId)">{{ lesson.title }}</a>
                       <span
                         v-if="lesson.free && !owned"

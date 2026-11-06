@@ -28,6 +28,8 @@ public class Course {
 
     private Long lessonCount;
 
+    private String instructorName;
+
     /**
      * Returns the course id.
      *
@@ -180,5 +182,27 @@ public class Course {
      */
     public void setLessonCount(Long lessonCount) {
         this.lessonCount = lessonCount;
+    }
+
+    /**
+     * Returns the instructor display name resolved from {@code teacher_profile}.
+     *
+     * @return display name, {@code null} when the profile is absent
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public String getInstructorName() {
+        return instructorName;
+    }
+
+    /**
+     * Sets the instructor display name.
+     *
+     * @param instructorName display name
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public void setInstructorName(String instructorName) {
+        this.instructorName = instructorName;
     }
 }

@@ -3,6 +3,7 @@ package com.lp.trade.mapper;
 import com.lp.trade.entity.TradeOrder;
 import com.lp.trade.entity.TradeOrderItem;
 import java.time.LocalDateTime;
+import java.util.List;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Options;
@@ -79,6 +80,84 @@ public interface TradeOrderMapper {
     TradeOrder selectByOrderNo(@Param("orderNo") String orderNo);
 
     /**
+     * Finds an order by id regardless of its owner.
+     *
+     * @param orderId order primary key
+     * @return order, or {@code null} when absent or deleted
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Select(
+            "SELECT id, order_no AS orderNo, user_id AS userId, "
+                    + "total_amount AS totalAmount, discount_amount AS discountAmount, "
+                    + "pay_amount AS payAmount, status, coupon_id AS couponId, channel, "
+                    + "pay_expire_at AS payExpireAt, paid_at AS paidAt, closed_at AS closedAt, "
+                    + "idempotency_key AS idempotencyKey, created_at AS createdAt, "
+                    + "cancel_reason AS cancelReason FROM trade_order "
+                    + "WHERE id = #{orderId} AND deleted = 0 LIMIT 1")
+    TradeOrder selectById(@Param("orderId") long orderId);
+
+    /**
+     * Counts the orders of one buyer, optionally filtered by status.
+     *
+     * @param userId buyer user id
+     * @param status status filter, {@code null} for all statuses
+     * @return matching orders
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Select(
+            "<script>SELECT COUNT(*) FROM trade_order WHERE user_id = #{userId} "
+                    + "AND deleted = 0 "
+                    + "<if test='status != null'>AND status = #{status} </if></script>")
+    long countByUser(@Param("userId") long userId, @Param("status") Integer status);
+
+    /**
+     * Lists one page of buyer orders, newest first.
+     *
+     * @param userId buyer user id
+     * @param status status filter, {@code null} for all statuses
+     * @param offset zero based row offset
+     * @param limit maximum rows
+     * @return matching orders
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Select(
+            "<script>SELECT id, order_no AS orderNo, user_id AS userId, "
+                    + "total_amount AS totalAmount, discount_amount AS discountAmount, "
+                    + "pay_amount AS payAmount, status, coupon_id AS couponId, channel, "
+                    + "pay_expire_at AS payExpireAt, paid_at AS paidAt, closed_at AS closedAt, "
+                    + "idempotency_key AS idempotencyKey, created_at AS createdAt, "
+                    + "cancel_reason AS cancelReason FROM trade_order "
+                    + "WHERE user_id = #{userId} AND deleted = 0 "
+                    + "<if test='status != null'>AND status = #{status} </if>"
+                    + "ORDER BY id DESC LIMIT #{limit} OFFSET #{offset}</script>")
+    List<TradeOrder> selectPageByUser(
+            @Param("userId") long userId,
+            @Param("status") Integer status,
+            @Param("offset") long offset,
+            @Param("limit") long limit);
+
+    /**
+     * Cancels a pending order; the conditional status keeps a paid order untouched.
+     *
+     * @param id order primary key
+     * @param reason buyer supplied reason, may be {@code null}
+     * @param cancelledAt cancel time
+     * @return affected rows, {@code 0} when the order is no longer pending
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Update(
+            "UPDATE trade_order SET status = 2, cancel_reason = #{reason}, "
+                    + "closed_at = #{cancelledAt} WHERE id = #{id} AND status = 0")
+    int markCancelled(
+            @Param("id") long id,
+            @Param("reason") String reason,
+            @Param("cancelledAt") LocalDateTime cancelledAt);
+
+    /**
      * Marks a pending order as paid.
      *
      * @param id order primary key
@@ -123,6 +202,22 @@ public interface TradeOrderMapper {
                     + "FROM trade_order_item WHERE order_id = #{orderId} AND deleted = 0 "
                     + "ORDER BY id LIMIT 1")
     TradeOrderItem selectFirstItem(@Param("orderId") long orderId);
+
+    /**
+     * Loads every line of an order.
+     *
+     * @param orderId order id
+     * @return lines in insertion order, possibly empty
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Select(
+            "SELECT id, order_id AS orderId, course_id AS courseId, "
+                    + "owner_teacher_id AS ownerTeacherId, course_title AS courseTitle, price, "
+                    + "discount_amount AS discountAmount, actual_amount AS actualAmount "
+                    + "FROM trade_order_item WHERE order_id = #{orderId} AND deleted = 0 "
+                    + "ORDER BY id")
+    List<TradeOrderItem> selectItems(@Param("orderId") long orderId);
 
     /**
      * Inserts one order and fills the generated id.

@@ -25,6 +25,54 @@ public class TradeProperties {
 
     private int outboxMaxRetries = 10;
 
+    private String webBaseUrl = "http://127.0.0.1:5173";
+
+    private String authBaseUrl = "http://127.0.0.1:8101";
+
+    /**
+     * Returns the browser base URL used in purchase ticket links.
+     *
+     * @return scheme, host and port without a trailing slash
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public String getWebBaseUrl() {
+        return webBaseUrl;
+    }
+
+    /**
+     * Sets the browser base URL used in purchase ticket links.
+     *
+     * @param webBaseUrl scheme, host and port without a trailing slash
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public void setWebBaseUrl(String webBaseUrl) {
+        this.webBaseUrl = webBaseUrl;
+    }
+
+    /**
+     * Returns the base URL of the auth-service internal API.
+     *
+     * @return scheme, host and port without a trailing slash
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public String getAuthBaseUrl() {
+        return authBaseUrl;
+    }
+
+    /**
+     * Sets the base URL of the auth-service internal API.
+     *
+     * @param authBaseUrl scheme, host and port without a trailing slash
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public void setAuthBaseUrl(String authBaseUrl) {
+        this.authBaseUrl = authBaseUrl;
+    }
+
     /**
      * Returns the base URL of the learn-service internal API.
      *
