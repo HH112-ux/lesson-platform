@@ -109,10 +109,44 @@ class LessonAccessGuardTest {
         assertEquals(ErrorCode.LEARN_NOT_ENTITLED.getCode(), exception.getCode());
     }
 
+    /**
+     * An offline course hides even its free lessons from a caller without an entitlement.
+     *
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Test
+    void offlineFreeLessonHiddenWithoutEntitlement() {
+        when(entitlementService.hasEntitlement(USER_ID, COURSE_ID)).thenReturn(false);
+        LessonPlayInfo offline = lesson(true);
+        offline.setCourseStatus(3);
+
+        BizException exception =
+                assertThrows(BizException.class, () -> guard.requireAccess(USER_ID, offline));
+
+        assertEquals(ErrorCode.NOT_FOUND.getCode(), exception.getCode());
+    }
+
+    /**
+     * An existing owner keeps access to an offline course.
+     *
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Test
+    void offlineLessonPassesForOwner() {
+        when(entitlementService.hasEntitlement(USER_ID, COURSE_ID)).thenReturn(true);
+        LessonPlayInfo offline = lesson(false);
+        offline.setCourseStatus(3);
+
+        assertDoesNotThrow(() -> guard.requireAccess(USER_ID, offline));
+    }
+
     private LessonPlayInfo lesson(boolean free) {
         LessonPlayInfo info = new LessonPlayInfo();
         info.setCourseId(COURSE_ID);
         info.setFree(free);
+        info.setCourseStatus(2);
         return info;
     }
 }

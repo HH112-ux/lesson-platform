@@ -21,6 +21,8 @@ public class LessonPlayView {
 
     private final boolean free;
 
+    private final int courseStatus;
+
     /**
      * Creates a fully populated projection.
      *
@@ -29,16 +31,23 @@ public class LessonPlayView {
      * @param videoObjectKey MinIO object key
      * @param durationSec video duration in seconds
      * @param free whether the lesson is a free trial
+     * @param courseStatus status of the owning course
      * @author Caspian
      * @since 0.1.0
      */
     public LessonPlayView(
-            long lessonId, long courseId, String videoObjectKey, int durationSec, boolean free) {
+            long lessonId,
+            long courseId,
+            String videoObjectKey,
+            int durationSec,
+            boolean free,
+            int courseStatus) {
         this.lessonId = lessonId;
         this.courseId = courseId;
         this.videoObjectKey = videoObjectKey;
         this.durationSec = durationSec;
         this.free = free;
+        this.courseStatus = courseStatus;
     }
 
     /**
@@ -94,5 +103,16 @@ public class LessonPlayView {
      */
     public boolean isFree() {
         return free;
+    }
+
+    /**
+     * Returns the status of the owning course.
+     *
+     * @return 0 draft, 1 pending review, 2 published, 3 offline
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public int getCourseStatus() {
+        return courseStatus;
     }
 }

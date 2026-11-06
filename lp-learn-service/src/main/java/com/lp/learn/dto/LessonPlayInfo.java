@@ -21,6 +21,8 @@ public class LessonPlayInfo {
 
     private boolean free;
 
+    private int courseStatus;
+
     /**
      * Returns the lesson id.
      *
@@ -129,5 +131,27 @@ public class LessonPlayInfo {
      */
     public void setFree(boolean free) {
         this.free = free;
+    }
+
+    /**
+     * Returns the status of the owning course.
+     *
+     * @return 0 draft, 1 pending review, 2 published, 3 offline
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public int getCourseStatus() {
+        return courseStatus;
+    }
+
+    /**
+     * Sets the status of the owning course.
+     *
+     * @param courseStatus 0 draft, 1 pending review, 2 published, 3 offline
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public void setCourseStatus(int courseStatus) {
+        this.courseStatus = courseStatus;
     }
 }

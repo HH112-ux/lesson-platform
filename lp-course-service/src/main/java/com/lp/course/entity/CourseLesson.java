@@ -28,6 +28,8 @@ public class CourseLesson {
 
     private Integer status;
 
+    private Integer courseStatus;
+
     /**
      * Returns the lesson id.
      *
@@ -224,5 +226,27 @@ public class CourseLesson {
      */
     public void setStatus(Integer status) {
         this.status = status;
+    }
+
+    /**
+     * Returns the status of the owning course, projected only by the playback query.
+     *
+     * @return 0 draft, 1 pending review, 2 published, 3 offline; {@code null} when not selected
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public Integer getCourseStatus() {
+        return courseStatus;
+    }
+
+    /**
+     * Sets the status of the owning course.
+     *
+     * @param courseStatus 0 draft, 1 pending review, 2 published, 3 offline
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public void setCourseStatus(Integer courseStatus) {
+        this.courseStatus = courseStatus;
     }
 }

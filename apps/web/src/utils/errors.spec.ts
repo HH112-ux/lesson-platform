@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { ApiError } from '../api/client'
-import { describeError, isUnauthorized } from './errors'
+import { describeError, isNotFound, isUnauthorized } from './errors'
 
 describe('describeError', () => {
   it('maps known backend codes to fixed wording', () => {
@@ -17,6 +17,14 @@ describe('describeError', () => {
       .toBe('网络连接失败，请检查网络后重试')
     expect(describeError(new Error('boom'))).toBe('boom')
     expect(describeError('oops')).toBe('操作失败，请稍后重试')
+  })
+})
+
+describe('isNotFound', () => {
+  it('only treats 40401 as an absent course', () => {
+    expect(isNotFound(new ApiError(40401, 'missing'))).toBe(true)
+    expect(isNotFound(new ApiError(40302, 'not entitled'))).toBe(false)
+    expect(isNotFound(new Error('boom'))).toBe(false)
   })
 })
 
