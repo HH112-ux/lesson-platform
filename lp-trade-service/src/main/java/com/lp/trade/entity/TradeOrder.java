@@ -40,6 +40,10 @@ public class TradeOrder {
 
     private String idempotencyKey;
 
+    private LocalDateTime createdAt;
+
+    private String cancelReason;
+
     /**
      * Returns the primary key.
      *
@@ -324,5 +328,49 @@ public class TradeOrder {
      */
     public void setIdempotencyKey(String idempotencyKey) {
         this.idempotencyKey = idempotencyKey;
+    }
+
+    /**
+     * Returns the creation time.
+     *
+     * @return creation time
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public LocalDateTime getCreatedAt() {
+        return createdAt;
+    }
+
+    /**
+     * Sets the creation time.
+     *
+     * @param createdAt creation time
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public void setCreatedAt(LocalDateTime createdAt) {
+        this.createdAt = createdAt;
+    }
+
+    /**
+     * Returns the cancel reason.
+     *
+     * @return reason text, {@code null} when the order was not cancelled by the buyer
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public String getCancelReason() {
+        return cancelReason;
+    }
+
+    /**
+     * Sets the cancel reason.
+     *
+     * @param cancelReason reason text
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public void setCancelReason(String cancelReason) {
+        this.cancelReason = cancelReason;
     }
 }
