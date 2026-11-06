@@ -14,10 +14,11 @@ const PAGE_SIZE = 20
 
 const ORDER_STATUS: Record<number, string> = {
   0: '待支付',
-  1: '支付中',
-  2: '已支付',
+  1: '已支付',
+  2: '已取消',
   3: '已关闭',
-  4: '已退款',
+  4: '退款中',
+  5: '已退款',
 }
 
 const orderNo = ref('')
