@@ -293,7 +293,35 @@ curl -s -X POST http://localhost:8080/api/v1/orders/purchase-ticket/redeem \
 - 兑换成功的响应含 `accessToken/refreshToken/expiresIn/courseId`，浏览器据此建立会话后继续 `POST /api/v1/orders`。
 - 错误码：`62012` 过期、`62013` 已使用、`62014` 不存在、`62015` 归属其他用户；ticket 不会写入日志。
 
-### 4.5 演示种子数据（仅本地演示）
+### 4.5 运营课程审核（admin-service）
+
+- 依赖：course-service（8102）与 `LP_INTERNAL_TOKEN`；admin-service（8106）启动时若 token 为空会直接失败。
+- 配置：`LP_COURSE_SERVICE_BASE_URL`（默认 `http://127.0.0.1:8102`）、`LP_COURSE_READ_TIMEOUT_MS`（默认 3000）。
+- 权限：网关注入的 `X-User-Roles` 必须含 `ADMIN` 或 `OPS`，否则 `40301`。
+
+```bash
+export LP_INTERNAL_TOKEN="local-internal-token"
+./mvnw -q -pl lp-admin-service spring-boot:run
+
+# 审核队列（status=1，按提交时间正序）
+curl -s 'http://localhost:8080/api/v1/admin/courses/pending?pageNum=1&pageSize=20' \
+  -H "Authorization: Bearer $ADMIN_ACCESS_TOKEN"
+
+# 通过并定价（priceFen=9900 表示 99.00 元）
+curl -s -X POST http://localhost:8080/api/v1/admin/courses/1/review \
+  -H "Authorization: Bearer $ADMIN_ACCESS_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"approved":true,"priceFen":9900}'
+
+# 驳回必须带 remark
+curl -s -X POST http://localhost:8080/api/v1/admin/courses/1/review \
+  -H "Authorization: Bearer $ADMIN_ACCESS_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"approved":false,"remark":"missing outline"}'
+```
+
+- 审核决策由 course-service 执行：通过为 `1→2` 并同写价格，驳回为 `1→0` 并记录 `review_remark`；课程不在待审核状态返回 `61005`。
+- 内部调用路径为 `/internal/v1/courses/pending` 与 `/internal/v1/courses/{courseId}/review`，均需 `X-Internal-Token`，不经网关。
+
+### 4.6 演示种子数据（仅本地演示）
 
 `flyway migrate` 之后执行一次即可得到可端到端演示的数据：3 个分类、3 位讲师、10 门课程（55 章节 / 189 课时，其中 2 门已下架）、3 个账号、2 笔已支付订单与对应权益和进度。
 

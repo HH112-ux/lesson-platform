@@ -9,7 +9,9 @@ import org.springframework.boot.test.context.SpringBootTest;
  * @author Caspian
  * @since 0.1.0
  */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)
+@SpringBootTest(
+        webEnvironment = SpringBootTest.WebEnvironment.NONE,
+        properties = "lp.internal.token=test-internal-token")
 class AdminServiceApplicationTest {
 
     /**
@@ -19,6 +21,5 @@ class AdminServiceApplicationTest {
      * @since 0.1.0
      */
     @Test
-    void contextLoads() {
-    }
+    void contextLoads() {}
 }

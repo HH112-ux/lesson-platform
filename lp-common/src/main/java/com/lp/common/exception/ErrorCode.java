@@ -67,6 +67,9 @@ public enum ErrorCode {
     /** The user already owns the course. */
     COURSE_ALREADY_OWNED(61002, "course already owned"),
 
+    /** The course is not in the pending-review state, so a review decision is rejected. */
+    COURSE_REVIEW_STATE_INVALID(61005, "course is not pending review"),
+
     /** Trade domain failure. */
     TRADE_BIZ_ERROR(62001, "trade operation failed"),
 
