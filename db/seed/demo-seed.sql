@@ -63,7 +63,19 @@ VALUES
      0.00, 0.00, 1, 2, 691),
     (10, 'development', '陈亦舟', '前端工程化与构建优化', '让构建更快，让产物更小',
      '梳理前端工程化的关键环节，从依赖管理、构建配置到产物分析，系统优化开发体验与线上性能。',
-     329.00, 429.00, 2, 3, 158);
+     329.00, 429.00, 2, 3, 158),
+    (11, 'career', '林知远', '跨部门协作实战手册', '把协作阻力拆成可推动的步骤',
+     '围绕目标对齐、责任划分与进度同步，给出跨部门协作的可执行动作清单，减少来回拉扯。',
+     159.00, 219.00, 2, 0, 0),
+    (12, 'career', '林知远', '高质量会议的组织方法', '让每场会都有结论和下一步',
+     '从会前议题设计、会中节奏控制到会后行动跟踪，建立一套可复用的会议组织方法。',
+     129.00, 179.00, 1, 1, 0),
+    (13, 'design', '苏晴', '设计作品集打磨', '让作品集讲清你的设计价值',
+     '从项目筛选、叙事结构到视觉排版，逐项打磨一份能支撑面试与提案的作品集。',
+     199.00, 269.00, 2, 0, 0),
+    (14, 'design', '苏晴', '移动端界面设计规范', '在小屏幕上把信息排清楚',
+     '围绕间距、字号、触控区域与适配规则，输出一份可直接落地的移动端设计规范。',
+     249.00, 319.00, 2, 1, 0);
 
 CREATE TEMPORARY TABLE IF NOT EXISTS demo_chapter_spec (
     course_no    INT          NOT NULL,
@@ -127,7 +139,15 @@ INSERT IGNORE INTO demo_chapter_spec (course_no, chapter_sort, title) VALUES
     (10, 3, '构建配置与插件'),
     (10, 4, '产物分析与体积优化'),
     (10, 5, '开发体验与热更新'),
-    (10, 6, '持续集成与发布');
+    (10, 6, '持续集成与发布'),
+    (11, 1, '协作前的目标对齐'),
+    (11, 2, '推动跨团队落地'),
+    (12, 1, '会前：议题与角色'),
+    (12, 2, '会中与会后'),
+    (13, 1, '作品筛选与叙事'),
+    (13, 2, '排版与呈现'),
+    (14, 1, '移动端设计基础'),
+    (14, 2, '组件与适配');
 
 CREATE TEMPORARY TABLE IF NOT EXISTS demo_lesson_spec (
     course_no    INT          NOT NULL,
@@ -326,7 +346,23 @@ INSERT IGNORE INTO demo_lesson_spec (course_no, chapter_sort, lesson_sort, title
     (10, 5, 3, '调试工具与断点'),
     (10, 6, 1, '流水线的阶段划分'),
     (10, 6, 2, '构建缓存与并行'),
-    (10, 6, 3, '发布与回滚');
+    (10, 6, 3, '发布与回滚'),
+    (11, 1, 1, '识别协作中的真实阻力'),
+    (11, 1, 2, '把目标写成双方认可的一句话'),
+    (11, 2, 1, '责任矩阵与接口人'),
+    (11, 2, 2, '进度同步与风险升级'),
+    (12, 1, 1, '判断这场会该不该开'),
+    (12, 1, 2, '议题、结论与角色预设'),
+    (12, 2, 1, '会中控场与分歧收敛'),
+    (12, 2, 2, '行动项跟踪与复盘'),
+    (13, 1, 1, '选项目的三个标准'),
+    (13, 1, 2, '用故事线串起项目价值'),
+    (13, 2, 1, '版式、留白与信息层级'),
+    (13, 2, 2, '一页作品的自检清单'),
+    (14, 1, 1, '移动端的信息密度'),
+    (14, 1, 2, '触控区域与可读性'),
+    (14, 2, 1, '组件拆分与复用'),
+    (14, 2, 2, '多尺寸适配与验收');
 
 -- ---------------------------------------------------------------------------
 -- 2. lp_cms: categories, teachers, courses, chapters, lessons
@@ -450,6 +486,21 @@ VALUES ('demo_guest', '$2y$10$AUmRkJxX1lqeko0ddyNMIu5s1lliTyc/4HRi5UUEOpvYILQllI
 ON DUPLICATE KEY UPDATE nickname = VALUES(nickname),
                         status   = VALUES(status);
 
+INSERT INTO lp_ums.sys_user (username, password_hash, nickname, status, gender)
+VALUES ('demo_teacher_lin', '$2y$10$AUmRkJxX1lqeko0ddyNMIu5s1lliTyc/4HRi5UUEOpvYILQllIegi', '林知远', 1, 1)
+ON DUPLICATE KEY UPDATE nickname = VALUES(nickname),
+                        status   = VALUES(status);
+
+INSERT INTO lp_ums.sys_user (username, password_hash, nickname, status, gender)
+VALUES ('demo_teacher_su', '$2y$10$AUmRkJxX1lqeko0ddyNMIu5s1lliTyc/4HRi5UUEOpvYILQllIegi', '苏晴', 1, 2)
+ON DUPLICATE KEY UPDATE nickname = VALUES(nickname),
+                        status   = VALUES(status);
+
+INSERT INTO lp_ums.sys_user (username, password_hash, nickname, status, gender)
+VALUES ('demo_ops', '$2y$10$AUmRkJxX1lqeko0ddyNMIu5s1lliTyc/4HRi5UUEOpvYILQllIegi', '运营小周', 1, 0)
+ON DUPLICATE KEY UPDATE nickname = VALUES(nickname),
+                        status   = VALUES(status);
+
 INSERT INTO lp_ums.sys_user_role (user_id, role_id)
 SELECT u.id, r.id
 FROM lp_ums.sys_user u
@@ -479,6 +530,40 @@ WHERE u.username = 'demo_guest'
                   FROM lp_ums.sys_user_role ur
                   WHERE ur.user_id = u.id
                     AND ur.role_id = r.id);
+
+INSERT INTO lp_ums.sys_user_role (user_id, role_id)
+SELECT u.id, r.id
+FROM lp_ums.sys_user u
+         JOIN lp_ums.sys_role r ON r.code = 'TEACHER'
+WHERE u.username IN ('demo_teacher_lin', 'demo_teacher_su')
+  AND NOT EXISTS (SELECT 1
+                  FROM lp_ums.sys_user_role ur
+                  WHERE ur.user_id = u.id
+                    AND ur.role_id = r.id);
+
+INSERT INTO lp_ums.sys_user_role (user_id, role_id)
+SELECT u.id, r.id
+FROM lp_ums.sys_user u
+         JOIN lp_ums.sys_role r ON r.code = 'OPS'
+WHERE u.username = 'demo_ops'
+  AND NOT EXISTS (SELECT 1
+                  FROM lp_ums.sys_user_role ur
+                  WHERE ur.user_id = u.id
+                    AND ur.role_id = r.id);
+
+-- Bind the demo teacher profiles to their login accounts so /api/v1/teacher/courses can
+-- filter by owner. Existing bindings are left untouched.
+UPDATE lp_cms.teacher_profile t
+    JOIN lp_ums.sys_user u ON u.username = 'demo_teacher_lin'
+SET t.user_id = u.id
+WHERE t.display_name = '林知远'
+  AND t.user_id IS NULL;
+
+UPDATE lp_cms.teacher_profile t
+    JOIN lp_ums.sys_user u ON u.username = 'demo_teacher_su'
+SET t.user_id = u.id
+WHERE t.display_name = '苏晴'
+  AND t.user_id IS NULL;
 
 -- ---------------------------------------------------------------------------
 -- 4. lp_oms: paid orders of demo_buyer (Alipay channel only)
