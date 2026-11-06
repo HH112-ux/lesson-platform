@@ -1,5 +1,6 @@
 package com.lp.trade.entitlement;
 
+import com.lp.trade.domain.EntitlementAction;
 import com.lp.trade.entity.EntitlementOutbox;
 import com.lp.trade.mapper.EntitlementOutboxMapper;
 import org.springframework.dao.DuplicateKeyException;
@@ -47,10 +48,36 @@ public class OutboxEntitlementService implements EntitlementService {
         outbox.setOrderNo(orderNo);
         outbox.setUserId(userId);
         outbox.setCourseId(courseId);
+        outbox.setAction(EntitlementAction.GRANT);
         try {
             entitlementOutboxMapper.insert(outbox);
         } catch (DuplicateKeyException exception) {
-            // uk_order_course already holds this intent; the relay will deliver it once.
+            // uk_order_course_action already holds this intent; the relay will deliver it once.
+        }
+    }
+
+    /**
+     * Records the revoke intent; a duplicate intent is ignored.
+     *
+     * @param userId buyer user id
+     * @param courseId course id
+     * @param orderId refunded order id
+     * @param orderNo order number, kept for support and audit
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Override
+    public void revoke(long userId, long courseId, long orderId, String orderNo) {
+        EntitlementOutbox outbox = new EntitlementOutbox();
+        outbox.setOrderId(orderId);
+        outbox.setOrderNo(orderNo);
+        outbox.setUserId(userId);
+        outbox.setCourseId(courseId);
+        outbox.setAction(EntitlementAction.REVOKE);
+        try {
+            entitlementOutboxMapper.insert(outbox);
+        } catch (DuplicateKeyException exception) {
+            // The revoke intent is already queued; delivery is idempotent.
         }
     }
 }

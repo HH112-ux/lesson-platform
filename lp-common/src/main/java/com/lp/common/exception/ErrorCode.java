@@ -106,6 +106,12 @@ public enum ErrorCode {
     /** The callback signature did not match the payload or was missing. */
     PAYMENT_SIGNATURE_INVALID(62016, "payment signature is invalid"),
 
+    /** Only a paid order can be refunded; the order is pending, cancelled or already refunded. */
+    ORDER_NOT_REFUNDABLE(62017, "order is not refundable"),
+
+    /** The first release supports full refunds only, so the amount must equal the paid amount. */
+    REFUND_AMOUNT_INVALID(62018, "refund amount must equal the paid amount"),
+
     /** Learning domain failure. */
     LEARN_BIZ_ERROR(63001, "learning operation failed"),
 

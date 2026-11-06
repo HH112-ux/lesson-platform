@@ -5,13 +5,16 @@ import com.lp.common.exception.ErrorCode;
 import com.lp.common.identity.IdentityHeaders;
 import com.lp.common.result.Result;
 import com.lp.common.web.TraceIds;
+import com.lp.trade.dto.ApplyRefundRequest;
 import com.lp.trade.dto.CancelOrderRequest;
 import com.lp.trade.dto.CancelOrderResult;
 import com.lp.trade.dto.CreateOrderRequest;
 import com.lp.trade.dto.OrderDetailView;
 import com.lp.trade.dto.OrderPageView;
 import com.lp.trade.dto.OrderView;
+import com.lp.trade.dto.RefundView;
 import com.lp.trade.service.OrderService;
+import com.lp.trade.service.RefundService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -37,15 +40,19 @@ public class OrderController {
 
     private final OrderService orderService;
 
+    private final RefundService refundService;
+
     /**
-     * Creates the controller with its service dependency.
+     * Creates the controller with its service dependencies.
      *
      * @param orderService order operations
+     * @param refundService refund operations
      * @author Caspian
      * @since 0.1.0
      */
-    public OrderController(OrderService orderService) {
+    public OrderController(OrderService orderService, RefundService refundService) {
         this.orderService = orderService;
+        this.refundService = refundService;
     }
 
     /**
@@ -132,6 +139,31 @@ public class OrderController {
         String reason = body == null ? null : body.getReason();
         return Result.ok(
                 orderService.cancel(requireUser(userId), orderId, reason),
+                TraceIds.resolve(request));
+    }
+
+    /**
+     * Refunds a paid order of the current buyer; a repeated call returns the original refund.
+     *
+     * <p>The first release supports full refunds only. When {@code amount} is present it must equal
+     * the order paid amount, so an attempt to refund more than was paid fails with {@code 62018}.
+     *
+     * @param userId gateway injected user id
+     * @param orderId order primary key
+     * @param body optional amount and reason
+     * @param request current request, used to resolve the trace id
+     * @return successful refund
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @PostMapping("/{orderId}/refund")
+    public Result<RefundView> refund(
+            @RequestHeader(value = IdentityHeaders.USER_ID, required = false) Long userId,
+            @PathVariable("orderId") long orderId,
+            @RequestBody(required = false) ApplyRefundRequest body,
+            HttpServletRequest request) {
+        return Result.ok(
+                refundService.refund(requireUser(userId), orderId, body),
                 TraceIds.resolve(request));
     }
 

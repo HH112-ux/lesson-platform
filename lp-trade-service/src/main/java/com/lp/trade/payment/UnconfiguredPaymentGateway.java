@@ -4,6 +4,7 @@ import com.lp.common.exception.BizException;
 import com.lp.common.exception.ErrorCode;
 import com.lp.trade.dto.PrepayResult;
 import com.lp.trade.entity.PaymentRecord;
+import java.math.BigDecimal;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 
@@ -35,6 +36,23 @@ public class UnconfiguredPaymentGateway implements PaymentGateway {
      */
     @Override
     public PrepayResult prepay(PaymentRecord payment) {
+        throw new BizException(
+                ErrorCode.PAYMENT_NOT_CONFIGURED, "payment credentials are not configured");
+    }
+
+    /**
+     * Refuses to refund because no channel credentials are configured.
+     *
+     * @param payment successful payment
+     * @param refundNo local refund number
+     * @param amount amount in yuan
+     * @return never returns
+     * @throws BizException always, with {@code 50205}
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Override
+    public String refund(PaymentRecord payment, String refundNo, BigDecimal amount) {
         throw new BizException(
                 ErrorCode.PAYMENT_NOT_CONFIGURED, "payment credentials are not configured");
     }
