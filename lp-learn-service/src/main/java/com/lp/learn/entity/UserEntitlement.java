@@ -23,7 +23,11 @@ public class UserEntitlement {
 
     private Integer source;
 
+    private Integer status;
+
     private LocalDateTime grantedAt;
+
+    private LocalDateTime revokedAt;
 
     private LocalDateTime expireAt;
 
@@ -138,6 +142,28 @@ public class UserEntitlement {
     }
 
     /**
+     * Returns the access status.
+     *
+     * @return status from {@link com.lp.learn.domain.EntitlementStatus}
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public Integer getStatus() {
+        return status;
+    }
+
+    /**
+     * Sets the access status.
+     *
+     * @param status status from {@link com.lp.learn.domain.EntitlementStatus}
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public void setStatus(Integer status) {
+        this.status = status;
+    }
+
+    /**
      * Returns when access was granted.
      *
      * @return grant time
@@ -157,6 +183,28 @@ public class UserEntitlement {
      */
     public void setGrantedAt(LocalDateTime grantedAt) {
         this.grantedAt = grantedAt;
+    }
+
+    /**
+     * Returns when access was revoked by a refund.
+     *
+     * @return revoke time, {@code null} while the entitlement is active
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public LocalDateTime getRevokedAt() {
+        return revokedAt;
+    }
+
+    /**
+     * Sets when access was revoked by a refund.
+     *
+     * @param revokedAt revoke time, may be {@code null}
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public void setRevokedAt(LocalDateTime revokedAt) {
+        this.revokedAt = revokedAt;
     }
 
     /**

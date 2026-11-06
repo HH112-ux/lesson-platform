@@ -21,6 +21,8 @@ public class MyCourseView {
 
     private final Long lastLessonId;
 
+    private final boolean refunded;
+
     /**
      * Creates one row.
      *
@@ -29,16 +31,23 @@ public class MyCourseView {
      * @param coverUrl cover image URL
      * @param progressPercent completion percentage, {@code 0} before progress tracking exists
      * @param lastLessonId last learned lesson id, {@code null} when none
+     * @param refunded {@code true} when the order was refunded and access is revoked
      * @author Caspian
      * @since 0.1.0
      */
     public MyCourseView(
-            long courseId, String title, String coverUrl, int progressPercent, Long lastLessonId) {
+            long courseId,
+            String title,
+            String coverUrl,
+            int progressPercent,
+            Long lastLessonId,
+            boolean refunded) {
         this.courseId = courseId;
         this.title = title;
         this.coverUrl = coverUrl;
         this.progressPercent = progressPercent;
         this.lastLessonId = lastLessonId;
+        this.refunded = refunded;
     }
 
     /**
@@ -94,5 +103,16 @@ public class MyCourseView {
      */
     public Long getLastLessonId() {
         return lastLessonId;
+    }
+
+    /**
+     * Returns whether the order was refunded and access is revoked.
+     *
+     * @return {@code true} for a refunded course; progress stays readable but playback is denied
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public boolean isRefunded() {
+        return refunded;
     }
 }

@@ -6,6 +6,7 @@ import com.lp.common.identity.IdentityHeaders;
 import com.lp.common.result.Result;
 import com.lp.common.web.TraceIds;
 import com.lp.learn.dto.GrantEntitlementRequest;
+import com.lp.learn.dto.RevokeEntitlementRequest;
 import com.lp.learn.service.EntitlementService;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.ArrayList;
@@ -68,6 +69,27 @@ public class EntitlementInternalController {
         int source = body.getSource() == null ? SOURCE_PURCHASE : body.getSource();
         entitlementService.grant(body.getUserId(), body.getCourseId(), body.getOrderId(), source);
         return Result.ok(Map.of("granted", true), TraceIds.resolve(request));
+    }
+
+    /**
+     * Revokes one course from one student after a refund; a replay is harmless.
+     *
+     * @param body revoke request
+     * @param request current request, used to resolve the trace id
+     * @return {@code {revoked:true}} after the first or any repeated delivery
+     * @throws BizException when a required field is missing
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @PostMapping("/revoke")
+    public Result<Map<String, Boolean>> revoke(
+            @RequestBody(required = false) RevokeEntitlementRequest body,
+            HttpServletRequest request) {
+        if (body == null || !body.isComplete()) {
+            throw new BizException(ErrorCode.PARAM_INVALID, "userId and courseId are required");
+        }
+        entitlementService.revoke(body.getUserId(), body.getCourseId(), body.getOrderId());
+        return Result.ok(Map.of("revoked", true), TraceIds.resolve(request));
     }
 
     /**
