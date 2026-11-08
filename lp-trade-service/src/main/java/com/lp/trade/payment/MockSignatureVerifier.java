@@ -29,10 +29,15 @@ public class MockSignatureVerifier implements SignatureVerifier {
      * Creates the verifier with the mock provider settings.
      *
      * @param properties mock provider settings
+     * @throws IllegalStateException when the mock channel is enabled without a secret
      * @author Caspian
      * @since 0.2.0
      */
     public MockSignatureVerifier(MockPayProperties properties) {
+        if (properties.getSecret() == null || properties.getSecret().isBlank()) {
+            throw new IllegalStateException(
+                    "lp.pay.mock.secret is required when the mock payment channel is enabled");
+        }
         this.properties = properties;
     }
 
