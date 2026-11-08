@@ -257,6 +257,23 @@ public interface TradeOrderMapper {
     List<TradeOrderItem> selectItems(@Param("orderId") long orderId);
 
     /**
+     * Loads the lines of several orders at once to avoid a query per row on list pages.
+     *
+     * @param orderIds order primary keys, must not be empty
+     * @return lines ordered by order and line id, possibly empty
+     * @author Caspian
+     * @since 0.2.0
+     */
+    @Select(
+            "<script>SELECT id, order_id AS orderId, course_id AS courseId, "
+                    + "owner_teacher_id AS ownerTeacherId, course_title AS courseTitle, price, "
+                    + "discount_amount AS discountAmount, actual_amount AS actualAmount "
+                    + "FROM trade_order_item WHERE deleted = 0 AND order_id IN "
+                    + "<foreach collection='orderIds' item='orderId' open='(' separator=',' "
+                    + "close=')'>#{orderId}</foreach> ORDER BY order_id, id</script>")
+    List<TradeOrderItem> selectItemsByOrderIds(@Param("orderIds") List<Long> orderIds);
+
+    /**
      * Inserts one order and fills the generated id.
      *
      * @param order order row

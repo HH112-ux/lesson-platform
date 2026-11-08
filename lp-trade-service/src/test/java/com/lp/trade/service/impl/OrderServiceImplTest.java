@@ -9,6 +9,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -34,11 +35,15 @@ import com.lp.trade.mapper.TradeOrderMapper;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
+import org.mockito.ArgumentMatchers;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DuplicateKeyException;
+import org.springframework.transaction.support.TransactionCallback;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Unit tests for order creation; persistence, course-service and the entitlement port are mocked.
@@ -66,7 +71,36 @@ class OrderServiceImplTest {
 
     @Mock private PaymentMapper paymentMapper;
 
-    @InjectMocks private OrderServiceImpl orderService;
+    @Mock private TransactionTemplate transactionTemplate;
+
+    private OrderServiceImpl orderService;
+
+    /**
+     * Wires the service with a transaction template that runs the callback immediately.
+     *
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @BeforeEach
+    void setUp() {
+        lenient()
+                .when(
+                        transactionTemplate.execute(
+                                ArgumentMatchers.<TransactionCallback<Object>>any()))
+                .thenAnswer(
+                        invocation -> {
+                            TransactionCallback<Object> callback = invocation.getArgument(0);
+                            return callback.doInTransaction(null);
+                        });
+        orderService =
+                new OrderServiceImpl(
+                        tradeOrderMapper,
+                        couponMapper,
+                        courseInternalClient,
+                        entitlementService,
+                        paymentMapper,
+                        transactionTemplate);
+    }
 
     /**
      * A paid course creates a pending order, snapshots the line and does not grant access yet.
@@ -214,6 +248,70 @@ class OrderServiceImplTest {
     }
 
     /**
+     * When the insert loses the idempotency race, the winner is re-read outside the transaction.
+     *
+     * @author Caspian
+     * @since 0.2.0
+     */
+    @Test
+    void returnsWinnerWhenConcurrentInsertConflicts() {
+        when(tradeOrderMapper.selectByUserAndIdempotencyKey(USER_ID, "key-5"))
+                .thenReturn(null, order(42L, "LPWIN", OrderStatus.PENDING));
+        when(courseInternalClient.course(COURSE_ID)).thenReturn(course(9900L, 2));
+        when(tradeOrderMapper.countOwned(USER_ID, COURSE_ID)).thenReturn(0L);
+        when(tradeOrderMapper.insertOrder(any(TradeOrder.class)))
+                .thenThrow(new DuplicateKeyException("duplicate idempotency key"));
+        when(tradeOrderMapper.selectFirstItem(42L)).thenReturn(item());
+
+        OrderView view = orderService.create(USER_ID, "web", request("key-5", null));
+
+        assertEquals("LPWIN", view.getOrderNo());
+        verify(entitlementService, never()).grant(anyLong(), eq(COURSE_ID), anyLong(), anyString());
+    }
+
+    /**
+     * A percentage coupon without a rate is rejected as a business error instead of a 500.
+     *
+     * @author Caspian
+     * @since 0.2.0
+     */
+    @Test
+    void rejectsPercentageCouponWithoutRate() {
+        when(courseInternalClient.course(COURSE_ID)).thenReturn(course(9900L, 2));
+        when(tradeOrderMapper.countOwned(USER_ID, COURSE_ID)).thenReturn(0L);
+        when(couponMapper.selectUserCoupon(USER_ID, 55L)).thenReturn(userCoupon(55L));
+        when(couponMapper.selectCoupon(55L)).thenReturn(percentageCouponWithoutRate());
+
+        BizException exception =
+                assertThrows(
+                        BizException.class,
+                        () -> orderService.create(USER_ID, "web", request("key-6", 55L)));
+
+        assertEquals(62003, exception.getCode());
+        verify(tradeOrderMapper, never()).insertOrder(any(TradeOrder.class));
+    }
+
+    /**
+     * A negative course price is rejected instead of being clamped to a free order.
+     *
+     * @author Caspian
+     * @since 0.2.0
+     */
+    @Test
+    void rejectsNegativeCoursePrice() {
+        when(courseInternalClient.course(COURSE_ID)).thenReturn(course(-100L, 2));
+
+        BizException exception =
+                assertThrows(
+                        BizException.class,
+                        () -> orderService.create(USER_ID, "web", request("key-7", null)));
+
+        assertEquals(62003, exception.getCode());
+        verify(tradeOrderMapper, never()).insertOrder(any(TradeOrder.class));
+        verify(entitlementService, never()).grant(anyLong(), anyLong(), anyLong(), anyString());
+    }
+
+    /**
      * An offline course cannot be ordered.
      *
      * @author Caspian
@@ -243,7 +341,7 @@ class OrderServiceImplTest {
         when(tradeOrderMapper.countByUser(USER_ID, null)).thenReturn(2L);
         when(tradeOrderMapper.selectPageByUser(USER_ID, null, 0L, 100L))
                 .thenReturn(List.of(order(42L, "LP1", OrderStatus.PENDING)));
-        when(tradeOrderMapper.selectFirstItem(42L)).thenReturn(item());
+        when(tradeOrderMapper.selectItemsByOrderIds(List.of(42L))).thenReturn(List.of(item()));
 
         OrderPageView page = orderService.list(USER_ID, null, 0, 500);
 
@@ -393,6 +491,14 @@ class OrderServiceImplTest {
         userCoupon.setUserId(USER_ID);
         userCoupon.setStatus(0);
         return userCoupon;
+    }
+
+    private Coupon percentageCouponWithoutRate() {
+        Coupon coupon = coupon();
+        coupon.setType(2);
+        coupon.setDiscountAmount(null);
+        coupon.setDiscountRate(null);
+        return coupon;
     }
 
     private Coupon coupon() {
