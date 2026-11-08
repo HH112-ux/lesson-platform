@@ -28,10 +28,12 @@ import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.ThreadLocalRandom;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Default {@link OrderService} implementation.
@@ -75,6 +77,8 @@ public class OrderServiceImpl implements OrderService {
 
     private final PaymentMapper paymentMapper;
 
+    private final TransactionTemplate transactionTemplate;
+
     /**
      * Creates the service with its dependencies.
      *
@@ -83,6 +87,7 @@ public class OrderServiceImpl implements OrderService {
      * @param courseInternalClient course-service reader
      * @param entitlementService ownership port
      * @param paymentMapper payment persistence used to close attempts on cancel
+     * @param transactionTemplate transaction boundary around order creation
      * @author Caspian
      * @since 0.1.0
      */
@@ -91,12 +96,14 @@ public class OrderServiceImpl implements OrderService {
             CouponMapper couponMapper,
             CourseInternalClient courseInternalClient,
             EntitlementService entitlementService,
-            PaymentMapper paymentMapper) {
+            PaymentMapper paymentMapper,
+            TransactionTemplate transactionTemplate) {
         this.tradeOrderMapper = tradeOrderMapper;
         this.couponMapper = couponMapper;
         this.courseInternalClient = courseInternalClient;
         this.entitlementService = entitlementService;
         this.paymentMapper = paymentMapper;
+        this.transactionTemplate = transactionTemplate;
     }
 
     /**
@@ -111,7 +118,6 @@ public class OrderServiceImpl implements OrderService {
      * @since 0.1.0
      */
     @Override
-    @Transactional(rollbackFor = Exception.class)
     public OrderView create(long userId, String source, CreateOrderRequest request) {
         int channel = resolveChannel(source);
         long courseId = requireCourseId(request);
@@ -123,9 +129,49 @@ public class OrderServiceImpl implements OrderService {
             return viewOf(existing);
         }
 
+        try {
+            return Objects.requireNonNull(
+                    transactionTemplate.execute(
+                            status ->
+                                    createInTransaction(
+                                            userId, channel, courseId, idempotencyKey, request)));
+        } catch (DuplicateKeyException exception) {
+            // The conflicting insert waited for the winner to commit before failing, so a read
+            // outside the rolled back transaction sees it; the old in-snapshot re-read did not.
+            TradeOrder winner =
+                    tradeOrderMapper.selectByUserAndIdempotencyKey(userId, idempotencyKey);
+            if (winner != null) {
+                return viewOf(winner);
+            }
+            throw exception;
+        }
+    }
+
+    /**
+     * Creates the order, its line and the coupon consumption inside one transaction.
+     *
+     * @param userId authenticated buyer id
+     * @param channel resolved payment channel
+     * @param courseId course primary key
+     * @param idempotencyKey client supplied key, unique per buyer
+     * @param request original request
+     * @return created order
+     * @author Caspian
+     * @since 0.2.0
+     */
+    private OrderView createInTransaction(
+            long userId,
+            int channel,
+            long courseId,
+            String idempotencyKey,
+            CreateOrderRequest request) {
         CourseSnapshot course = courseInternalClient.course(courseId);
         if (course.getStatus() != STATUS_PUBLISHED) {
             throw new BizException(ErrorCode.TRADE_UNAVAILABLE);
+        }
+        if (course.getPrice() < 0) {
+            // A negative price would be clamped to a free order and grant ownership for nothing.
+            throw new BizException(ErrorCode.TRADE_UNAVAILABLE, "course price is invalid");
         }
         if (tradeOrderMapper.countOwned(userId, courseId) > 0) {
             throw new BizException(ErrorCode.COURSE_ALREADY_OWNED);
@@ -150,17 +196,9 @@ public class OrderServiceImpl implements OrderService {
                         request.getCouponId(),
                         completed,
                         now);
-        try {
-            tradeOrderMapper.insertOrder(order);
-        } catch (DuplicateKeyException exception) {
-            // A concurrent request with the same key won; return its order instead of charging.
-            TradeOrder winner =
-                    tradeOrderMapper.selectByUserAndIdempotencyKey(userId, idempotencyKey);
-            if (winner != null) {
-                return viewOf(winner);
-            }
-            throw exception;
-        }
+        // Let a duplicate key escape the transaction so the caller can re-read outside its
+        // snapshot.
+        tradeOrderMapper.insertOrder(order);
 
         insertItem(order.getId(), course, total, discount, payAmount);
         consumeCoupon(selection, order.getId(), now);
@@ -251,13 +289,23 @@ public class OrderServiceImpl implements OrderService {
     }
 
     private BigDecimal computeDiscount(Coupon coupon, BigDecimal total) {
+        Integer type = coupon.getType();
         BigDecimal discount;
-        if (coupon.getType() == 1) {
+        if (type == null) {
+            throw new BizException(ErrorCode.TRADE_UNAVAILABLE, "unsupported coupon type");
+        }
+        if (type == 1) {
             discount = coupon.getDiscountAmount() == null ? ZERO : coupon.getDiscountAmount();
-        } else if (coupon.getType() == 2) {
+        } else if (type == 2) {
+            BigDecimal rate = coupon.getDiscountRate();
+            if (rate == null
+                    || rate.compareTo(BigDecimal.ZERO) <= 0
+                    || rate.compareTo(BigDecimal.ONE) >= 0) {
+                throw new BizException(
+                        ErrorCode.TRADE_UNAVAILABLE, "coupon discount rate is invalid");
+            }
             discount =
-                    total.multiply(BigDecimal.ONE.subtract(coupon.getDiscountRate()))
-                            .setScale(2, RoundingMode.HALF_UP);
+                    total.multiply(BigDecimal.ONE.subtract(rate)).setScale(2, RoundingMode.HALF_UP);
         } else {
             throw new BizException(ErrorCode.TRADE_UNAVAILABLE, "unsupported coupon type");
         }
