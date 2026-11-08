@@ -59,6 +59,9 @@ lp:
       # Local mock payment provider callback: opened by the browser as a redirect, so it carries
       # no access token. The HMAC signature is the credential and is verified by trade-service.
       - /api/v1/payments/mock/callback
+      # Alipay asynchronous notification: called by Alipay, never by a browser, so it cannot carry
+      # an access token. trade-service verifies the channel signature before applying the result.
+      - /api/v1/payments/alipay/notify
       - /actuator/**
       - /error
     # Catalog pages are readable without a token; a valid token is still verified so the
