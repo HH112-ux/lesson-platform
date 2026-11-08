@@ -228,7 +228,7 @@ services:
       LP_AUTH_SERVICE_BASE_URL: http://auth-service:8101
       LP_WEB_BASE_URL: http://localhost:5173
       LP_PAY_MOCK_ENABLED: ${LP_PAY_MOCK_ENABLED:-false}
-      LP_PAY_MOCK_SECRET: ${LP_PAY_MOCK_SECRET:-lp_mock_pay_dev_secret}
+      LP_PAY_MOCK_SECRET: ${LP_PAY_MOCK_SECRET:-}
       LP_PAY_MOCK_GATEWAY_BASE_URL: http://localhost:8080
     ports:
       - "127.0.0.1:8103:8103"

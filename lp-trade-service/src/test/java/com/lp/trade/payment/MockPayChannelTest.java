@@ -120,6 +120,14 @@ class MockPayChannelTest {
     }
 
     @Test
+    void rejectsBlankSecret() {
+        MockPayProperties properties = new MockPayProperties();
+        properties.setEnabled(true);
+
+        assertThrows(IllegalStateException.class, () -> new MockSignatureVerifier(properties));
+    }
+
+    @Test
     void guardRejectsProdProfile() {
         MockPayProfileGuard guard =
                 new MockPayProfileGuard(

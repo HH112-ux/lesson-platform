@@ -18,7 +18,7 @@ public class MockPayProperties {
 
     private boolean enabled;
 
-    private String secret = "lp_mock_pay_dev_secret";
+    private String secret;
 
     private String gatewayBaseUrl = "http://127.0.0.1:8080";
 

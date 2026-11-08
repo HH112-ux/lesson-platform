@@ -236,6 +236,22 @@ class CoursePublicServiceImplTest {
     }
 
     /**
+     * An overlong digit string is treated as an unknown category instead of failing with a 500.
+     *
+     * @author Caspian
+     * @since 0.2.0
+     */
+    @Test
+    void rejectsOverlongNumericCategory() {
+        CoursePageView page =
+                coursePublicService.list("999999999999999999999999", null, 1, 10, null);
+
+        assertEquals(0L, page.getTotal());
+        assertTrue(page.getItems().isEmpty());
+        verify(courseCategoryMapper, never()).selectVisibleById(anyLong());
+    }
+
+    /**
      * An anonymous caller sees the whole outline but only trial lessons are playable.
      *
      * @author Caspian

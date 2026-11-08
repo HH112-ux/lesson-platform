@@ -239,6 +239,25 @@ class CourseInternalServiceImplTest {
     }
 
     /**
+     * A negative approval price is rejected before any write, so a free course cannot be created.
+     *
+     * @author Caspian
+     * @since 0.2.0
+     */
+    @Test
+    void rejectsNegativeApprovalPrice() {
+        BizException exception =
+                assertThrows(
+                        BizException.class,
+                        () -> courseInternalService.review(7L, true, -100L, null, 55L));
+
+        assertEquals(40001, exception.getCode());
+        verify(courseMapper, never())
+                .approve(anyLong(), any(), anyLong(), any(LocalDateTime.class));
+        verify(courseReviewAuditMapper, never()).insert(any(CourseReviewAudit.class));
+    }
+
+    /**
      * A rejection without a remark never touches the database.
      *
      * @author Caspian

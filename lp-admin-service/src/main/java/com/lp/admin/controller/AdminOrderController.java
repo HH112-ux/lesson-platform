@@ -45,6 +45,7 @@ public class AdminOrderController {
      * Lists orders with status, channel, number, buyer and date filters.
      *
      * @param roles gateway injected roles, comma separated
+     * @param permissions gateway injected permission codes, comma separated
      * @param status optional order status
      * @param channel optional payment channel
      * @param orderNo optional order number fragment
@@ -61,6 +62,8 @@ public class AdminOrderController {
     @GetMapping
     public Result<AdminOrderPageView> orders(
             @RequestHeader(value = IdentityHeaders.USER_ROLES, required = false) String roles,
+            @RequestHeader(value = IdentityHeaders.USER_PERMISSIONS, required = false)
+                    String permissions,
             @RequestParam(value = "status", required = false) Integer status,
             @RequestParam(value = "channel", required = false) Integer channel,
             @RequestParam(value = "orderNo", required = false) String orderNo,
@@ -75,6 +78,7 @@ public class AdminOrderController {
             @RequestParam(value = "pageSize", defaultValue = "20") int pageSize,
             HttpServletRequest request) {
         ConsoleRoles.requireConsole(roles);
+        ConsoleRoles.requirePermission(permissions, ConsoleRoles.ORDER_LIST);
         return Result.ok(
                 adminOrderQueryService.page(
                         status, channel, orderNo, userId, dateFrom, dateTo, pageNum, pageSize),

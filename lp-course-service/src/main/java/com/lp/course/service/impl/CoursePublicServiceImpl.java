@@ -259,7 +259,14 @@ public class CoursePublicServiceImpl implements CoursePublicService {
         String value = category.trim();
         CourseCategory found;
         if (value.chars().allMatch(Character::isDigit)) {
-            found = courseCategoryMapper.selectVisibleById(Long.parseLong(value));
+            long id;
+            try {
+                id = Long.parseLong(value);
+            } catch (NumberFormatException exception) {
+                // An overlong digit string is an unknown filter, not a server error.
+                return -1L;
+            }
+            found = courseCategoryMapper.selectVisibleById(id);
         } else {
             found = courseCategoryMapper.selectVisibleBySlug(value);
         }

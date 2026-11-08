@@ -62,7 +62,8 @@ lp:
     # only the signer lives on the local machine.
     mock:
       enabled: ${LP_PAY_MOCK_ENABLED:false}
-      secret: ${LP_PAY_MOCK_SECRET:lp_mock_pay_dev_secret}
+      # No default: enabling the mock channel without a secret fails startup.
+      secret: ${LP_PAY_MOCK_SECRET:}
       gateway-base-url: ${LP_PAY_MOCK_GATEWAY_BASE_URL:http://127.0.0.1:8080}
 
 # Only health, info and prometheus are exposed. The prometheus endpoint is served on the service

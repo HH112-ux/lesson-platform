@@ -24,6 +24,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Teacher console implementation backed by {@link TeacherCourseMapper}.
@@ -349,6 +350,7 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
      * @since 0.1.0
      */
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void deleteChapter(long userId, String roles, long courseId, long chapterId) {
         Course course = requireContentEditable(userId, roles, courseId);
         requireChapter(courseId, chapterId);

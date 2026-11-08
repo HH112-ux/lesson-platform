@@ -191,6 +191,10 @@ public class CourseInternalServiceImpl implements CourseInternalService {
     @Transactional
     public CourseReviewResultView review(
             long courseId, boolean approved, Long priceFen, String remark, long reviewerId) {
+        if (priceFen != null && priceFen < 0) {
+            // A negative price would be clamped to a free order on the trade side.
+            throw new BizException(ErrorCode.PARAM_INVALID, "price is invalid");
+        }
         LocalDateTime reviewedAt = LocalDateTime.now();
         String remarkText = null;
         int updated;
