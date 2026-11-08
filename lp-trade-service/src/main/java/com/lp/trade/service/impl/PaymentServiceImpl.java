@@ -22,6 +22,8 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -38,6 +40,8 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Service
 public class PaymentServiceImpl implements PaymentService {
+
+    private static final Logger LOG = LoggerFactory.getLogger(PaymentServiceImpl.class);
 
     private static final int MAX_PAY_NO_RANDOM = 10000;
 
@@ -167,7 +171,7 @@ public class PaymentServiceImpl implements PaymentService {
         LocalDateTime paidAt = LocalDateTime.now();
         int updated = paymentMapper.markSuccess(payment.getId(), tradeNo, paidAt);
         if (updated == 0) {
-            // Another callback already recorded success; ownership was granted there.
+            handleNonPendingCallback(order, payment, tradeNo, paidAt);
             return;
         }
         int orderUpdated = tradeOrderMapper.markPaid(order.getId(), paidAt);
@@ -180,6 +184,50 @@ public class PaymentServiceImpl implements PaymentService {
         }
         entitlementService.grant(
                 order.getUserId(), item.getCourseId(), order.getId(), order.getOrderNo());
+    }
+
+    /**
+     * Handles a verified callback that could not move the attempt from pending to success.
+     *
+     * <p>Only a repeated callback on an already successful attempt is a normal no-op. A closed
+     * attempt means the order timeout won the race: the money was still collected, so the attempt
+     * is persisted in {@link PaymentStatus#PAID_AFTER_CLOSE} for reconciliation and refund
+     * compensation, and an error log is emitted instead of silently dropping the callback. A
+     * missing attempt is rejected because there is nothing to reconcile against.
+     *
+     * @param order order the callback referred to
+     * @param payment attempt selected before the conditional update
+     * @param tradeNo channel trade number from the notification
+     * @param paidAt channel payment time
+     * @author Caspian
+     * @since 0.2.0
+     */
+    private void handleNonPendingCallback(
+            TradeOrder order, PaymentRecord payment, String tradeNo, LocalDateTime paidAt) {
+        PaymentRecord latest = paymentMapper.selectById(payment.getId());
+        if (latest == null) {
+            throw new BizException(ErrorCode.NOT_FOUND, "payment not found");
+        }
+        if (latest.getStatus() == PaymentStatus.SUCCESS) {
+            // The first callback already granted ownership; the channel retried the notification.
+            return;
+        }
+        if (paymentMapper.markPaidAfterClose(payment.getId(), tradeNo, paidAt) == 0) {
+            PaymentRecord current = paymentMapper.selectById(payment.getId());
+            if (current != null && current.getStatus() == PaymentStatus.SUCCESS) {
+                return;
+            }
+            throw new BizException(
+                    ErrorCode.TRADE_BIZ_ERROR, "payment state changed during callback");
+        }
+        LOG.error(
+                "late payment callback recorded for refund compensation: orderNo={}, payNo={}, "
+                        + "channelTradeNo={}, previousStatus={}, amount={}",
+                order.getOrderNo(),
+                payment.getPayNo(),
+                tradeNo,
+                latest.getStatus(),
+                payment.getAmount());
     }
 
     private PaymentRecord newPayment(TradeOrder order, int channel) {

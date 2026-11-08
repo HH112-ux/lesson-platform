@@ -329,6 +329,56 @@ class PaymentServiceImplTest {
         assertEquals(2, PaymentChannel.WXPAY);
     }
 
+    /**
+     * A success callback that arrives after the attempt was closed is recorded for refund
+     * compensation instead of being dropped, and it never grants ownership.
+     *
+     * @author Caspian
+     * @since 0.2.0
+     */
+    @Test
+    void recordsLateCallbackOnClosedAttemptForCompensation() {
+        when(paymentMapper.selectByChannelTradeNo(PaymentChannel.ALIPAY, TRADE_NO))
+                .thenReturn(null);
+        when(tradeOrderMapper.selectByOrderNo(ORDER_NO)).thenReturn(order());
+        when(paymentMapper.selectLatestByOrderId(ORDER_ID)).thenReturn(pendingPayment());
+        when(paymentMapper.markSuccess(eq(1L), eq(TRADE_NO), any(LocalDateTime.class)))
+                .thenReturn(0);
+        when(paymentMapper.selectById(1L)).thenReturn(closedPayment());
+        when(paymentMapper.markPaidAfterClose(eq(1L), eq(TRADE_NO), any(LocalDateTime.class)))
+                .thenReturn(1);
+
+        paymentService.handleNotify(PaymentChannel.ALIPAY, Map.of(), "body", notification("99.00"));
+
+        verify(paymentMapper, times(1))
+                .markPaidAfterClose(eq(1L), eq(TRADE_NO), any(LocalDateTime.class));
+        verify(tradeOrderMapper, never()).markPaid(anyLong(), any(LocalDateTime.class));
+        verify(entitlementService, never()).grant(anyLong(), anyLong(), anyLong(), anyString());
+    }
+
+    /**
+     * A retried callback on an attempt that another callback already completed stays a no-op.
+     *
+     * @author Caspian
+     * @since 0.2.0
+     */
+    @Test
+    void ignoresRepeatedCallbackWhenAttemptAlreadySucceeded() {
+        when(paymentMapper.selectByChannelTradeNo(PaymentChannel.ALIPAY, TRADE_NO))
+                .thenReturn(null);
+        when(tradeOrderMapper.selectByOrderNo(ORDER_NO)).thenReturn(order());
+        when(paymentMapper.selectLatestByOrderId(ORDER_ID)).thenReturn(pendingPayment());
+        when(paymentMapper.markSuccess(eq(1L), eq(TRADE_NO), any(LocalDateTime.class)))
+                .thenReturn(0);
+        when(paymentMapper.selectById(1L)).thenReturn(succeededPayment());
+
+        paymentService.handleNotify(PaymentChannel.ALIPAY, Map.of(), "body", notification("99.00"));
+
+        verify(paymentMapper, never())
+                .markPaidAfterClose(anyLong(), anyString(), any(LocalDateTime.class));
+        verify(entitlementService, never()).grant(anyLong(), anyLong(), anyLong(), anyString());
+    }
+
     private PaymentNotification notification(String amount) {
         PaymentNotification notification = new PaymentNotification();
         notification.setOrderNo(ORDER_NO);
@@ -363,6 +413,12 @@ class PaymentServiceImplTest {
         PaymentRecord payment = pendingPayment();
         payment.setStatus(PaymentStatus.SUCCESS);
         payment.setChannelTradeNo(TRADE_NO);
+        return payment;
+    }
+
+    private PaymentRecord closedPayment() {
+        PaymentRecord payment = pendingPayment();
+        payment.setStatus(PaymentStatus.CLOSED);
         return payment;
     }
 

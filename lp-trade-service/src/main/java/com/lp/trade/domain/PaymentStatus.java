@@ -22,5 +22,13 @@ public final class PaymentStatus {
     /** Closed before any successful callback. */
     public static final int CLOSED = 2;
 
+    /**
+     * Channel confirmed the payment after the order was closed and the attempt was discarded.
+     *
+     * <p>This state never grants ownership. It is persisted so operations can find the money and
+     * drive a manual refund, and so a repeated callback is recognised as already recorded.
+     */
+    public static final int PAID_AFTER_CLOSE = 6;
+
     private PaymentStatus() {}
 }
