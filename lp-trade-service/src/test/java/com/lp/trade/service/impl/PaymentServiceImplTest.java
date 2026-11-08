@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -35,8 +36,11 @@ import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentMatchers;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.transaction.support.TransactionCallback;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Unit tests for callback handling; persistence, channel ports and entitlement are mocked.
@@ -67,23 +71,35 @@ class PaymentServiceImplTest {
 
     @Mock private EntitlementService entitlementService;
 
+    @Mock private TransactionTemplate transactionTemplate;
+
     private PaymentServiceImpl paymentService;
 
     /**
-     * Builds the service under test with a passing verifier.
+     * Builds the service under test with a passing verifier and an immediate transaction.
      *
      * @author Caspian
      * @since 0.1.0
      */
     @BeforeEach
     void setUp() {
+        lenient()
+                .when(
+                        transactionTemplate.execute(
+                                ArgumentMatchers.<TransactionCallback<Object>>any()))
+                .thenAnswer(
+                        invocation -> {
+                            TransactionCallback<Object> callback = invocation.getArgument(0);
+                            return callback.doInTransaction(null);
+                        });
         paymentService =
                 new PaymentServiceImpl(
                         tradeOrderMapper,
                         paymentMapper,
                         paymentGateway,
                         signatureVerifier,
-                        entitlementService);
+                        entitlementService,
+                        transactionTemplate);
     }
 
     /**
@@ -153,7 +169,8 @@ class PaymentServiceImplTest {
                         paymentMapper,
                         paymentGateway,
                         new UnconfiguredSignatureVerifier(),
-                        entitlementService);
+                        entitlementService,
+                        transactionTemplate);
 
         BizException exception =
                 assertThrows(
@@ -201,7 +218,7 @@ class PaymentServiceImplTest {
     void rejectsOrderOfAnotherUser() {
         TradeOrder otherUsersOrder = order();
         otherUsersOrder.setUserId(2002L);
-        when(tradeOrderMapper.selectByOrderNo(ORDER_NO)).thenReturn(otherUsersOrder);
+        when(tradeOrderMapper.selectByOrderNoForUpdate(ORDER_NO)).thenReturn(otherUsersOrder);
 
         BizException exception =
                 assertThrows(
@@ -220,7 +237,7 @@ class PaymentServiceImplTest {
      */
     @Test
     void initiateReturnsGatewayPrepayPayload() {
-        when(tradeOrderMapper.selectByOrderNo(ORDER_NO)).thenReturn(order());
+        when(tradeOrderMapper.selectByOrderNoForUpdate(ORDER_NO)).thenReturn(order());
         when(paymentMapper.selectLatestByOrderId(ORDER_ID)).thenReturn(null);
         when(paymentMapper.insertPayment(any(PaymentRecord.class))).thenReturn(1);
         when(paymentGateway.prepay(any(PaymentRecord.class)))
@@ -250,8 +267,9 @@ class PaymentServiceImplTest {
                         paymentMapper,
                         new UnconfiguredPaymentGateway(),
                         signatureVerifier,
-                        entitlementService);
-        when(tradeOrderMapper.selectByOrderNo(ORDER_NO)).thenReturn(order());
+                        entitlementService,
+                        transactionTemplate);
+        when(tradeOrderMapper.selectByOrderNoForUpdate(ORDER_NO)).thenReturn(order());
         when(paymentMapper.selectLatestByOrderId(ORDER_ID)).thenReturn(null);
         when(paymentMapper.insertPayment(any(PaymentRecord.class))).thenReturn(1);
 
@@ -273,7 +291,7 @@ class PaymentServiceImplTest {
     void rejectsClosedOrder() {
         TradeOrder closedOrder = order();
         closedOrder.setStatus(OrderStatus.CLOSED);
-        when(tradeOrderMapper.selectByOrderNo(ORDER_NO)).thenReturn(closedOrder);
+        when(tradeOrderMapper.selectByOrderNoForUpdate(ORDER_NO)).thenReturn(closedOrder);
 
         BizException exception =
                 assertThrows(
