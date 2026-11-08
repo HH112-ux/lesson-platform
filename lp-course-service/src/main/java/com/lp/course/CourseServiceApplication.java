@@ -1,5 +1,6 @@
 package com.lp.course;
 
+import com.lp.common.identity.TrustedIdentityConfig;
 import com.lp.common.internal.InternalTokenConfig;
 import com.lp.common.web.GlobalExceptionHandler;
 import org.mybatis.spring.annotation.MapperScan;
@@ -21,7 +22,7 @@ import org.springframework.context.annotation.Import;
  */
 @SpringBootApplication
 @MapperScan("com.lp.course.mapper")
-@Import({GlobalExceptionHandler.class, InternalTokenConfig.class})
+@Import({GlobalExceptionHandler.class, InternalTokenConfig.class, TrustedIdentityConfig.class})
 public class CourseServiceApplication {
 
     /**

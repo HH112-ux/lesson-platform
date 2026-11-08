@@ -152,8 +152,9 @@ services:
 
   # ---------------------------------------------------------------------------
   # Application services. Jars are produced on the host by scripts/dev-up.sh, so the
-  # image build only copies an artifact. Backend ports are published for parity with
-  # the documented local defaults; the browser always talks to the gateway.
+  # image build only copies an artifact. Business ports are bound to loopback only:
+  # the browser always talks to the gateway, and direct service access is a local
+  # debugging aid, never something the LAN should reach.
   # ---------------------------------------------------------------------------
   auth-service:
     build:
@@ -172,7 +173,7 @@ services:
     volumes:
       - ./jwt:/run/jwt:ro
     ports:
-      - "8101:8101"
+      - "127.0.0.1:8101:8101"
     depends_on:
       mysql:
         condition: service_healthy
@@ -198,7 +199,7 @@ services:
       LP_COURSE_DB_URL: jdbc:mysql://mysql:3306/lp_cms?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
       LP_LEARN_BASE_URL: http://learn-service:8104
     ports:
-      - "8102:8102"
+      - "127.0.0.1:8102:8102"
     depends_on:
       mysql:
         condition: service_healthy
@@ -230,7 +231,7 @@ services:
       LP_PAY_MOCK_SECRET: ${LP_PAY_MOCK_SECRET:-lp_mock_pay_dev_secret}
       LP_PAY_MOCK_GATEWAY_BASE_URL: http://localhost:8080
     ports:
-      - "8103:8103"
+      - "127.0.0.1:8103:8103"
     depends_on:
       mysql:
         condition: service_healthy
@@ -262,7 +263,7 @@ services:
       LP_MINIO_SECRET_KEY: ${LP_MINIO_ROOT_PASSWORD:-lp_minio_dev}
       LP_MINIO_BUCKET: ${LP_MINIO_BUCKET:-lp-media}
     ports:
-      - "8104:8104"
+      - "127.0.0.1:8104:8104"
     depends_on:
       mysql:
         condition: service_healthy
@@ -286,7 +287,7 @@ services:
     environment:
       <<: *service-env
     ports:
-      - "8105:8105"
+      - "127.0.0.1:8105:8105"
     healthcheck:
       test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/127.0.0.1/8105' || exit 1"]
       interval: 10s
@@ -308,7 +309,7 @@ services:
       LP_TRADE_SERVICE_BASE_URL: http://trade-service:8103
       LP_AUTH_SERVICE_BASE_URL: http://auth-service:8101
     ports:
-      - "8106:8106"
+      - "127.0.0.1:8106:8106"
     depends_on:
       course-service:
         condition: service_healthy
@@ -330,7 +331,7 @@ services:
     environment:
       <<: *service-env
     ports:
-      - "8107:8107"
+      - "127.0.0.1:8107:8107"
     healthcheck:
       test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/127.0.0.1/8107' || exit 1"]
       interval: 10s

@@ -342,6 +342,25 @@ bash scripts/seed/seed-demo.sh
 
 密码统一为 `Demo@123456`（BCrypt 哈希写在 `db/seed/demo-seed.sql`）。种子只插入缺失数据，不会重置既有账号密码；需要恢复账号状态时先在本地清库再重新 `migrate` + seed。
 
+### 4.7 直连下游服务（仅本机）
+
+`infra/docker-compose.yml` 中 8101–8107 统一绑定为 `127.0.0.1:端口`，容器内网仍可被网关访问，但宿主机之外（同一局域网的其他机器、公网）无法连入；对外入口只有网关 8080。
+
+业务服务已注册 `TrustedIdentityFilter`：除登录、课程目录、支付回调、购课 ticket 兑换与 `/internal/**` 外，缺少 `X-User-Id` 的请求在进入控制器前即返回 `40101`。该过滤器只校验身份头是否存在，不校验调用方来源，因此 8101–8107 严禁改为对宿主机全接口发布；本地直连调试时需要手动补头：
+
+```bash
+# 受保护接口：本地直连需显式补 X-User-Id（网关会注入，浏览器无需关心）
+curl -s http://127.0.0.1:8103/api/v1/orders -H 'X-User-Id: 2'
+
+# 内部接口：带 X-Internal-Token，值取 infra/.env 的 LP_INTERNAL_TOKEN
+curl -s http://127.0.0.1:8107/actuator/health
+curl -s http://127.0.0.1:8103/internal/v1/entitlement-outbox/stats \
+  -H "X-Internal-Token: ${LP_INTERNAL_TOKEN:-lp_internal_dev_token}"
+```
+
+- 课程公开目录（`/api/v1/courses/**`、`/api/v1/categories/**`）与支付渠道回调（`/api/v1/payments/alipay/notify`、`/api/v1/payments/mock/callback`）、匿名 ticket 兑换（`/api/v1/orders/purchase-ticket/redeem`）已在白名单内，不需要身份头；回调验签仍在服务内完成。
+- 白名单可通过 `LP_IDENTITY_WHITELIST`（逗号分隔 Ant 路径）按服务覆盖，修改后需重启对应服务。
+
 ## 5. Web 前端
 
 ```bash

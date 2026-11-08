@@ -1,5 +1,6 @@
 package com.lp.admin;
 
+import com.lp.common.identity.TrustedIdentityConfig;
 import com.lp.common.web.GlobalExceptionHandler;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -18,7 +19,7 @@ import org.springframework.context.annotation.Import;
  * @since 0.1.0
  */
 @SpringBootApplication
-@Import(GlobalExceptionHandler.class)
+@Import({GlobalExceptionHandler.class, TrustedIdentityConfig.class})
 public class AdminServiceApplication {
 
     /**

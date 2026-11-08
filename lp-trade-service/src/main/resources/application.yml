@@ -35,6 +35,10 @@ spring:
           enabled: false
 
 lp:
+  identity:
+    # Channel callbacks and anonymous ticket redemption are public; every other path must carry
+    # the gateway injected identity. Signature checks stay inside the services.
+    whitelist: ${LP_IDENTITY_WHITELIST:/api/v1/payments/alipay/notify,/api/v1/payments/mock/callback,/api/v1/orders/purchase-ticket/redeem}
   trade:
     # course-service internal read API; it is never routed through the gateway.
     course-base-url: ${LP_COURSE_SERVICE_BASE_URL:http://127.0.0.1:8102}
