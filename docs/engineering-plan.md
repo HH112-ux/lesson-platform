@@ -1955,7 +1955,7 @@ DoD：学伴无法回答率 ≤ 30%、找课点击率 +10%、售后 FAQ 命中�
 | M0-24 | 中间件 | MQ 收发冒烟 | `scripts/smoke/mq-smoke.sh` | M0-09、M0-23 | 0.5 | 发送 1 条后消费日志命中 1 次，无重复消费 | 后端·B |
 | M0-25 | 中间件 | 对象存储封装 | `lp-common/.../storage/ObjectStorage.java` | M0-02、M0-06、M0-09 | 1 | 预签名 URL 15min 内 GET 200、过期 403；匿名访问 `lp-media` 返回 AccessDenied | 后端·A |
 | M0-26 | 网关 | gateway 骨架与健康检查 | `lp-gateway/pom.xml`、`GatewayApp.java`、`application-local.yml` | M0-04、M0-15 | 0.5 | `curl :8080/actuator/health` 返回 UP | 后端·A |
-| M0-27 | 网关 | 路由表与白名单 | `lp-gateway/src/main/resources/application.yml` | M0-26 | 1 | 含 7 条服务路由、`/mp/**` 段、登录与支付回调白名单；`curl :8080/api/v1/auth/ping` 非 502 | 后端·B |
+| M0-27 | 网关 | 路由表与白名单 | `lp-gateway/src/main/resources/application.yml` | M0-26 | 1 | 含 7 条服务路由、登录与支付回调白名单；小程序直接复用 `/api/v1/**` 路由；`curl :8080/api/v1/auth/ping` 非 502 | 后端·B |
 | M0-28 | 网关 | 七服务骨架落地 | `auth-service/`、`course-service/`、`trade-service/`、`learn-service/`、`ugc-service/`、`admin-service/`、`ai-service/` | M0-04、M0-09、M0-18 | 0.5 | 8101–8107 各 `curl /api/v1/*/ping` 返回 200 | 后端·A |
 | M0-29 | 网关 | 统一返回与异常 | `lp-common/.../web/Result.java`、`ErrorCode.java`、`GlobalExceptionHandler.java` | M0-02 | 1 | `BizException(40001)` 返回 `code=40001`；未捕获异常返回 50001；响应体含 `traceId` | 后端·B |
 | M0-30 | 网关 | 分页与参数校验统一 | `lp-common/.../web/PageResult.java`、校验切面 | M0-29 | 0.5 | `pageSize=1000` 被夹到 100；缺必填参数返回 40001 | 后端·B |

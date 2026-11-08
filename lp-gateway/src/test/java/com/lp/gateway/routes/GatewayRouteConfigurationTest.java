@@ -43,8 +43,8 @@ class GatewayRouteConfigurationTest {
                     "admin-service", "/api/v1/admin/audits/1",
                     "ai-service", "/api/v1/ai/status");
 
-    /** Expected route count: seven domain services plus the miniapp segment. */
-    private static final int EXPECTED_ROUTE_COUNT = 8;
+    /** Expected route count: one route per domain service. */
+    private static final int EXPECTED_ROUTE_COUNT = 7;
 
     private static GatewayProperties properties;
 
