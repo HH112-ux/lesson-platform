@@ -29,6 +29,9 @@ spring:
           enabled: false
 
 lp:
+  identity:
+    # Public catalogue reads. Every other path must carry the gateway injected identity.
+    whitelist: ${LP_IDENTITY_WHITELIST:/api/v1/courses/**,/api/v1/categories/**}
   internal:
     # Shared secret for /internal/v1/**; no default, so a missing LP_INTERNAL_TOKEN fails startup.
     token: ${LP_INTERNAL_TOKEN}

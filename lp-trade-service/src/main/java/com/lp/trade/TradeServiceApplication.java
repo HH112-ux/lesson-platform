@@ -1,5 +1,6 @@
 package com.lp.trade;
 
+import com.lp.common.identity.TrustedIdentityConfig;
 import com.lp.common.internal.InternalTokenConfig;
 import com.lp.common.web.GlobalExceptionHandler;
 import com.lp.trade.config.MockPayProperties;
@@ -27,7 +28,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @MapperScan("com.lp.trade.mapper")
 @EnableConfigurationProperties({TradeProperties.class, MockPayProperties.class})
 @EnableScheduling
-@Import({GlobalExceptionHandler.class, InternalTokenConfig.class})
+@Import({GlobalExceptionHandler.class, InternalTokenConfig.class, TrustedIdentityConfig.class})
 public class TradeServiceApplication {
 
     /**
