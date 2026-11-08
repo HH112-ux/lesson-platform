@@ -336,15 +336,15 @@ public class JwtAuthFilter implements GlobalFilter, Ordered {
     /**
      * Derives the source platform from the entry segment, never from a client header.
      *
+     * <p>The miniapp calls the same {@code /api/v1/**} paths as the web client, so only the admin
+     * console can be told apart; everything else is treated as web.
+     *
      * @param path request path
-     * @return miniapp under {@code /mp/**}, admin under {@code /api/v1/admin/**}, else web
+     * @return admin under {@code /api/v1/admin/**}, else web
      * @author Caspian
      * @since 0.1.0
      */
     private static String sourceOf(String path) {
-        if (path.startsWith("/mp/")) {
-            return IdentityHeaders.SOURCE_MINIAPP;
-        }
         if (path.startsWith("/api/v1/admin/")) {
             return IdentityHeaders.SOURCE_ADMIN;
         }

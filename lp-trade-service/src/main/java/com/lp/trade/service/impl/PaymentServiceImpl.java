@@ -21,9 +21,13 @@ import com.lp.trade.service.PaymentService;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ThreadLocalRandom;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Default {@link PaymentService} implementation.
@@ -38,6 +42,8 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Service
 public class PaymentServiceImpl implements PaymentService {
+
+    private static final Logger LOG = LoggerFactory.getLogger(PaymentServiceImpl.class);
 
     private static final int MAX_PAY_NO_RANDOM = 10000;
 
@@ -54,6 +60,8 @@ public class PaymentServiceImpl implements PaymentService {
 
     private final EntitlementService entitlementService;
 
+    private final TransactionTemplate transactionTemplate;
+
     /**
      * Creates the service with its dependencies.
      *
@@ -62,6 +70,7 @@ public class PaymentServiceImpl implements PaymentService {
      * @param paymentGateway channel prepay port
      * @param signatureVerifier callback verification port
      * @param entitlementService ownership port
+     * @param transactionTemplate transaction boundary around the attempt lock
      * @author Caspian
      * @since 0.1.0
      */
@@ -70,12 +79,14 @@ public class PaymentServiceImpl implements PaymentService {
             PaymentMapper paymentMapper,
             PaymentGateway paymentGateway,
             SignatureVerifier signatureVerifier,
-            EntitlementService entitlementService) {
+            EntitlementService entitlementService,
+            TransactionTemplate transactionTemplate) {
         this.tradeOrderMapper = tradeOrderMapper;
         this.paymentMapper = paymentMapper;
         this.paymentGateway = paymentGateway;
         this.signatureVerifier = signatureVerifier;
         this.entitlementService = entitlementService;
+        this.transactionTemplate = transactionTemplate;
     }
 
     /**
@@ -93,7 +104,34 @@ public class PaymentServiceImpl implements PaymentService {
     public PayView initiate(long userId, String source, String orderNo) {
         int channel = resolveChannel(source);
         String trimmedOrderNo = requireOrderNo(orderNo);
-        TradeOrder order = tradeOrderMapper.selectByOrderNo(trimmedOrderNo);
+        PreparedPayment prepared =
+                Objects.requireNonNull(
+                        transactionTemplate.execute(
+                                status -> lockAndPrepare(userId, channel, trimmedOrderNo)));
+        if (prepared.expired()) {
+            throw new BizException(ErrorCode.ORDER_EXPIRED);
+        }
+        PrepayResult prepay = paymentGateway.prepay(prepared.payment());
+        return new PayView(prepay.getPayNo(), prepay.getChannel(), prepay.getPayParams());
+    }
+
+    /**
+     * Validates the order under its row lock and returns the attempt to prepay.
+     *
+     * <p>The order row is locked for the whole read-validate-insert sequence, so a concurrent click
+     * waits and then reuses the pending attempt instead of inserting a second one. Prepay is
+     * deliberately outside this transaction: holding a row lock during a channel call would block
+     * the buyer's next request for as long as the provider takes.
+     *
+     * @param userId authenticated buyer id
+     * @param channel resolved payment channel
+     * @param orderNo trimmed business order number
+     * @return attempt to prepay, or an expired marker when the order was just closed
+     * @author Caspian
+     * @since 0.2.0
+     */
+    private PreparedPayment lockAndPrepare(long userId, int channel, String orderNo) {
+        TradeOrder order = tradeOrderMapper.selectByOrderNoForUpdate(orderNo);
         if (order == null || order.getUserId() == null || order.getUserId() != userId) {
             throw new BizException(ErrorCode.NOT_FOUND, "order not found");
         }
@@ -111,7 +149,7 @@ public class PaymentServiceImpl implements PaymentService {
         if (order.getPayExpireAt() != null && now.isAfter(order.getPayExpireAt())) {
             paymentMapper.closePendingByOrderId(order.getId());
             tradeOrderMapper.markClosed(order.getId(), now);
-            throw new BizException(ErrorCode.ORDER_EXPIRED);
+            return new PreparedPayment(null, true);
         }
 
         PaymentRecord payment = paymentMapper.selectLatestByOrderId(order.getId());
@@ -119,8 +157,7 @@ public class PaymentServiceImpl implements PaymentService {
             payment = newPayment(order, channel);
             paymentMapper.insertPayment(payment);
         }
-        PrepayResult prepay = paymentGateway.prepay(payment);
-        return new PayView(prepay.getPayNo(), prepay.getChannel(), prepay.getPayParams());
+        return new PreparedPayment(payment, false);
     }
 
     /**
@@ -167,7 +204,7 @@ public class PaymentServiceImpl implements PaymentService {
         LocalDateTime paidAt = LocalDateTime.now();
         int updated = paymentMapper.markSuccess(payment.getId(), tradeNo, paidAt);
         if (updated == 0) {
-            // Another callback already recorded success; ownership was granted there.
+            handleNonPendingCallback(order, payment, tradeNo, paidAt);
             return;
         }
         int orderUpdated = tradeOrderMapper.markPaid(order.getId(), paidAt);
@@ -181,6 +218,60 @@ public class PaymentServiceImpl implements PaymentService {
         entitlementService.grant(
                 order.getUserId(), item.getCourseId(), order.getId(), order.getOrderNo());
     }
+
+    /**
+     * Handles a verified callback that could not move the attempt from pending to success.
+     *
+     * <p>Only a repeated callback on an already successful attempt is a normal no-op. A closed
+     * attempt means the order timeout won the race: the money was still collected, so the attempt
+     * is persisted in {@link PaymentStatus#PAID_AFTER_CLOSE} for reconciliation and refund
+     * compensation, and an error log is emitted instead of silently dropping the callback. A
+     * missing attempt is rejected because there is nothing to reconcile against.
+     *
+     * @param order order the callback referred to
+     * @param payment attempt selected before the conditional update
+     * @param tradeNo channel trade number from the notification
+     * @param paidAt channel payment time
+     * @author Caspian
+     * @since 0.2.0
+     */
+    private void handleNonPendingCallback(
+            TradeOrder order, PaymentRecord payment, String tradeNo, LocalDateTime paidAt) {
+        PaymentRecord latest = paymentMapper.selectById(payment.getId());
+        if (latest == null) {
+            throw new BizException(ErrorCode.NOT_FOUND, "payment not found");
+        }
+        if (latest.getStatus() == PaymentStatus.SUCCESS) {
+            // The first callback already granted ownership; the channel retried the notification.
+            return;
+        }
+        if (paymentMapper.markPaidAfterClose(payment.getId(), tradeNo, paidAt) == 0) {
+            PaymentRecord current = paymentMapper.selectById(payment.getId());
+            if (current != null && current.getStatus() == PaymentStatus.SUCCESS) {
+                return;
+            }
+            throw new BizException(
+                    ErrorCode.TRADE_BIZ_ERROR, "payment state changed during callback");
+        }
+        LOG.error(
+                "late payment callback recorded for refund compensation: orderNo={}, payNo={}, "
+                        + "channelTradeNo={}, previousStatus={}, amount={}",
+                order.getOrderNo(),
+                payment.getPayNo(),
+                tradeNo,
+                latest.getStatus(),
+                payment.getAmount());
+    }
+
+    /**
+     * Outcome of the locked preparation step.
+     *
+     * @param payment attempt to prepay, {@code null} when the order just expired
+     * @param expired whether the expiry check closed the order
+     * @author Caspian
+     * @since 0.2.0
+     */
+    private record PreparedPayment(PaymentRecord payment, boolean expired) {}
 
     private PaymentRecord newPayment(TradeOrder order, int channel) {
         PaymentRecord payment = new PaymentRecord();

@@ -283,23 +283,24 @@ class JwtAuthFilterTest {
     }
 
     /**
-     * The miniapp segment is the only way to obtain a miniapp source value.
+     * Miniapp traffic uses the same {@code /api/v1/**} paths as the web client and is therefore
+     * reported as the web source; no path segment marks it as miniapp.
      *
      * @author Caspian
      * @since 0.1.0
      */
     @Test
-    void derivesMiniappSourceFromPath() {
+    void derivesWebSourceForSharedMiniappPaths() {
         CapturingChain chain = new CapturingChain();
         filter.filter(
                         exchangeWithToken(
-                                "/mp/api/v1/courses",
+                                "/api/v1/courses",
                                 token(7L, List.of("STUDENT"), Duration.ofMinutes(15))),
                         chain)
                 .block();
 
         assertThat(chain.exchange().getRequest().getHeaders().getFirst(IdentityHeaders.USER_SOURCE))
-                .isEqualTo("miniapp");
+                .isEqualTo("web");
     }
 
     /**

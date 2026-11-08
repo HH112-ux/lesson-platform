@@ -83,6 +83,26 @@ public interface TradeOrderMapper {
     TradeOrder selectByOrderNo(@Param("orderNo") String orderNo);
 
     /**
+     * Locks an order by its business number for the rest of the current transaction.
+     *
+     * <p>Payment initiation serialises on this row so two concurrent clicks cannot both observe "no
+     * pending attempt" and insert one each.
+     *
+     * @param orderNo business order number
+     * @return order, or {@code null} when absent
+     * @author Caspian
+     * @since 0.2.0
+     */
+    @Select(
+            "SELECT id, order_no AS orderNo, user_id AS userId, "
+                    + "total_amount AS totalAmount, discount_amount AS discountAmount, "
+                    + "pay_amount AS payAmount, status, coupon_id AS couponId, channel, "
+                    + "pay_expire_at AS payExpireAt, paid_at AS paidAt, closed_at AS closedAt, "
+                    + "idempotency_key AS idempotencyKey FROM trade_order "
+                    + "WHERE order_no = #{orderNo} AND deleted = 0 FOR UPDATE")
+    TradeOrder selectByOrderNoForUpdate(@Param("orderNo") String orderNo);
+
+    /**
      * Finds an order by id regardless of its owner.
      *
      * @param orderId order primary key

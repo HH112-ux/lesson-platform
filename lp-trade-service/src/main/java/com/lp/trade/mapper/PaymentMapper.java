@@ -58,6 +58,21 @@ public interface PaymentMapper {
             @Param("channel") int channel, @Param("channelTradeNo") String channelTradeNo);
 
     /**
+     * Loads one payment attempt by primary key.
+     *
+     * @param id payment primary key
+     * @return payment record, or {@code null} when it was removed
+     * @author Caspian
+     * @since 0.2.0
+     */
+    @Select(
+            "SELECT id, order_id AS orderId, pay_no AS payNo, channel, "
+                    + "pay_scene AS payScene, amount, status, "
+                    + "channel_trade_no AS channelTradeNo, paid_at AS paidAt "
+                    + "FROM payment_record WHERE id = #{id} AND deleted = 0")
+    PaymentRecord selectById(@Param("id") long id);
+
+    /**
      * Inserts one payment attempt and fills the generated id.
      *
      * @param record payment record
@@ -86,6 +101,28 @@ public interface PaymentMapper {
             "UPDATE payment_record SET status = 1, channel_trade_no = #{channelTradeNo}, "
                     + "paid_at = #{paidAt} WHERE id = #{id} AND status = 0")
     int markSuccess(
+            @Param("id") long id,
+            @Param("channelTradeNo") String channelTradeNo,
+            @Param("paidAt") LocalDateTime paidAt);
+
+    /**
+     * Records a payment that arrived after the attempt was closed.
+     *
+     * <p>The row is moved to the dedicated late-paid state instead of success so no ownership is
+     * granted, while the channel trade number and payment time stay available for reconciliation
+     * and manual refund. Only closed attempts are touched; a concurrent success keeps its state.
+     *
+     * @param id payment primary key
+     * @param channelTradeNo channel trade number
+     * @param paidAt channel payment time
+     * @return affected rows, {@code 0} when the attempt was not closed anymore
+     * @author Caspian
+     * @since 0.2.0
+     */
+    @Update(
+            "UPDATE payment_record SET status = 6, channel_trade_no = #{channelTradeNo}, "
+                    + "paid_at = #{paidAt} WHERE id = #{id} AND status = 2")
+    int markPaidAfterClose(
             @Param("id") long id,
             @Param("channelTradeNo") String channelTradeNo,
             @Param("paidAt") LocalDateTime paidAt);
