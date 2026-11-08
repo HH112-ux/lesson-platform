@@ -43,6 +43,7 @@ public class AdminUserController {
      * Lists accounts with keyword and status filters.
      *
      * @param roles gateway injected roles, comma separated
+     * @param permissions gateway injected permission codes, comma separated
      * @param keyword optional match on username, nickname or phone
      * @param status optional account status filter
      * @param pageNum one based page number, defaults to 1
@@ -55,12 +56,15 @@ public class AdminUserController {
     @GetMapping
     public Result<AdminUserPageView> users(
             @RequestHeader(value = IdentityHeaders.USER_ROLES, required = false) String roles,
+            @RequestHeader(value = IdentityHeaders.USER_PERMISSIONS, required = false)
+                    String permissions,
             @RequestParam(value = "keyword", required = false) String keyword,
             @RequestParam(value = "status", required = false) Integer status,
             @RequestParam(value = "pageNum", defaultValue = "1") int pageNum,
             @RequestParam(value = "pageSize", defaultValue = "20") int pageSize,
             HttpServletRequest request) {
         ConsoleRoles.requireConsole(roles);
+        ConsoleRoles.requirePermission(permissions, ConsoleRoles.USER_LIST);
         return Result.ok(
                 adminUserQueryService.page(keyword, status, pageNum, pageSize),
                 TraceIds.resolve(request));

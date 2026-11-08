@@ -10,9 +10,9 @@ import org.springframework.stereotype.Service;
  *
  * <p>The tree mirrors the permission codes seeded in {@code sys_menu}; it is defined in code
  * because admin-service does not own a datasource. A node is kept only when the caller holds its
- * permission, and a parent survives when any child survives. An empty permission set means the
- * gateway could not resolve permissions, in which case the full tree is returned for {@code
- * ADMIN}/{@code OPS} callers, which the controller has already authorised.
+ * permission, and a parent survives when any child survives. An empty permission set yields an
+ * empty tree: the gateway always resolves permissions from the JWT, so emptiness means no codes
+ * were granted and must never be upgraded to the full tree.
  *
  * @author Caspian
  * @since 0.1.0
@@ -72,13 +72,13 @@ public class AdminMenuService {
      * Returns the menu tree visible to a permission set.
      *
      * @param permissions permission codes of the caller, may be empty
-     * @return filtered menu tree, never {@code null}
+     * @return filtered menu tree; empty when no permission is held
      * @author Caspian
      * @since 0.1.0
      */
     public List<AdminMenuView> menusFor(Set<String> permissions) {
         if (permissions == null || permissions.isEmpty()) {
-            return MENUS;
+            return List.of();
         }
         return filter(MENUS, permissions);
     }

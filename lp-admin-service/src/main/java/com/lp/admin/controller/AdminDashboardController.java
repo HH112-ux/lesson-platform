@@ -2,6 +2,7 @@ package com.lp.admin.controller;
 
 import com.lp.admin.dto.AdminDashboardView;
 import com.lp.admin.service.AdminDashboardService;
+import com.lp.admin.support.ConsoleRoles;
 import com.lp.common.exception.BizException;
 import com.lp.common.exception.ErrorCode;
 import com.lp.common.identity.IdentityHeaders;
@@ -44,6 +45,7 @@ public class AdminDashboardController {
      * Returns the current dashboard figures.
      *
      * @param roles gateway injected roles, comma separated
+     * @param permissions gateway injected permission codes, comma separated
      * @param request current request, used to resolve the trace id
      * @return course, order and account totals
      * @author Caspian
@@ -52,8 +54,11 @@ public class AdminDashboardController {
     @GetMapping
     public Result<AdminDashboardView> dashboard(
             @RequestHeader(value = IdentityHeaders.USER_ROLES, required = false) String roles,
+            @RequestHeader(value = IdentityHeaders.USER_PERMISSIONS, required = false)
+                    String permissions,
             HttpServletRequest request) {
         requireConsoleRole(roles);
+        ConsoleRoles.requirePermission(permissions, ConsoleRoles.DASHBOARD_VIEW);
         return Result.ok(adminDashboardService.load(), TraceIds.resolve(request));
     }
 

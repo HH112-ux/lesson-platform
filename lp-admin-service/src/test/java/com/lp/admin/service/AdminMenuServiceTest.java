@@ -31,17 +31,16 @@ class AdminMenuServiceTest {
     }
 
     /**
-     * An empty permission set returns the whole tree for an authorised console caller.
+     * An empty permission set yields no menu at all instead of the full tree.
      *
      * @author Caspian
      * @since 0.1.0
      */
     @Test
-    void emptyPermissionsReturnFullTree() {
+    void emptyPermissionsReturnNoMenus() {
         List<AdminMenuView> menus = service.menusFor(Set.of());
 
-        assertEquals(5, menus.size());
-        assertEquals("dashboard", menus.get(0).key());
+        assertTrue(menus.isEmpty());
     }
 
     /**

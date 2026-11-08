@@ -42,6 +42,7 @@ public class AdminMetricsController {
      * Returns the overview figures of the last seven days.
      *
      * @param roles gateway injected roles, comma separated
+     * @param permissions gateway injected permission codes, comma separated
      * @param request current request, used to resolve the trace id
      * @return revenue, conversion, signups, best sellers and course counters
      * @author Caspian
@@ -50,8 +51,11 @@ public class AdminMetricsController {
     @GetMapping("/overview")
     public Result<AdminMetricsOverviewView> overview(
             @RequestHeader(value = IdentityHeaders.USER_ROLES, required = false) String roles,
+            @RequestHeader(value = IdentityHeaders.USER_PERMISSIONS, required = false)
+                    String permissions,
             HttpServletRequest request) {
         ConsoleRoles.requireConsole(roles);
+        ConsoleRoles.requirePermission(permissions, ConsoleRoles.DASHBOARD_VIEW);
         return Result.ok(adminDashboardService.overview(), TraceIds.resolve(request));
     }
 }
