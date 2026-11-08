@@ -341,7 +341,7 @@ class OrderServiceImplTest {
         when(tradeOrderMapper.countByUser(USER_ID, null)).thenReturn(2L);
         when(tradeOrderMapper.selectPageByUser(USER_ID, null, 0L, 100L))
                 .thenReturn(List.of(order(42L, "LP1", OrderStatus.PENDING)));
-        when(tradeOrderMapper.selectFirstItem(42L)).thenReturn(item());
+        when(tradeOrderMapper.selectItemsByOrderIds(List.of(42L))).thenReturn(List.of(item()));
 
         OrderPageView page = orderService.list(USER_ID, null, 0, 500);
 

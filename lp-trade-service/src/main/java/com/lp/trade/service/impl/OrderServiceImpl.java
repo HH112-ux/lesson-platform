@@ -27,7 +27,9 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ThreadLocalRandom;
 import org.springframework.dao.DuplicateKeyException;
@@ -341,11 +343,20 @@ public class OrderServiceImpl implements OrderService {
         if (total == 0) {
             return new OrderPageView(List.of(), 0, safePage, safeSize);
         }
+        List<TradeOrder> rows =
+                tradeOrderMapper.selectPageByUser(
+                        userId, filter, (long) (safePage - 1) * safeSize, safeSize);
+        Map<Long, TradeOrderItem> firstItems = new HashMap<>();
+        if (!rows.isEmpty()) {
+            // One query for every line on the page instead of one query per row.
+            for (TradeOrderItem item :
+                    tradeOrderMapper.selectItemsByOrderIds(
+                            rows.stream().map(TradeOrder::getId).toList())) {
+                firstItems.putIfAbsent(item.getOrderId(), item);
+            }
+        }
         List<OrderSummaryView> records =
-                tradeOrderMapper
-                        .selectPageByUser(
-                                userId, filter, (long) (safePage - 1) * safeSize, safeSize)
-                        .stream()
+                rows.stream()
                         .map(
                                 order ->
                                         new OrderSummaryView(
@@ -355,10 +366,7 @@ public class OrderServiceImpl implements OrderService {
                                                 order.getChannel(),
                                                 order.getPayAmount(),
                                                 order.getCreatedAt(),
-                                                List.of(
-                                                        toItemView(
-                                                                tradeOrderMapper.selectFirstItem(
-                                                                        order.getId())))))
+                                                List.of(toItemView(firstItems.get(order.getId())))))
                         .toList();
         return new OrderPageView(records, total, safePage, safeSize);
     }
