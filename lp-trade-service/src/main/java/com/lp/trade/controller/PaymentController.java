@@ -3,10 +3,8 @@ package com.lp.trade.controller;
 import com.lp.common.exception.BizException;
 import com.lp.common.exception.ErrorCode;
 import com.lp.common.identity.IdentityHeaders;
-import com.lp.common.result.Result;
 import com.lp.common.web.TraceIds;
 import com.lp.trade.domain.PaymentChannel;
-import com.lp.trade.dto.PayView;
 import com.lp.trade.dto.PaymentNotification;
 import com.lp.trade.idempotency.IdempotencyDigests;
 import com.lp.trade.idempotency.IdempotencyHeaders;
@@ -21,6 +19,8 @@ import java.math.BigDecimal;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -70,12 +70,12 @@ public class PaymentController {
      * @param orderNo business order number
      * @param request current request, used to resolve the trace id
      * @param response current response, marked when the body is a replay
-     * @return prepay payload, or {@code 50205} while credentials are missing
+     * @return serialized response envelope, written back verbatim on a replay
      * @author Caspian
      * @since 0.1.0
      */
     @PostMapping("/{orderNo}/pay")
-    public Result<PayView> pay(
+    public ResponseEntity<String> pay(
             @RequestHeader(value = IdentityHeaders.USER_ID, required = false) Long userId,
             @RequestHeader(value = IdentityHeaders.USER_SOURCE, required = false) String source,
             @RequestHeader(value = IdempotencyHeaders.IDEMPOTENCY_KEY, required = false)
@@ -85,18 +85,18 @@ public class PaymentController {
             HttpServletResponse response) {
         long uid = requireUser(userId);
         String key = IdempotencyKeys.require(idempotencyKey);
-        IdempotencyOutcome<PayView> outcome =
+        IdempotencyOutcome<String> outcome =
                 idempotencyService.execute(
                         IdempotencyScope.PAYMENT_INITIATE,
                         uid,
                         key,
                         IdempotencyDigests.payment(orderNo),
-                        PayView.class,
+                        TraceIds.resolve(request),
                         () -> paymentService.initiate(uid, source, orderNo));
         if (outcome.replayed()) {
             response.setHeader(IdempotencyHeaders.REPLAYED, "true");
         }
-        return Result.ok(outcome.value(), TraceIds.resolve(request));
+        return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(outcome.value());
     }
 
     /**

@@ -11,8 +11,6 @@ import com.lp.trade.dto.CancelOrderResult;
 import com.lp.trade.dto.CreateOrderRequest;
 import com.lp.trade.dto.OrderDetailView;
 import com.lp.trade.dto.OrderPageView;
-import com.lp.trade.dto.OrderView;
-import com.lp.trade.dto.RefundView;
 import com.lp.trade.idempotency.IdempotencyDigests;
 import com.lp.trade.idempotency.IdempotencyHeaders;
 import com.lp.trade.idempotency.IdempotencyKeys;
@@ -23,6 +21,8 @@ import com.lp.trade.service.OrderService;
 import com.lp.trade.service.RefundService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -82,12 +82,12 @@ public class OrderController {
      * @param body course, idempotency key and optional coupon
      * @param request current request, used to resolve the trace id
      * @param response current response, marked when the body is a replay
-     * @return created or replayed order
+     * @return serialized response envelope, written back verbatim on a replay
      * @author Caspian
      * @since 0.1.0
      */
     @PostMapping
-    public Result<OrderView> create(
+    public ResponseEntity<String> create(
             @RequestHeader(value = IdentityHeaders.USER_ID, required = false) Long userId,
             @RequestHeader(value = IdentityHeaders.USER_SOURCE, required = false) String source,
             @RequestHeader(value = IdempotencyHeaders.IDEMPOTENCY_KEY, required = false)
@@ -103,16 +103,16 @@ public class OrderController {
         // The resolved key is written back so the service keeps a single key source.
         body.setIdempotencyKey(key);
         long courseId = body.getCourseId() == null ? 0L : body.getCourseId();
-        IdempotencyOutcome<OrderView> outcome =
+        IdempotencyOutcome<String> outcome =
                 idempotencyService.execute(
                         IdempotencyScope.ORDER_CREATE,
                         uid,
                         key,
                         IdempotencyDigests.order(courseId, body.getCouponId()),
-                        OrderView.class,
+                        TraceIds.resolve(request),
                         () -> orderService.create(uid, source, body));
         markReplayed(response, outcome.replayed());
-        return Result.ok(outcome.value(), TraceIds.resolve(request));
+        return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(outcome.value());
     }
 
     /**
@@ -194,12 +194,12 @@ public class OrderController {
      * @param body required reason and optional full amount
      * @param request current request, used to resolve the trace id
      * @param response current response, marked when the body is a replay
-     * @return pending, approved or already refunded request
+     * @return serialized response envelope, written back verbatim on a replay
      * @author Caspian
      * @since 0.1.0
      */
     @PostMapping("/{orderId}/refund")
-    public Result<RefundView> refund(
+    public ResponseEntity<String> refund(
             @RequestHeader(value = IdentityHeaders.USER_ID, required = false) Long userId,
             @RequestHeader(value = IdempotencyHeaders.IDEMPOTENCY_KEY, required = false)
                     String idempotencyKey,
@@ -209,7 +209,7 @@ public class OrderController {
             HttpServletResponse response) {
         long uid = requireUser(userId);
         String key = IdempotencyKeys.require(idempotencyKey);
-        IdempotencyOutcome<RefundView> outcome =
+        IdempotencyOutcome<String> outcome =
                 idempotencyService.execute(
                         IdempotencyScope.REFUND_APPLY,
                         uid,
@@ -218,10 +218,10 @@ public class OrderController {
                                 orderId,
                                 body == null ? null : body.getAmountFen(),
                                 body == null ? null : body.getReason()),
-                        RefundView.class,
+                        TraceIds.resolve(request),
                         () -> refundService.apply(uid, orderId, body));
         markReplayed(response, outcome.replayed());
-        return Result.ok(outcome.value(), TraceIds.resolve(request));
+        return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(outcome.value());
     }
 
     private void markReplayed(HttpServletResponse response, boolean replayed) {

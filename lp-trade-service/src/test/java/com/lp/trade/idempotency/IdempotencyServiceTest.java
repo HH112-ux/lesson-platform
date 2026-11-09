@@ -30,6 +30,8 @@ import org.junit.jupiter.api.Test;
  */
 class IdempotencyServiceTest {
 
+    private static final String TRACE_ID = "trace-1";
+
     private final FakeStore store = new FakeStore();
 
     private final SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
@@ -52,15 +54,19 @@ class IdempotencyServiceTest {
     }
 
     @Test
-    void replaysTheFirstSuccessfulResult() {
+    void replaysTheExactResponseBodyIncludingTheEnvelope() {
         AtomicInteger calls = new AtomicInteger();
 
-        IdempotencyOutcome<Payload> first = createOrder(calls);
-        IdempotencyOutcome<Payload> second = createOrder(calls);
+        IdempotencyOutcome<String> first = createOrder(calls);
+        IdempotencyOutcome<String> second = createOrder(calls);
 
         assertFalse(first.replayed());
         assertTrue(second.replayed());
+        // Replay is a byte for byte copy, not a rebuilt envelope.
         assertEquals(first.value(), second.value());
+        assertTrue(first.value().contains("\"code\":0"));
+        assertTrue(first.value().contains("\"traceId\":\"trace-1\""));
+        assertTrue(first.value().contains("\"id\":\"order-1\""));
         assertEquals(1, calls.get());
     }
 
@@ -78,7 +84,7 @@ class IdempotencyServiceTest {
                                         7L,
                                         "key-1",
                                         "v1|course=999",
-                                        Payload.class,
+                                        TRACE_ID,
                                         () -> new Payload("other", 1)));
 
         assertEquals(ErrorCode.STATE_CONFLICT.getCode(), exception.getCode());
@@ -97,19 +103,19 @@ class IdempotencyServiceTest {
                                 7L,
                                 "key-1",
                                 "digest",
-                                Payload.class,
+                                TRACE_ID,
                                 () -> {
                                     attempts.incrementAndGet();
                                     throw new BizException(ErrorCode.PARAM_INVALID, "bad reason");
                                 }));
 
-        IdempotencyOutcome<Payload> recovered =
+        IdempotencyOutcome<String> recovered =
                 service.execute(
                         IdempotencyScope.REFUND_APPLY,
                         7L,
                         "key-1",
                         "digest",
-                        Payload.class,
+                        TRACE_ID,
                         () -> {
                             attempts.incrementAndGet();
                             return new Payload("refund-1", 100);
@@ -117,7 +123,7 @@ class IdempotencyServiceTest {
 
         assertEquals(2, attempts.get());
         assertFalse(recovered.replayed());
-        assertEquals("refund-1", recovered.value().id());
+        assertTrue(recovered.value().contains("\"id\":\"refund-1\""));
     }
 
     @Test
@@ -133,7 +139,7 @@ class IdempotencyServiceTest {
                                         7L,
                                         "key-1",
                                         "digest",
-                                        Payload.class,
+                                        TRACE_ID,
                                         () -> {
                                             firstStarted.countDown();
                                             sleep(200L);
@@ -142,13 +148,13 @@ class IdempotencyServiceTest {
                                         }));
         assertTrue(firstStarted.await(2, TimeUnit.SECONDS));
 
-        IdempotencyOutcome<Payload> second =
+        IdempotencyOutcome<String> second =
                 service.execute(
                         IdempotencyScope.PAYMENT_INITIATE,
                         7L,
                         "key-1",
                         "digest",
-                        Payload.class,
+                        TRACE_ID,
                         () -> {
                             calls.incrementAndGet();
                             return new Payload("pay-2", 300);
@@ -179,7 +185,7 @@ class IdempotencyServiceTest {
                                         7L,
                                         "key-1",
                                         "digest",
-                                        Payload.class,
+                                        TRACE_ID,
                                         () -> new Payload("never", 0)));
 
         assertEquals(ErrorCode.IDEMPOTENCY_IN_PROGRESS.getCode(), exception.getCode());
@@ -190,9 +196,10 @@ class IdempotencyServiceTest {
         store.unavailable = true;
         AtomicInteger calls = new AtomicInteger();
 
-        IdempotencyOutcome<Payload> outcome = createOrder(calls);
+        IdempotencyOutcome<String> outcome = createOrder(calls);
 
         assertFalse(outcome.replayed());
+        assertTrue(outcome.value().contains("\"id\":\"order-1\""));
         assertEquals(1, calls.get());
         assertEquals(
                 1.0,
@@ -203,13 +210,13 @@ class IdempotencyServiceTest {
                         .count());
     }
 
-    private IdempotencyOutcome<Payload> createOrder(AtomicInteger calls) {
+    private IdempotencyOutcome<String> createOrder(AtomicInteger calls) {
         return service.execute(
                 IdempotencyScope.ORDER_CREATE,
                 7L,
                 "key-1",
                 IdempotencyDigests.order(1L, null),
-                Payload.class,
+                TRACE_ID,
                 () -> {
                     calls.incrementAndGet();
                     return new Payload("order-1", 100);

@@ -1,7 +1,5 @@
 package com.lp.trade.dto;
 
-import com.fasterxml.jackson.annotation.JsonCreator;
-import com.fasterxml.jackson.annotation.JsonProperty;
 import java.time.LocalDateTime;
 
 /**
@@ -51,19 +49,18 @@ public class RefundView {
      * @author Caspian
      * @since 0.1.0
      */
-    @JsonCreator
     public RefundView(
-            @JsonProperty("refundId") long refundId,
-            @JsonProperty("refundNo") String refundNo,
-            @JsonProperty("orderId") long orderId,
-            @JsonProperty("orderNo") String orderNo,
-            @JsonProperty("channel") int channel,
-            @JsonProperty("amountFen") long amountFen,
-            @JsonProperty("status") int status,
-            @JsonProperty("reason") String reason,
-            @JsonProperty("reviewReason") String reviewReason,
-            @JsonProperty("failReason") String failReason,
-            @JsonProperty("refundedAt") LocalDateTime refundedAt) {
+            long refundId,
+            String refundNo,
+            long orderId,
+            String orderNo,
+            int channel,
+            long amountFen,
+            int status,
+            String reason,
+            String reviewReason,
+            String failReason,
+            LocalDateTime refundedAt) {
         this.refundId = refundId;
         this.refundNo = refundNo;
         this.orderId = orderId;

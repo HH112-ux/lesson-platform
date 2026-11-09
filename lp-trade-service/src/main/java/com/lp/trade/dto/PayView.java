@@ -1,7 +1,5 @@
 package com.lp.trade.dto;
 
-import com.fasterxml.jackson.annotation.JsonCreator;
-import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.Map;
 
 /**
@@ -30,11 +28,7 @@ public class PayView {
      * @author Caspian
      * @since 0.1.0
      */
-    @JsonCreator
-    public PayView(
-            @JsonProperty("payNo") String payNo,
-            @JsonProperty("channel") int channel,
-            @JsonProperty("payParams") Map<String, String> payParams) {
+    public PayView(String payNo, int channel, Map<String, String> payParams) {
         this.payNo = payNo;
         this.channel = channel;
         this.payParams = payParams;

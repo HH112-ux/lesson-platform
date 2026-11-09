@@ -1,7 +1,5 @@
 package com.lp.trade.dto;
 
-import com.fasterxml.jackson.annotation.JsonCreator;
-import com.fasterxml.jackson.annotation.JsonProperty;
 import java.time.LocalDateTime;
 
 /**
@@ -48,17 +46,16 @@ public class OrderView {
      * @author Caspian
      * @since 0.1.0
      */
-    @JsonCreator
     public OrderView(
-            @JsonProperty("orderNo") String orderNo,
-            @JsonProperty("status") int status,
-            @JsonProperty("channel") int channel,
-            @JsonProperty("totalAmountFen") long totalAmountFen,
-            @JsonProperty("discountAmountFen") long discountAmountFen,
-            @JsonProperty("payAmountFen") long payAmountFen,
-            @JsonProperty("courseId") long courseId,
-            @JsonProperty("payExpireAt") LocalDateTime payExpireAt,
-            @JsonProperty("paidAt") LocalDateTime paidAt) {
+            String orderNo,
+            int status,
+            int channel,
+            long totalAmountFen,
+            long discountAmountFen,
+            long payAmountFen,
+            long courseId,
+            LocalDateTime payExpireAt,
+            LocalDateTime paidAt) {
         this.orderNo = orderNo;
         this.status = status;
         this.channel = channel;

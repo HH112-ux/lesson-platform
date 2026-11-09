@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lp.common.exception.BizException;
 import com.lp.common.exception.ErrorCode;
+import com.lp.common.result.Result;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Duration;
@@ -20,11 +21,12 @@ import org.springframework.stereotype.Service;
 /**
  * Runs a write action at most once per user, endpoint and idempotency key.
  *
- * <p>The first caller takes a short lease, executes the action and stores the successful payload; a
- * concurrent caller with the same key waits briefly and then returns that payload. Business
- * failures are never cached, so a corrected retry can succeed. When Redis is unavailable the action
- * runs without the replay layer and the endpoints keep their database unique constraints as the
- * final guard; that degradation is logged and counted instead of being silent.
+ * <p>The first caller takes a short lease, executes the action and stores the exact response body
+ * it returned; a concurrent caller with the same key waits briefly and then receives that stored
+ * body byte for byte, envelope included. Business failures are never cached, so a corrected retry
+ * can succeed. When Redis is unavailable the action runs without the replay layer and the endpoints
+ * keep their database unique constraints as the final guard; that degradation is logged and counted
+ * instead of being silent.
  *
  * @author Caspian
  * @since 0.4.0
@@ -51,7 +53,7 @@ public class IdempotencyService {
      * Creates the service and registers one degradation counter per scope.
      *
      * @param store lease and result persistence
-     * @param objectMapper serializer of cached payloads
+     * @param objectMapper serializer of the response envelope
      * @param meterRegistry registry the degradation counters are bound to
      * @param waitTimeoutMs how long a duplicate request waits for the first result
      * @param pollMillis interval between result polls while waiting
@@ -79,35 +81,38 @@ public class IdempotencyService {
     }
 
     /**
-     * Executes the action once per key, or replays the first successful result.
+     * Executes the action once per key and returns the response body to write to the client.
+     *
+     * <p>The body is the serialized {@link Result} envelope produced by the first successful call,
+     * so a replay must be written as is instead of being unwrapped and rebuilt.
      *
      * @param scope endpoint scope
      * @param userId authenticated buyer id from the gateway
      * @param rawKey client supplied idempotency key
      * @param digest canonical request digest
-     * @param resultType payload type used to deserialize a replay
+     * @param traceId trace id embedded in the first response envelope
      * @param action business action producing the payload
      * @param <T> payload type
-     * @return payload together with the replay flag
+     * @return serialized response envelope together with the replay flag
      * @throws BizException with {@code 40001} for a malformed key, {@code 40901} when the key was
      *     first used with a different request, or {@code 40902} when the first request is still
      *     running after the wait window
      * @author Caspian
      * @since 0.4.0
      */
-    public <T> IdempotencyOutcome<T> execute(
+    public <T> IdempotencyOutcome<String> execute(
             IdempotencyScope scope,
             long userId,
             String rawKey,
             String digest,
-            Class<T> resultType,
+            String traceId,
             Supplier<T> action) {
         String key = IdempotencyKeys.require(rawKey);
         String keyHash = IdempotencyDigests.sha256(key);
 
-        Lookup<T> lookup = lookup(scope, userId, keyHash, digest, resultType);
+        Lookup lookup = lookup(scope, userId, keyHash, digest);
         if (lookup.degraded()) {
-            return degraded(scope, null, action);
+            return degraded(scope, traceId, null, action);
         }
         if (lookup.replayed() != null) {
             return lookup.replayed();
@@ -116,10 +121,10 @@ public class IdempotencyService {
         String ownerToken = UUID.randomUUID().toString();
         Lease lease = acquire(scope, userId, keyHash, ownerToken);
         if (lease == Lease.UNAVAILABLE) {
-            return degraded(scope, null, action);
+            return degraded(scope, traceId, null, action);
         }
         if (lease == Lease.ACQUIRED) {
-            return executeAsOwner(scope, userId, keyHash, ownerToken, digest, action);
+            return executeAsOwner(scope, userId, keyHash, ownerToken, digest, traceId, action);
         }
 
         long deadline = System.nanoTime() + waitTimeout.toNanos();
@@ -130,19 +135,19 @@ public class IdempotencyService {
                 Thread.currentThread().interrupt();
                 break;
             }
-            Lookup<T> polled = lookup(scope, userId, keyHash, digest, resultType);
+            Lookup polled = lookup(scope, userId, keyHash, digest);
             if (polled.degraded()) {
-                return degraded(scope, null, action);
+                return degraded(scope, traceId, null, action);
             }
             if (polled.replayed() != null) {
                 return polled.replayed();
             }
             Lease retry = acquire(scope, userId, keyHash, ownerToken);
             if (retry == Lease.UNAVAILABLE) {
-                return degraded(scope, null, action);
+                return degraded(scope, traceId, null, action);
             }
             if (retry == Lease.ACQUIRED) {
-                return executeAsOwner(scope, userId, keyHash, ownerToken, digest, action);
+                return executeAsOwner(scope, userId, keyHash, ownerToken, digest, traceId, action);
             }
         }
         throw new BizException(
@@ -150,27 +155,28 @@ public class IdempotencyService {
                 "the first request with this Idempotency-Key is still running");
     }
 
-    private <T> IdempotencyOutcome<T> executeAsOwner(
+    private <T> IdempotencyOutcome<String> executeAsOwner(
             IdempotencyScope scope,
             long userId,
             String keyHash,
             String ownerToken,
             String digest,
+            String traceId,
             Supplier<T> action) {
         try {
-            T value = action.get();
+            String body = serialize(action.get(), traceId);
             try {
                 store.saveResult(
                         scope,
                         userId,
                         keyHash,
-                        new StoredIdempotentResult(digest, objectMapper.writeValueAsString(value)),
+                        new StoredIdempotentResult(digest, body),
                         scope.resultTtl());
-            } catch (RuntimeException | JsonProcessingException exception) {
+            } catch (RuntimeException exception) {
                 // Replay is lost but the action already succeeded, so the response still stands.
                 degrade(scope, exception);
             }
-            return new IdempotencyOutcome<>(value, false);
+            return new IdempotencyOutcome<>(body, false);
         } finally {
             try {
                 store.releaseLease(scope, userId, keyHash, ownerToken);
@@ -183,37 +189,24 @@ public class IdempotencyService {
         }
     }
 
-    private <T> Lookup<T> lookup(
-            IdempotencyScope scope,
-            long userId,
-            String keyHash,
-            String digest,
-            Class<T> resultType) {
+    private Lookup lookup(IdempotencyScope scope, long userId, String keyHash, String digest) {
         StoredIdempotentResult stored;
         try {
             Optional<StoredIdempotentResult> found = store.findResult(scope, userId, keyHash);
             stored = found.orElse(null);
         } catch (RuntimeException exception) {
             degrade(scope, exception);
-            return new Lookup<>(null, true);
+            return new Lookup(null, true);
         }
         if (stored == null) {
-            return new Lookup<>(null, false);
+            return new Lookup(null, false);
         }
         if (!stored.digest().equals(digest)) {
             throw new BizException(
                     ErrorCode.STATE_CONFLICT,
                     "Idempotency-Key was first used with a different request");
         }
-        try {
-            return new Lookup<>(
-                    new IdempotencyOutcome<>(
-                            objectMapper.readValue(stored.payload(), resultType), true),
-                    false);
-        } catch (JsonProcessingException exception) {
-            degrade(scope, exception);
-            return new Lookup<>(null, true);
-        }
+        return new Lookup(new IdempotencyOutcome<>(stored.payload(), true), false);
     }
 
     private Lease acquire(IdempotencyScope scope, long userId, String keyHash, String ownerToken) {
@@ -227,12 +220,20 @@ public class IdempotencyService {
         }
     }
 
-    private <T> IdempotencyOutcome<T> degraded(
-            IdempotencyScope scope, RuntimeException cause, Supplier<T> action) {
+    private <T> IdempotencyOutcome<String> degraded(
+            IdempotencyScope scope, String traceId, RuntimeException cause, Supplier<T> action) {
         if (cause != null) {
             degrade(scope, cause);
         }
-        return new IdempotencyOutcome<>(action.get(), false);
+        return new IdempotencyOutcome<>(serialize(action.get(), traceId), false);
+    }
+
+    private <T> String serialize(T value, String traceId) {
+        try {
+            return objectMapper.writeValueAsString(Result.ok(value, traceId));
+        } catch (JsonProcessingException exception) {
+            throw new IllegalStateException("idempotent response cannot be serialized", exception);
+        }
     }
 
     private void degrade(IdempotencyScope scope, Exception cause) {
@@ -255,5 +256,5 @@ public class IdempotencyService {
         UNAVAILABLE
     }
 
-    private record Lookup<T>(IdempotencyOutcome<T> replayed, boolean degraded) {}
+    private record Lookup(IdempotencyOutcome<String> replayed, boolean degraded) {}
 }
