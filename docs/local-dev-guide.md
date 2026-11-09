@@ -450,11 +450,30 @@ node apps/miniapp/scripts/check.mjs
 - 前端启动后接口 502：确认网关已在 8080 启动，或 `application.yml` 指向的下游服务未启动（预期）。
 - 小程序编译报域名不合法：开发者工具中关闭"校验合法域名"，仅限本地调试。
 
-## 9. 尚未落地的部分
+## 9. 当前实现状态与尚未落地的部分
 
-- 七个域服务已有 M0 骨架（端口 8101–8107，仅健康检查，无业务接口）；`apps/web`、`apps/admin`、`apps/miniapp`、`packages/shared` 均为 M0 最小骨架（可安装、可校验、可构建）。
+七个域服务**均已提供业务接口**，不再是"仅健康检查、无业务接口"的 M0 骨架。下表按服务列出 `develop` 已实现端点范围与对应规格条目，未列出的路径一律返回 404。
+
+| 服务 | 端口 | 已实现端点范围 | 对应规格条目 |
+|---|---|---|---|
+| `lp-auth-service` | 8101 | `/api/v1/auth`（注册、登录、刷新、退出、`me`、小程序 code 登录）；`/internal/v1/auth/session`；`/internal/v1/users`（列表、统计） | SPEC-PLAT-001、SPEC-PLAT-003、SPEC-PLAT-005 |
+| `lp-course-service` | 8102 | `/api/v1/categories`；`/api/v1/courses`（列表、详情、章节）；`/api/v1/teacher/courses`（增删改查、`submit`、章节与课时增删改）；`/internal/v1/courses`（详情、课时、`pending`、统计、审核、审核记录）；`/internal/v1/lessons/{lessonId}` | SPEC-COURSE-001、002、003、004、007、008、010、011 |
+| `lp-trade-service` | 8103 | `/api/v1/cart`；`/api/v1/orders`（创建、列表、详情、取消、退款申请）；`/api/v1/orders/purchase-ticket`（签发、兑换）；`/api/v1/payments/{orderNo}/pay`、`/api/v1/payments/alipay/notify`、`/api/v1/payments/mock/callback`；`/api/v1/refunds/{refundId}`；`/internal/v1/orders`（列表、统计、指标）；`/internal/v1/refunds`（列表、审核）；`/internal/v1/entitlement-outbox`（统计、失败列表、重投） | SPEC-TRADE-001、002、004、005、006、008、009、010、011、012 |
+| `lp-learn-service` | 8104 | `/api/v1/learning/my-courses`；`/api/v1/learning/progress`（上报、查询）；`/api/v1/lessons/{lessonId}/play-token`；`/internal/v1/entitlements`（发放、撤销、已拥有）；`/internal/v1/learning/progress-summary` | SPEC-LEARN-001、002、003、004、005、006、007、008 |
+| `lp-ugc-service` | 8105 | **未实现**（无 controller）：评论、收藏、举报均为「上线后首批」 | 当前无对应规格条目，需先补规格再开工 |
+| `lp-admin-service` | 8106 | `/api/v1/admin/courses`（`pending`、审核、审核记录）；`/api/v1/admin/dashboard`；`/api/v1/admin/menus`；`/api/v1/admin/metrics/overview`；`/api/v1/admin/orders`；`/api/v1/admin/refunds`（列表、审核）；`/api/v1/admin/users` | SPEC-COURSE-004、SPEC-TRADE-009、SPEC-PLAT-008 |
+| `lp-ai-service` | 8107 | **未实现**（无 controller）：AI 能力为「上线后首批」 | SPEC-PLAT-007（AI 模型接入 BYO） |
+
+七个服务中仍在接口层之外的未落地项：
+
+- 真实支付宝通道未接，当前仅 `LP_PAY_MOCK_ENABLED=true` 的模拟支付；对账能力见 SPEC-TRADE-014（真实收款前置）。
+- 教师入驻审核（SPEC-COURSE-009）、教师下架与再上架（SPEC-COURSE-005）、运营强制下架（SPEC-COURSE-006）无接口实现。
+- `apps/web`、`apps/admin`、`apps/miniapp`、`packages/shared` 可安装、可校验、可构建；教师建课目前只有后端接口，没有后台界面。
+
+其余基建状态：
+
 - `scripts/install-hooks.sh`、`scripts/flyway.sh`、`scripts/smoke/{mysql,redis,rocketmq,minio,nacos}.sh` 与 `scripts/smoke/run-all.sh` 已创建并实测通过。
 - `db/migration/ops/V1__baseline.sql` 归属独立库 `lp_ops`（工程规划 15.2 D13）：`admin-service` 不再与 `lp_ums`/`lp_cms` 共享 schema history，`scripts/flyway.sh` 用 `ops` 或 `lp_ops` 目标执行，`admin` 目标按未知目标报错。
 - `infra/up.sh`、`infra/down.sh`、`infra/reset.sh` 与 `scripts/gen-service.sh`、`scripts/preflight.sh`、`scripts/check-migration.sh` 仍为 M0 规划项（见工程规划 13.6），未创建前以上述 compose 与已创建脚本为准。
 - MinIO 使用归档镜像 `bitnamilegacy/minio`，M1 前需评估 SeaweedFS、Garage 或云对象存储替代方案。
-- `docs/local-dev-guide.md`（本文件）随 M0 骨架产出，后续新增脚本时同步更新对应命令。
+- `docs/local-dev-guide.md`（本文件）随功能切片持续更新，新增脚本或接口时同步修改对应章节。
