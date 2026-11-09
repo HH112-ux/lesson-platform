@@ -16,9 +16,10 @@ import org.apache.ibatis.annotations.Update;
  * Reads and writes {@code refund_request}.
  *
  * <p>The generated column {@code active_order_id} and its unique key guard one in-progress refund
- * per order, while rejected and failed rows stay retryable. Every state transition uses a
- * conditional update, so a duplicated review or channel callback returns the stored decision
- * instead of moving money twice.
+ * per order, while rejected and failed rows stay retryable. Status 5 counts as in progress because
+ * the channel outcome is unknown, so the order must not accept another application. Every state
+ * transition uses a conditional update, so a duplicated review or channel callback returns the
+ * stored decision instead of moving money twice.
  *
  * @author Caspian
  * @since 0.1.0
@@ -47,7 +48,7 @@ public interface RefundRequestMapper {
     /**
      * Loads the in-progress refund of one order.
      *
-     * <p>Statuses 0, 1 and 2 block a new application; statuses 3 and 4 do not.
+     * <p>Statuses 0, 1, 2 and 5 block a new application; statuses 3 and 4 do not.
      *
      * @param orderId order id
      * @return in-progress refund, or {@code null}
@@ -58,7 +59,7 @@ public interface RefundRequestMapper {
             "SELECT "
                     + COLUMNS
                     + " FROM refund_request WHERE order_id = #{orderId} "
-                    + "AND status IN (0, 1, 2) AND deleted = 0 ORDER BY id DESC LIMIT 1")
+                    + "AND status IN (0, 1, 2, 5) AND deleted = 0 ORDER BY id DESC LIMIT 1")
     RefundRequest selectActiveByOrderId(@Param("orderId") long orderId);
 
     /**
@@ -169,7 +170,7 @@ public interface RefundRequestMapper {
             @Param("refundedAt") LocalDateTime refundedAt);
 
     /**
-     * Marks one approved refund as failed and keeps the channel reason for manual handling.
+     * Marks one approved refund as failed after an explicit channel rejection.
      *
      * @param id refund primary key
      * @param failReason failure reason
@@ -181,6 +182,23 @@ public interface RefundRequestMapper {
             "UPDATE refund_request SET status = 4, fail_reason = #{failReason} "
                     + "WHERE id = #{id} AND status = 1")
     int markFailed(@Param("id") long id, @Param("failReason") String failReason);
+
+    /**
+     * Marks one approved refund whose channel outcome is unknown.
+     *
+     * <p>The status becomes 5 instead of 4, so the order stays refunding and the buyer cannot apply
+     * again before operations reconcile the channel bill.
+     *
+     * @param id refund primary key
+     * @param failReason reason including the exception type
+     * @return affected rows, {@code 0} when the refund is not approved
+     * @author Caspian
+     * @since 0.2.0
+     */
+    @Update(
+            "UPDATE refund_request SET status = 5, fail_reason = #{failReason} "
+                    + "WHERE id = #{id} AND status = 1")
+    int markUnknown(@Param("id") long id, @Param("failReason") String failReason);
 
     /**
      * Counts refunds for the operations review list.

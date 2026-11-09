@@ -68,8 +68,8 @@
 | SPEC-TRADE-006 | 订单取消 | 已完成 | — | 4/4 |
 | SPEC-TRADE-007 | 超时关单 | 已完成 | — | 5/5 |
 | SPEC-TRADE-008 | 退款准入 | 已完成 | — | 4/4 |
-| SPEC-TRADE-009 | 退款审核与状态机 | 进行中 | L1-1 | 5/6 |
-| SPEC-TRADE-010 | 退款失败与补偿 | 进行中 | L1-1 | 3/3 |
+| SPEC-TRADE-009 | 退款审核与状态机 | 已完成 | — | 7/7 |
+| SPEC-TRADE-010 | 退款失败与补偿 | 已完成 | — | 3/3 |
 | SPEC-TRADE-011 | 退款成功后的权益处理 | 已完成 | — | 4/4 |
 | SPEC-TRADE-012 | 购票（Web 购买、小程序引导） | 进行中 | L2-2 | 4/4 |
 | SPEC-TRADE-013 | 金额单位与边界约束 | 已完成 | — | 5/5 |
@@ -108,7 +108,7 @@
 | 课程审核 | 待审队列、通过并定价上架、驳回、审核审计查询 | `lp-admin-service/.../controller/AdminCourseController.java`、`db/migration/course/V4__course_review_audit.sql` | 2026-11-09 |
 | 交易 | 购物车 API、下单幂等、0 元课直接完成、订单列表/详情/取消、超时关单（30 分钟，条件更新与支付回调竞争安全，同时关闭待支付记录并释放优惠券）；优惠券在下单时校验并核销 | `lp-trade-service/.../controller/OrderController.java`、`service/impl/OrderServiceImpl.java`、`job/OrderTimeoutJob.java` | 2026-11-09 |
 | 支付 | 支付发起、`/api/v1/payments/alipay/notify` 回调入口、金额与渠道校验、重复回调幂等；**真实渠道未配置时统一返回 50205**，本地由 mock 渠道替代 | `payment/MockPaymentGateway.java`、`payment/UnconfiguredPaymentGateway.java`、`controller/PaymentController.java` | 2026-11-09 |
-| 退款 | 准入校验（付款后 7 天内且学习进度 ≤ 20%，超限返回 `62007` 且不落单）、生成待审核单（不自动退款）、运营审核、驳回需原因并可再次申请、审核通过后原渠道退款、权益软失效、撤销 outbox；learn 进度不可用时失败关闭返回 `50201` | `service/impl/RefundServiceImpl.java`、`db/migration/trade/V7__refund_review.sql`、`controller/RefundInternalController.java` | 2026-11-09 |
+| 退款 | 准入校验（付款后 7 天内且学习进度 ≤ 20%，超限返回 `62007` 且不落单）、生成待审核单（不自动退款）、运营审核、驳回需原因并可再次申请、审核通过后原渠道退款、权益软失效、撤销 outbox；渠道明确拒绝落 4 并放回可申请，调用超时等结果未知落 5 且订单保持退款中，learn 进度不可用时失败关闭返回 `50201` | `service/impl/RefundServiceImpl.java`、`db/migration/trade/V7__refund_review.sql`、`db/migration/trade/V9__refund_unknown_result.sql`、`controller/RefundInternalController.java` | 2026-11-09 |
 | 权益与 outbox | 本地消息表、定时中继、指数退避、死信、运营重放、Prometheus 指标 | `entitlement/EntitlementRelay.java`、`entitlement/OutboxAdminService.java`、`controller/InternalEntitlementOutboxController.java` | 2026-11-09 |
 | 学习交付 | MinIO 预签名播放地址、免费课时试看、我的课程（含已退款标记）、进度上报与查询；**完课仅按有效观看 ≥ 90% 置位，缺播放位置 ≥ 90% 条件（D7 未完成）** | `lp-learn-service/.../controller/LessonController.java`、`service/impl/PlayTokenServiceImpl.java`、`service/impl/LearningProgressServiceImpl.java` | 2026-11-09 |
 | 运营查询 | 用户列表、订单列表、菜单树、7 日看板概览 | `lp-admin-service/.../controller/AdminUserController.java`、`AdminOrderController.java`、`AdminMenuController.java`、`AdminMetricsController.java` | 2026-11-09 |

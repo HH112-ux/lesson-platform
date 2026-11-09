@@ -26,6 +26,7 @@ const REFUND_STATUS: Record<number, string> = {
   2: '已退款',
   3: '已驳回',
   4: '退款失败',
+  5: '结果未知待确认',
 }
 
 const pageCount = computed(() => (
@@ -265,7 +266,7 @@ void load()
                     class="refund-note"
                   >驳回原因：{{ order.refund.reviewReason }}</span>
                   <span
-                    v-else-if="order.refund.status === 4 && order.refund.failReason"
+                    v-else-if="(order.refund.status === 4 || order.refund.status === 5) && order.refund.failReason"
                     class="refund-note"
                   >失败原因：{{ order.refund.failReason }}</span>
                 </div>
