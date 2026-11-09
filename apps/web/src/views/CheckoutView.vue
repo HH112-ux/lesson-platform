@@ -16,6 +16,8 @@ const unauthorized = ref(false)
 const owned = ref(false)
 const paying = ref(false)
 const notice = ref('')
+const orderKey = crypto.randomUUID()
+const paymentKey = crypto.randomUUID()
 
 const priceText = computed(() => {
   if (!course.value) {
@@ -52,12 +54,12 @@ async function pay(): Promise<void> {
   paying.value = true
   notice.value = ''
   try {
-    const order = await createOrder(course.value.courseId)
+    const order = await createOrder(course.value.courseId, orderKey)
     if (isOrderPaid(order)) {
       navigate(`/orders/${order.orderNo}/result`)
       return
     }
-    const payment = await payOrder(order.orderNo)
+    const payment = await payOrder(order.orderNo, paymentKey)
     const payUrl = payment.payParams?.payUrl
     if (payUrl) {
       window.location.assign(payUrl)
