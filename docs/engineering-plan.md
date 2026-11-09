@@ -908,9 +908,13 @@ erDiagram
 
 `id, message_id, user_id, rating TINYINT(1 有用/2 无用), comment VARCHAR(300)` + 公共字段；唯一 `uk_message_user(message_id, user_id)`。
 
-### 4.3.7 审计（`lp_ums`）
+### 4.3.7 审计（`lp_cms`，L1-7 已落地）
 
-**audit_log 操作审计（追加写）**：`id, actor_id, actor_role, action VARCHAR(64), target_type, target_id, detail JSON, ip VARCHAR(64), trace_id CHAR(32), created_at`；索引 `idx_actor_created(actor_id, created_at)`、`idx_action_created(action, created_at)`。
+**admin_audit_log 统一操作审计（追加写）**：`id, operator_id, operator_role TINYINT, action_type TINYINT, object_type TINYINT, object_id, from_status TINYINT, to_status TINYINT, remark VARCHAR(300), trace_id VARCHAR(64), dedupe_key VARCHAR(128), created_at`；唯一 `uk_dedupe(dedupe_key)`、`idx_object_created(object_type, object_id, created_at)`、`idx_operator_created(operator_id, created_at)`。当前只覆盖课程审核、退款审核、教师审核六种动作，枚举与事务边界见 5.9.1。
+
+**位置调整说明**：原方案把审计放在 `lp_ums`（`audit_log`）。实际落地改为放在 `lp_cms`、由 course-service 持有，原因是三类动作的状态分别在 `lp_cms`（课程、教师）与 `lp_oms`（退款），而 `admin-service` 无数据源；放在 `lp_ums` 会让课程与教师审核必须跨服务写审计，"状态已改、审计未写"无法用单库事务排除。`lp_ums.audit_log` 保留给后续账号、角色、AI 模型配置等非本次范围的管理操作，尚未建表。
+
+**退款侧的投递箱（`lp_oms.audit_outbox`）**：`id, dedupe_key, operator_id, operator_role, action_type, object_type, object_id, from_status, to_status, remark, trace_id, occurred_at, status TINYINT(0 待投递/1 已投递/2 已放弃), retry_count, next_retry_at, delivered_at, last_error, created_at, updated_at`；唯一 `uk_dedupe(dedupe_key)`、`idx_status_next(status, next_retry_at)`。用于补齐退款审核无法跨库同事务的缺口，规则见 5.9.1。
 
 ## 4.4 数据一致性与事务边界
 
@@ -922,6 +926,8 @@ erDiagram
 | 退款 | 准入校验（付款后 7 天内且学习进度 ≤ 20%，15.2 D6）→ 生成 `status=0` 待审核单（**不同步调渠道，不自动退款**；超期或进度超限直接 `62007`，不落单）→ 运营审核通过（**先置 `status=1` 并提交事务**）→ 按 `payment_record.channel` 调对应渠道退款（仅全额，当前仅支付宝）→ 成功后置订单 `已退款` + `payment_record.status=3` + 权益失效（优惠券不退回，视为已使用）；驳回置 `status=3` 并保留原因、恢复可申请；渠道失败置 `status=4` 并告警人工介入 |
 | 分渠道对账 | `job-worker` 每日拉取支付宝账单（`channel=1`；微信历史数据不新增对账任务） → 写 `payment_reconcile`（`uk_channel_date_type` 覆盖更新）→ `diff_count>0` 置 `status=2` 并告警 |
 | 教师数据范围 | 所有 `/api/v1/teacher/**` 在 service 层按 `owner_teacher_id = 当前教师ID` 过滤，不接受前端传教师 ID；看板只读 `course_daily_stat` |
+| 课程/教师审核审计 | 状态更新与 `admin_audit_log` 写入在 `lp_cms` 同一事务提交；任一失败整体回滚，不存在"改了状态没审计"或"审计了没改" |
+| 退款审核审计 | 状态更新在 `lp_oms`、审计表在 `lp_cms`，无法跨库同事务；审核事务内写 `audit_outbox` 投递意图，由 trade-service 中继至少一次投递，`dedupe_key` 去重，超过重试上限置"已放弃"并告警人工对账（见 5.9.1） |
 | 模型配置变更 | 单条事务更新 `ai_model_config` + 写 `audit_log`；提交后清空 `ai-service` 本地缓存（Nacos 配置刷新），失败不改旧配置 |
 | 学习进度 | `uk_user_lesson` + 条件更新（`watched_sec = GREATEST(watched_sec, ?)`、`max_position_seconds = GREATEST(...)`），可信增量上限为服务端时间差 × 1.5，乐观锁兜底 |
 | 评论计数 | 审核通过后异步重算课程评论计数（不产出评分，见 product-lifecycle 2.5），避免热点行更新 |
@@ -1199,6 +1205,7 @@ spec:
 | POST | `/api/v1/admin/entitlements/grant` | 运营发放课程权益（免费课开通/客诉补偿，不产生订单，15.2 D9） | `{userId,courseId,reason}` | `{entitlementId}` | 40001,40301,40901(已有权益) |
 | GET | `/api/v1/admin/teachers` | 教师列表/入驻审核队列（权限码 `admin:teacher:audit`） | query:`auditStatus,keyword,pageNum,pageSize` | 分页 `{records:[{teacherId,userId,displayName,auditStatus,auditRemark,auditedBy,auditedAt,submittedAt,courseCount,createdAt}],total,pageNum,pageSize}` | 40001,40301 |
 | POST | `/api/v1/admin/teachers/{teacherId}/review` | 教师入驻审核（通过 `0→1`；驳回 `0→2` 且 `remark` 必填） | `{approved:bool,remark?}` | `{teacherId,auditStatus,auditRemark,auditedBy,auditedAt}` | 40001,40301,40401,40901 |
+| GET | `/api/v1/admin/audit-logs` | **统一操作审计查询**（权限码 `admin:audit:list`；两种模式：`objectType`+`objectId` 按对象查，或 `operatorId`+`dateFrom`+`dateTo` 按操作人+时间查，时间格式 ISO-8601） | query:`objectType,objectId,operatorId,dateFrom,dateTo,pageNum,pageSize` | 分页 `{records:[{id,operatorId,operatorRole,actionType,objectType,objectId,fromStatus,toStatus,remark,traceId,createdAt}],total,pageNum,pageSize}` | 40001,40301,50201 |
 | POST | `/api/v1/admin/courses/{courseId}/chapters` | 建章节 | `{title,sort}` | `{chapterId}` | 40301 |
 | POST | `/api/v1/admin/chapters/{chapterId}/lessons` | 建课时 | `{title,isFree,sort,coverUrl}` | `{lessonId}` | 40301 |
 | POST | `/api/v1/admin/lessons/{lessonId}/video` | 上传视频（multipart，服务端校验项见 SPEC-PLAT-006，当前未实现） | form-data `file` | `{videoUrl,durationSec,codec,width,height,sizeBytes}` | 40002,50001,61003 |
@@ -1223,7 +1230,27 @@ spec:
 | POST | `/api/v1/admin/ai/model-config/test` | **连通性测试** | `{}` | `{ok:bool,latencyMs,model,error?}` | 40301,50303,50304,50306 |
 | POST | `/api/v1/admin/ai/model-config/rotate-key` | **密钥轮换**（旧钥保留 24h 双活） | `{apiKey}` | `{keyVersion,apiKeyMasked}` | 40001,40301 |
 
-> 权限码沿用 `sys_menu` 现有 `admin:*` 体系：`admin:dashboard:view`、`admin:course:list`、`admin:course:review`、`admin:user:list`、`admin:order:list`、`admin:teacher:audit`。`/api/v1/admin/menus` 只返回调用方权限码命中的节点（父节点有可见子节点即保留）；`ADMIN`/`OPS` 之外的调用方返回 `40301`。`/api/v1/admin/dashboard` 通过 course-service `/internal/v1/courses/stats`、trade-service `/internal/v1/orders/stats`、auth-service `/internal/v1/users/stats` 聚合，任一上游失败返回 `50201`；`/api/v1/admin/metrics/overview` 的区间趋势仍为规划中。
+> 权限码沿用 `sys_menu` 现有 `admin:*` 体系：`admin:dashboard:view`、`admin:course:list`、`admin:course:review`、`admin:user:list`、`admin:order:list`、`admin:teacher:audit`、`admin:audit:list`。`/api/v1/admin/menus` 只返回调用方权限码命中的节点（父节点有可见子节点即保留）；`ADMIN`/`OPS` 之外的调用方返回 `40301`。`/api/v1/admin/dashboard` 通过 course-service `/internal/v1/courses/stats`、trade-service `/internal/v1/orders/stats`、auth-service `/internal/v1/users/stats` 聚合，任一上游失败返回 `50201`；`/api/v1/admin/metrics/overview` 的区间趋势仍为规划中。
+
+### 5.9.1 统一操作审计（L1-7）
+
+**范围**：只覆盖课程审核（通过/驳回）、退款审核（通过/驳回）、教师审核（通过/驳回）六种动作，不做"全管理操作审计"。动作类型 `0 课程通过 / 1 课程驳回 / 2 退款通过 / 3 退款驳回 / 4 教师通过 / 5 教师驳回`，对象类型 `0 课程 / 1 退款 / 2 教师`，操作人角色 `0 运营 / 1 管理员`，均由代码常量类映射（`AuditAction`、`AuditObject`、`OperatorRole`），禁止字符串魔法值。
+
+**存储**：`lp_cms.admin_audit_log`（迁移 `course/V7`），索引满足两种检索——`idx_object_created(object_type, object_id, created_at)` 支撑按对象查，`idx_operator_created(operator_id, created_at)` 支撑按操作人+时间查。
+
+**事务边界（选择与理由）**：
+
+| 动作 | 状态归属 | 选择 | 理由 |
+|---|---|---|---|
+| 课程审核 | `lp_cms.course` | 状态更新与审计同库同事务 | 同一数据源，审计失败即整体回滚，不会出现"改了状态没审计" |
+| 教师审核 | `lp_cms.teacher_profile` | 同上 | 同上 |
+| 退款审核 | `lp_oms.refund_request` | 审核事务内写 `audit_outbox` 投递意图，再由 trade-service 中继投递到 `lp_cms.admin_audit_log` | 状态与审计表跨库，无法同事务；若先改状态再 HTTP 写审计，失败即丢审计。改为在同一事务内写意图，"状态改了必有意图"；投递为至少一次，`dedupe_key` 唯一键吸收重复；超过 `lp.trade.outbox-max-retries` 次置 `status=2 已放弃` 并打 ERROR 与指标，留人工对账 |
+
+**投递语义**：中继按 `status=0 且 next_retry_at <= now` 取批（默认 50 条），失败按 5s 起指数退避、上限 300s；`course-service` 侧 `INSERT ... ON DUPLICATE KEY UPDATE dedupe_key = dedupe_key` 保证重复投递不产生第二行。课程/教师审核在本地同事务写入，`dedupe_key` 为 NULL。
+
+**查询接口**：`GET /api/v1/admin/audit-logs`，`admin-service` 无数据源，经 `X-Internal-Token` 调 course-service `GET /internal/v1/audit-logs` 聚合；两种模式互斥——传 `objectType`+`objectId` 按对象查，否则必须传 `operatorId`+`dateFrom`+`dateTo`（`from < to`，左闭右开），分页固定 `pageNum/pageSize`（默认 1/20，上限 100）。权限码 `admin:audit:list`，默认只授予 `ADMIN`，运营需管理员单独授权。
+
+**与 `course_review_audit` 的关系**：保留，不迁移历史数据，也不删表。课程审核继续双写两处：`course_review_audit` 供单课程历史查询（含审核人、备注、时间），`admin_audit_log` 供跨域统一视图；旧行没有 `operator_role` 与 `trace_id`，因此不回填、不合并。`course_review_audit` 自本版起视为只读历史表，不再扩展字段。
 
 ## 5.10 教师域（course-service，`/api/v1/teacher`）
 

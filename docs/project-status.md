@@ -20,7 +20,7 @@
 
 | 分支 / 标签 | commit | 日期 | 说明 |
 |---|---|---|---|
-| `develop` | `b22ab7c` | 2026-11-09 | PR #124，下单/支付/退款统一幂等契约与错误码 40901/40902 |
+| `develop` | `a46bb03` | 2026-11-09 | PR #125，教师入驻审核（含审核留痕、重新提交与权限码 `admin:teacher:audit`） |
 | `main` | `7364af7` | 2026-11-09 | PR #97，与开发线尚未对齐，下次发布合并时同步 |
 | `v0.1.0` | 2026-11-06 | — | 首个可演示版本标签，指向退款闭环完成后的提交 |
 
@@ -91,6 +91,7 @@
 | SPEC-PLAT-007 | AI 模型接入（BYO） | 未开始 | 上线后首批 | 0/6 |
 | SPEC-PLAT-008 | 统一响应与错误码分段 | 已完成 | — | 5/5 |
 | SPEC-PLAT-009 | 分页约定 | 已完成 | — | 5/5 |
+| SPEC-PLAT-010 | 统一操作审计（三类审核） | 进行中 | L1-7 | 7/7 |
 
 ---
 
@@ -105,8 +106,9 @@
 | 网关 | 7 条服务路由、身份头剥离与注入、JWT 三态校验，默认 `hard`；未实现限流 | `lp-gateway/src/main/resources/application.yml`、`filter/HeaderSanitizeFilter.java`、`filter/JwtAuthFilter.java` | 2026-11-09 |
 | 课程浏览 | 已上架课程分页、分类、关键词（`LIKE` 标题/副标题）、详情、目录；下架课程对非持有者按 404 处理 | `lp-course-service/.../controller/CoursePublicController.java`、`mapper/CourseMapper.java` | 2026-11-09 |
 | 教师课程 API | 建课、改课、提交审核、章节课时增删改、状态计数；按 `owner_teacher_id` 做归属校验；建课与改课在服务层校验教师入驻审核状态，未通过返回 `61006` 且不写课程 | `controller/TeacherCourseController.java`、`service/impl/TeacherCourseServiceImpl.java` | 2026-11-09 |
-| 课程审核 | 待审队列、通过并定价上架、驳回、审核审计查询 | `lp-admin-service/.../controller/AdminCourseController.java`、`db/migration/course/V4__course_review_audit.sql` | 2026-11-09 |
-| 教师入驻审核 | 审核字段与存量回填、按状态筛选的审核队列、通过/驳回（驳回原因必填）、审核留痕（操作人、时间、前后状态）、教师查询与重新提交；权限码 `admin:teacher:audit`。审核留痕暂存 `teacher_profile`，统一审计表留到 L1-7 | `db/migration/course/V6__teacher_audit.sql`、`service/impl/TeacherAuditServiceImpl.java`、`lp-admin-service/.../controller/AdminTeacherController.java` | 2026-11-09 |
+| 课程审核 | 待审队列、通过并定价上架、驳回、审核审计查询；审核动作同时写入统一审计表（含操作人角色、前后状态、traceId），与状态更新同事务 | `lp-admin-service/.../controller/AdminCourseController.java`、`db/migration/course/V4__course_review_audit.sql`、`db/migration/course/V7__admin_audit_log.sql` | 2026-11-09 |
+| 教师入驻审核 | 审核字段与存量回填、按状态筛选的审核队列、通过/驳回（驳回原因必填）、审核留痕（操作人、时间、前后状态）、教师查询与重新提交；权限码 `admin:teacher:audit`；审核动作同时写入统一审计表并与状态更新同事务。**驳回原因超过 300 字被静默截断（见 4.2）** | `db/migration/course/V6__teacher_audit.sql`、`service/impl/TeacherAuditServiceImpl.java`、`lp-admin-service/.../controller/AdminTeacherController.java` | 2026-11-09 |
+| 统一操作审计 | 三类审核动作（课程/退款/教师）写入 `lp_cms.admin_audit_log`；课程与教师审核同事务写入，退款审核经 `lp_oms.audit_outbox` 至少一次投递、`dedupe_key` 去重；查询接口 `GET /api/v1/admin/audit-logs` 支持按对象与按操作人+时间，权限码 `admin:audit:list`；`course_review_audit` 保留双写、历史数据不迁移 | `db/migration/course/V7__admin_audit_log.sql`、`db/migration/trade/V10__audit_outbox.sql`、`lp-course-service/.../service/AdminAuditService.java`、`lp-trade-service/.../audit/AuditOutboxRelay.java`、`lp-admin-service/.../controller/AdminAuditController.java` | 2026-11-09 |
 | 交易 | 购物车 API、下单幂等、0 元课直接完成、订单列表/详情/取消、超时关单（30 分钟，条件更新与支付回调竞争安全，同时关闭待支付记录并释放优惠券）；优惠券在下单时校验并核销；下单/支付/退款统一 `Idempotency-Key`（Redis 占位与结果重放，同键不同体 40901，处理中超时 40902，成功结果缓存 24h、支付发起 30 分钟） | `lp-trade-service/.../controller/OrderController.java`、`service/impl/OrderServiceImpl.java`、`job/OrderTimeoutJob.java`、`idempotency/IdempotencyService.java` | 2026-11-09 |
 | 支付 | 支付发起（`Idempotency-Key` 必填，同键并发复用首次预支付结果）、`/api/v1/payments/alipay/notify` 回调入口、金额与渠道校验、重复回调幂等；**真实渠道未配置时统一返回 50205**，本地由 mock 渠道替代 | `payment/MockPaymentGateway.java`、`payment/UnconfiguredPaymentGateway.java`、`controller/PaymentController.java`、`idempotency/IdempotencyService.java` | 2026-11-09 |
 | 退款 | 准入校验（付款后 7 天内且学习进度 ≤ 20%，超限返回 `62007` 且不落单）、生成待审核单（不自动退款）、运营审核、驳回需原因并可再次申请、审核通过后原渠道退款、权益软失效、撤销 outbox；渠道明确拒绝落 4 并放回可申请，调用超时等结果未知落 5 且订单保持退款中，learn 进度不可用时失败关闭返回 `50201` | `service/impl/RefundServiceImpl.java`、`db/migration/trade/V7__refund_review.sql`、`db/migration/trade/V9__refund_unknown_result.sql`、`controller/RefundInternalController.java` | 2026-11-09 |
@@ -190,6 +192,7 @@
 | 资料维护与账号注销 | product-lifecycle F01；engineering-plan 15.2 D8 | 只有 `GET /api/v1/auth/me`，无修改资料与注销流程 | 未排期 | 2026-11-09 |
 | 退款状态先落「调渠道中」 | SPEC-TRADE-009 AC-2 | 审核通过与调用渠道在同一事务内完成，未先提交状态 1；渠道失败时退回已支付 | 未排期；L1-1 | 2026-11-09 |
 | 手动取消不释放优惠券 | SPEC-TRADE-006、SPEC-TRADE-007 AC-5 | 超时关单会释放订单占用的优惠券，手动取消（`OrderServiceImpl.cancel`）只关闭订单与支付单，券仍停留为已使用且绑定该订单，用户丢券且两种取消行为不一致 | 未排期；行为不一致 | 2026-11-09 |
+| 教师审核驳回原因超 300 字静默截断 | SPEC-COURSE-009、SPEC-PLAT-010；engineering-plan 5.9 | 运营驳回教师入驻时，`remark` 被 `trim` 后截断到 300 字，接口既不报错也不提示，运营不知道内容被裁剪，教师端看到的原因不完整 | 未排期；应改为超长返回 `40001` 或前端限制长度并提示 | 2026-11-09 |
 | 幂等层降级时同键换 body 无法识别 | SPEC-TRADE-001 AC-5、SPEC-TRADE-008 | Redis 不可用时幂等层记录 WARN 日志并累加 `lp.trade.idempotency.degraded` 指标后放行，该窗口内同键换请求体不会被识别为 `40901`，仅靠数据库唯一键（`uk_idempotency`、`uk_active_order`、支付单行锁）兜底 | 已接受；依赖监控告警 | 2026-11-09 |
 | 前端 `40901` 文案仍为「用户名已被占用」 | SPEC-TRADE-001 AC-5 | 下单与退款幂等冲突返回 `40901` 时，Web 端提示「用户名已被占用」，与「同一幂等键换请求体」语义不符，会误导用户；改文案需同步修改 `apps/web/src/utils/errors.spec.ts` 中对 `40901` 的断言 | 已知问题；非本 PR 引入 | 2026-11-09 |
 | 端来源识别 | SPEC-PLAT-002 | 网关只能区分 `admin` 与 `web`，小程序请求被记为 `web`；`X-User-Source=miniapp` 的下单拦截不可达 | 未排期；L2-1 | 2026-11-09 |
