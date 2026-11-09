@@ -278,7 +278,7 @@ public class CourseInternalServiceImpl implements CourseInternalService {
      */
     private long currentPriceFen(long courseId) {
         BigDecimal price = courseMapper.selectPrice(courseId);
-        return price == null ? 0L : price.movePointRight(2).longValueExact();
+        return price == null ? 0L : Money.toFen(price);
     }
 
     private CourseInternalView toView(Course course) {
@@ -287,7 +287,7 @@ public class CourseInternalServiceImpl implements CourseInternalService {
                 course.getId(),
                 course.getTitle(),
                 course.getCoverUrl(),
-                course.getPrice().movePointRight(2).longValueExact(),
+                Money.toFen(course.getPrice()),
                 course.getStatus(),
                 course.getOwnerTeacherId(),
                 lessonCount,

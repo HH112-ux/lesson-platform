@@ -2,6 +2,7 @@ package com.lp.course.service.impl;
 
 import com.lp.common.exception.BizException;
 import com.lp.common.exception.ErrorCode;
+import com.lp.common.money.Money;
 import com.lp.course.client.LearnEntitlementClient;
 import com.lp.course.dto.CourseCategoryView;
 import com.lp.course.dto.CourseInternalView;
@@ -307,7 +308,7 @@ public class CoursePublicServiceImpl implements CoursePublicService {
                 course.getId(),
                 course.getTitle(),
                 course.getCoverUrl(),
-                course.getPrice().movePointRight(2).longValueExact(),
+                Money.toFen(course.getPrice()),
                 course.getStatus(),
                 course.getLessonCount() == null ? 0L : course.getLessonCount(),
                 course.getInstructorName(),

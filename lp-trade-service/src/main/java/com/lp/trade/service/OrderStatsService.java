@@ -1,5 +1,6 @@
 package com.lp.trade.service;
 
+import com.lp.common.money.Money;
 import com.lp.trade.dto.OrderStatsView;
 import com.lp.trade.mapper.TradeOrderMapper;
 import java.math.BigDecimal;
@@ -16,9 +17,6 @@ import org.springframework.stereotype.Service;
  */
 @Service
 public class OrderStatsService {
-
-    /** Discounted revenue is stored in yuan; the dashboard reports fen. */
-    private static final int FEN_PER_YUAN = 2;
 
     private final TradeOrderMapper tradeOrderMapper;
 
@@ -42,8 +40,7 @@ public class OrderStatsService {
      */
     public OrderStatsView stats() {
         BigDecimal paidAmount = tradeOrderMapper.sumPaidAmount();
-        long paidAmountFen =
-                paidAmount == null ? 0L : paidAmount.movePointRight(FEN_PER_YUAN).longValueExact();
+        long paidAmountFen = paidAmount == null ? 0L : Money.toFen(paidAmount);
         return new OrderStatsView(
                 tradeOrderMapper.countAll(), tradeOrderMapper.countPaid(), paidAmountFen);
     }
