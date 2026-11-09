@@ -21,6 +21,7 @@ import com.lp.trade.service.OrderService;
 import com.lp.trade.service.RefundService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import java.nio.charset.StandardCharsets;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -44,6 +45,10 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/v1/orders")
 public class OrderController {
+
+    /** Explicit UTF-8 media type, so a replay never depends on the global encoding config. */
+    private static final MediaType JSON_UTF8 =
+            new MediaType(MediaType.APPLICATION_JSON, StandardCharsets.UTF_8);
 
     private final OrderService orderService;
 
@@ -112,7 +117,7 @@ public class OrderController {
                         TraceIds.resolve(request),
                         () -> orderService.create(uid, source, body));
         markReplayed(response, outcome.replayed());
-        return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(outcome.value());
+        return ResponseEntity.ok().contentType(JSON_UTF8).body(outcome.value());
     }
 
     /**
@@ -221,7 +226,7 @@ public class OrderController {
                         TraceIds.resolve(request),
                         () -> refundService.apply(uid, orderId, body));
         markReplayed(response, outcome.replayed());
-        return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(outcome.value());
+        return ResponseEntity.ok().contentType(JSON_UTF8).body(outcome.value());
     }
 
     private void markReplayed(HttpServletResponse response, boolean replayed) {

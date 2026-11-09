@@ -79,6 +79,12 @@ public enum ErrorCode {
     /** The course is not in the pending-review state, so a review decision is rejected. */
     COURSE_REVIEW_STATE_INVALID(61005, "course is not pending review"),
 
+    /**
+     * The caller's teacher profile has not passed onboarding review. Course creation and editing
+     * are refused until operations approves the profile, so no course row is written.
+     */
+    COURSE_TEACHER_NOT_APPROVED(61006, "teacher audit is not approved"),
+
     /** Trade domain failure. */
     TRADE_BIZ_ERROR(62001, "trade operation failed"),
 

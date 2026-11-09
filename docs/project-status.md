@@ -20,7 +20,7 @@
 
 | 分支 / 标签 | commit | 日期 | 说明 |
 |---|---|---|---|
-| `develop` | `7647d2a` | 2026-11-09 | PR #109，产品范围、购买流程与 README 按已冻结决策对齐 |
+| `develop` | `b22ab7c` | 2026-11-09 | PR #124，下单/支付/退款统一幂等契约与错误码 40901/40902 |
 | `main` | `7364af7` | 2026-11-09 | PR #97，与开发线尚未对齐，下次发布合并时同步 |
 | `v0.1.0` | 2026-11-06 | — | 首个可演示版本标签，指向退款闭环完成后的提交 |
 
@@ -29,7 +29,7 @@
 | 里程碑 | 状态 | 判定依据 | 最后核对日期 |
 |---|---|---|---|
 | M0 基建 | 完成（监控栈除外） | Compose、Flyway、网关、统一返回、身份头、CI、本地验收脚本均可运行；`infra/observability` 未建立 | 2026-11-09 |
-| M1 账号与内容（含教师端） | 部分完成 | 注册登录、RBAC 种子、分类/课程/章节课时、教师课程 API、课程审核与审计已通；教师入驻、视频上传、全文搜索、教师前端未做 | 2026-11-09 |
+| M1 账号与内容（含教师端） | 部分完成 | 注册登录、RBAC 种子、分类/课程/章节课时、教师课程 API、课程审核与审计、教师入驻审核接口已通；视频上传、全文搜索、教师前端未做 | 2026-11-09 |
 | M2 交易与学习 | 部分完成 | 购物车 API、下单幂等、0 元课、模拟支付、权益 outbox、播放签名、进度回写已通；真实支付宝未接 | 2026-11-09 |
 | M3 互动与后台 | 部分完成 | 运营审核、用户/订单查询、退款审核、看板概览已通；UGC、对账、举报处置未做 | 2026-11-09 |
 | M4 AI MVP | 未开始 | `lp-ai-service` 仅有启动类与 `package-info` | 2026-11-09 |
@@ -41,11 +41,11 @@
 
 当前处于 **M2 后端链路可演示、M3 刚起步** 的阶段。可演示的闭环是：教师通过 API 建课并提交 → 运营在后台审核定价上架 → 学员在 Web 下单 → 模拟支付回调 → 权益发放 → 播放签名 → 进度回写 → 学员发起退款申请 → 运营后台审核通过 → 模拟渠道退款成功并回收权益。
 
-该闭环成立的前提是**本地模拟支付**（`LP_PAY_MOCK_ENABLED=true`），并且教师建课目前只有后端接口、没有界面。真实支付宝、UGC、AI、教师工作台界面、小程序评论、监控与部署流水线均未完成，详见第 4 章。
+该闭环成立的前提是**本地模拟支付**（`LP_PAY_MOCK_ENABLED=true`），并且教师建课与教师入驻审核目前只有后端接口、没有界面。真实支付宝、UGC、AI、教师工作台界面、小程序评论、监控与部署流水线均未完成，详见第 4 章。
 
 ## 2.4 规格条目索引（条目 → 实现状态）
 
-状态与层级取自对应域文件；AC 完成度按 `develop` `7647d2a` 的代码与页面行为在 2026-11-09 逐条核对，格式为「已满足 AC 数 / 该条目 AC 总数」。`进行中` 但 AC 已全满足的条目表示仍有非 AC 事项（端到端接线或界面）未完成。
+状态与层级取自对应域文件；AC 完成度按 `develop` `b22ab7c` 的代码与页面行为在 2026-11-09 逐条核对，格式为「已满足 AC 数 / 该条目 AC 总数」。`进行中` 但 AC 已全满足的条目表示仍有非 AC 事项（端到端接线或界面）未完成。
 
 | 规格条目 | 能力 | 状态 | 层级 | AC 完成度 |
 |---|---|---|---|---|
@@ -57,7 +57,7 @@
 | SPEC-COURSE-006 | 运营强制下架 | 未开始 | L2-5 | 0/4 |
 | SPEC-COURSE-007 | 公开展示与访问控制 | 已完成 | — | 4/4 |
 | SPEC-COURSE-008 | 内容结构与删除限制 | 进行中 | L2-3 | 2/4 |
-| SPEC-COURSE-009 | 教师入驻审核 | 未开始 | L1-5 | 0/3 |
+| SPEC-COURSE-009 | 教师入驻审核 | 已完成 | — | 5/5 |
 | SPEC-COURSE-010 | 展示字段与长度约束 | 已完成 | — | 5/5 |
 | SPEC-COURSE-011 | 定价口径 | 进行中 | L1-2 | 4/5 |
 | SPEC-TRADE-001 | 下单与幂等 | 已完成 | — | 7/7 |
@@ -104,8 +104,9 @@
 | 小程序 code 登录 | 接口与真实 `jscode2session` 客户端均已实现，默认关闭；本地可用 mock 客户端 | `AuthController.java`、`security/HttpWechatMiniappClient.java`、`config/MiniappProperties.java` | 2026-11-09 |
 | 网关 | 7 条服务路由、身份头剥离与注入、JWT 三态校验，默认 `hard`；未实现限流 | `lp-gateway/src/main/resources/application.yml`、`filter/HeaderSanitizeFilter.java`、`filter/JwtAuthFilter.java` | 2026-11-09 |
 | 课程浏览 | 已上架课程分页、分类、关键词（`LIKE` 标题/副标题）、详情、目录；下架课程对非持有者按 404 处理 | `lp-course-service/.../controller/CoursePublicController.java`、`mapper/CourseMapper.java` | 2026-11-09 |
-| 教师课程 API | 建课、改课、提交审核、章节课时增删改、状态计数；按 `owner_teacher_id` 做归属校验 | `controller/TeacherCourseController.java`、`service/impl/TeacherCourseServiceImpl.java` | 2026-11-09 |
+| 教师课程 API | 建课、改课、提交审核、章节课时增删改、状态计数；按 `owner_teacher_id` 做归属校验；建课与改课在服务层校验教师入驻审核状态，未通过返回 `61006` 且不写课程 | `controller/TeacherCourseController.java`、`service/impl/TeacherCourseServiceImpl.java` | 2026-11-09 |
 | 课程审核 | 待审队列、通过并定价上架、驳回、审核审计查询 | `lp-admin-service/.../controller/AdminCourseController.java`、`db/migration/course/V4__course_review_audit.sql` | 2026-11-09 |
+| 教师入驻审核 | 审核字段与存量回填、按状态筛选的审核队列、通过/驳回（驳回原因必填）、审核留痕（操作人、时间、前后状态）、教师查询与重新提交；权限码 `admin:teacher:audit`。审核留痕暂存 `teacher_profile`，统一审计表留到 L1-7 | `db/migration/course/V6__teacher_audit.sql`、`service/impl/TeacherAuditServiceImpl.java`、`lp-admin-service/.../controller/AdminTeacherController.java` | 2026-11-09 |
 | 交易 | 购物车 API、下单幂等、0 元课直接完成、订单列表/详情/取消、超时关单（30 分钟，条件更新与支付回调竞争安全，同时关闭待支付记录并释放优惠券）；优惠券在下单时校验并核销；下单/支付/退款统一 `Idempotency-Key`（Redis 占位与结果重放，同键不同体 40901，处理中超时 40902，成功结果缓存 24h、支付发起 30 分钟） | `lp-trade-service/.../controller/OrderController.java`、`service/impl/OrderServiceImpl.java`、`job/OrderTimeoutJob.java`、`idempotency/IdempotencyService.java` | 2026-11-09 |
 | 支付 | 支付发起（`Idempotency-Key` 必填，同键并发复用首次预支付结果）、`/api/v1/payments/alipay/notify` 回调入口、金额与渠道校验、重复回调幂等；**真实渠道未配置时统一返回 50205**，本地由 mock 渠道替代 | `payment/MockPaymentGateway.java`、`payment/UnconfiguredPaymentGateway.java`、`controller/PaymentController.java`、`idempotency/IdempotencyService.java` | 2026-11-09 |
 | 退款 | 准入校验（付款后 7 天内且学习进度 ≤ 20%，超限返回 `62007` 且不落单）、生成待审核单（不自动退款）、运营审核、驳回需原因并可再次申请、审核通过后原渠道退款、权益软失效、撤销 outbox；渠道明确拒绝落 4 并放回可申请，调用超时等结果未知落 5 且订单保持退款中，learn 进度不可用时失败关闭返回 `50201` | `service/impl/RefundServiceImpl.java`、`db/migration/trade/V7__refund_review.sql`、`db/migration/trade/V9__refund_unknown_result.sql`、`controller/RefundInternalController.java` | 2026-11-09 |
@@ -135,7 +136,8 @@
 | 课程审核 | 待审队列、通过并定价、驳回、审核记录 | `ReviewQueueView.vue`、`api/admin.ts` | 2026-11-09 |
 | 用户与订单 | 关键词/订单号查询、分页列表 | `UsersView.vue`、`OrdersView.vue` | 2026-11-09 |
 | 退款审核 | 按状态筛选的退款队列、通过/驳回（驳回必填原因）、分页与操作错误提示 | `RefundQueueView.vue`、`controller/AdminRefundController.java` | 2026-11-09 |
-| 未做 | 教师入驻审核、课程/课时管理、评论与举报处置、角色与菜单管理、教师工作台界面 | `apps/admin/src/router.ts` 仅有 5 个业务页面 | 2026-11-09 |
+| 教师入驻审核接口 | 按状态筛选的审核队列、通过/驳回（驳回必填原因）、权限码 `admin:teacher:audit`；**无运营页面**，仅接口可用 | `controller/AdminTeacherController.java`、`service/impl/AdminTeacherAuditServiceImpl.java` | 2026-11-09 |
+| 未做 | 教师入驻审核页面、课程/课时管理、评论与举报处置、角色与菜单管理、教师工作台界面 | `apps/admin/src/router.ts` 仅有 5 个业务页面 | 2026-11-09 |
 
 ## 3.4 微信小程序
 
@@ -180,7 +182,7 @@
 | AI 课程画像、审核、文案、学伴、BYO 模型配置 | product-lifecycle F15–F18；engineering-plan 第 7 章、13.2 M4 | `lp-ai-service` 仅有启动类与 `package-info`，`lp_ai` 仅有 V1 基线 | 未排期；缺客户模型 key 与配置界面 | 2026-11-09 |
 | 购物车页面 | product-lifecycle F07、4.3 | 后端 `/api/v1/cart` 可用，Web 无购物车页面 | 未排期 | 2026-11-09 |
 | 优惠券发券与领券 | product-lifecycle F07 | 只有 `coupon`/`user_coupon` 表与下单核销逻辑，无发券、领券、券列表接口 | 未排期；无运营配置入口 | 2026-11-09 |
-| 教师入驻审核 | product-lifecycle F04；engineering-plan 13.2 M1 | `teacher_profile` 仅由种子数据写入，无申请、审核、角色开通接口 | 未排期 | 2026-11-09 |
+| 教师入驻审核页面 | product-lifecycle F04；engineering-plan 13.2 M1 | 审核接口、权限码与教师重新提交接口已通；运营后台与教师端均无页面 | 未排期；依赖后台与教师工作台界面 | 2026-11-09 |
 | 教师工作台界面与数据看板 | engineering-plan 1.2、2.1；product-lifecycle F13；SPEC-COURSE-011 | 仅有课程 CRUD 接口；后台无教师页面，无销售/学习/评论统计接口 | 未排期；缺 `course_daily_stat` 等汇总表 | 2026-11-09 |
 | 教师提交拟定价（前端入口） | SPEC-COURSE-011 AC-1 | 接口接受教师价格，运营审核可覆盖；后台无教师建课页面，教师无法实际提交拟定价 | 未排期；依赖教师工作台界面 | 2026-11-09 |
 | 视频上传与 ffprobe 校验 | product-lifecycle F06；engineering-plan 15.2 D5 | 无上传接口；播放仅对已存在对象签名 | 未排期；存储与校验方案未落地 | 2026-11-09 |
@@ -191,7 +193,7 @@
 | 幂等层降级时同键换 body 无法识别 | SPEC-TRADE-001 AC-5、SPEC-TRADE-008 | Redis 不可用时幂等层记录 WARN 日志并累加 `lp.trade.idempotency.degraded` 指标后放行，该窗口内同键换请求体不会被识别为 `40901`，仅靠数据库唯一键（`uk_idempotency`、`uk_active_order`、支付单行锁）兜底 | 已接受；依赖监控告警 | 2026-11-09 |
 | 前端 `40901` 文案仍为「用户名已被占用」 | SPEC-TRADE-001 AC-5 | 下单与退款幂等冲突返回 `40901` 时，Web 端提示「用户名已被占用」，与「同一幂等键换请求体」语义不符，会误导用户；改文案需同步修改 `apps/web/src/utils/errors.spec.ts` 中对 `40901` 的断言 | 已知问题；非本 PR 引入 | 2026-11-09 |
 | 端来源识别 | SPEC-PLAT-002 | 网关只能区分 `admin` 与 `web`，小程序请求被记为 `web`；`X-User-Source=miniapp` 的下单拦截不可达 | 未排期；L2-1 | 2026-11-09 |
-| 后台评论、举报与教师管理 | product-lifecycle F14 | 后台已有课程审核、用户、订单、退款审核与看板 | 依赖 UGC 与教师入驻接口 | 2026-11-09 |
+| 后台评论、举报与教师管理 | product-lifecycle F14 | 后台已有课程审核、用户、订单、退款审核、教师入驻审核接口与看板 | 依赖 UGC 与界面 | 2026-11-09 |
 | 小程序评论 | product-lifecycle 4.3 | 小程序无评论页面 | 依赖 UGC | 2026-11-09 |
 | 小程序购买 ticket 闭环 | engineering-plan 15.2 D2；错误码 62012–62015 | ticket 签发与兑换接口已实现、Web 可兑换；小程序只复制普通链接，不签发 ticket | 前后端未接线 | 2026-11-09 |
 | 监控栈与告警 | engineering-plan 13.6 M0-40/M0-41 | 各服务暴露 `/actuator/prometheus`，trade 有 outbox 指标；无 Prometheus/Grafana 编排与告警规则 | 未排期 | 2026-11-09 |

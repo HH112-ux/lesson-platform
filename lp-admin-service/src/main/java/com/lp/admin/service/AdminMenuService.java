@@ -1,6 +1,7 @@
 package com.lp.admin.service;
 
 import com.lp.admin.dto.AdminMenuView;
+import com.lp.admin.support.ConsoleRoles;
 import java.util.List;
 import java.util.Set;
 import org.springframework.stereotype.Service;
@@ -25,7 +26,6 @@ public class AdminMenuService {
     private static final String COURSE_REVIEW = "admin:course:review";
     private static final String USER_LIST = "admin:user:list";
     private static final String ORDER_LIST = "admin:order:list";
-    private static final String TEACHER_AUDIT = "admin:teacher:audit";
 
     /** Menu type of a routable page. */
     private static final int TYPE_MENU = 1;
@@ -64,7 +64,7 @@ public class AdminMenuService {
                             "teachers",
                             "教师管理",
                             "/admin/teachers",
-                            TEACHER_AUDIT,
+                            ConsoleRoles.TEACHER_AUDIT,
                             TYPE_MENU,
                             List.of()));
 

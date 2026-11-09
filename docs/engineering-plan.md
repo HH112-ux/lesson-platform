@@ -463,7 +463,7 @@ erDiagram
 | course_count | INT | NOT NULL DEFAULT 0 | 冗余：在架课程数（异步重算） |
 | 公共字段 | — | — | — |
 
-索引：`idx_audit_status(audit_status, created_at)`、`idx_status(status)`。教师入驻审核与课程审核是两条独立流程：入驻未通过不能建课（返回 `40301`）。课程归属通过 `course.owner_teacher_id` 逻辑引用本表 `id`，不建跨库外键。
+索引：`idx_audit_status(audit_status, created_at)`、`idx_status(status)`。教师入驻审核与课程审核是两条独立流程：入驻未通过不能建课（返回 `61006`）。课程归属通过 `course.owner_teacher_id` 逻辑引用本表 `id`，不建跨库外键。
 
 **sys_user_wechat 微信身份绑定**
 
@@ -985,6 +985,7 @@ erDiagram
 | 61003 | 视频上传校验未通过 | 容器/编码/分辨率/时长/大小/完整性任一不符（第 4.3.2 节） |
 | 61004 | 播放并发超限 | 同一用户同一课时并发 > 2 路 |
 | 61005 | 课程不在待审核状态 | 审核通过/驳回时课程已不是 `status=1` |
+| 61006 | 教师入驻审核未通过 | 待审核或已驳回教师建课/编辑课程，不产生课程写入 |
 | 62001 | 订单状态不允许 | 取消/支付/退款 |
 | 62002 | 订单已过期 | 超时关单 |
 | 62003 | 业务不可用（课程已下架 / 优惠券不可用） | 加购、下单、领券 |
@@ -1196,8 +1197,8 @@ spec:
 | POST | `/api/v1/admin/courses/{courseId}/publish` | 上架并定价（运营；已下架未变更可直接再上架 `3→2`，内容变更过须回草稿复审；`price` 单位分） | `{price?,categoryId?}` | `{status:2}` | 40301,40901 |
 | POST | `/api/v1/admin/courses/{courseId}/unpublish` | 下架 | `{reason}` | `{status:3}` | 40301 |
 | POST | `/api/v1/admin/entitlements/grant` | 运营发放课程权益（免费课开通/客诉补偿，不产生订单，15.2 D9） | `{userId,courseId,reason}` | `{entitlementId}` | 40001,40301,40901(已有权益) |
-| GET | `/api/v1/admin/teachers` | 教师列表/入驻审核队列 | query:`auditStatus,keyword,pageNum` | 分页 `{records:[{teacherId,userId,displayName,title,auditStatus,courseCount,createdAt}]}` | 40301 |
-| POST | `/api/v1/admin/teachers/{teacherId}/review` | 教师入驻审核 | `{approved:bool,remark?}` | `{auditStatus}` | 40301,40401 |
+| GET | `/api/v1/admin/teachers` | 教师列表/入驻审核队列（权限码 `admin:teacher:audit`） | query:`auditStatus,keyword,pageNum,pageSize` | 分页 `{records:[{teacherId,userId,displayName,auditStatus,auditRemark,auditedBy,auditedAt,submittedAt,courseCount,createdAt}],total,pageNum,pageSize}` | 40001,40301 |
+| POST | `/api/v1/admin/teachers/{teacherId}/review` | 教师入驻审核（通过 `0→1`；驳回 `0→2` 且 `remark` 必填） | `{approved:bool,remark?}` | `{teacherId,auditStatus,auditRemark,auditedBy,auditedAt}` | 40001,40301,40401,40901 |
 | POST | `/api/v1/admin/courses/{courseId}/chapters` | 建章节 | `{title,sort}` | `{chapterId}` | 40301 |
 | POST | `/api/v1/admin/chapters/{chapterId}/lessons` | 建课时 | `{title,isFree,sort,coverUrl}` | `{lessonId}` | 40301 |
 | POST | `/api/v1/admin/lessons/{lessonId}/video` | 上传视频（multipart，服务端校验项见 SPEC-PLAT-006，当前未实现） | form-data `file` | `{videoUrl,durationSec,codec,width,height,sizeBytes}` | 40002,50001,61003 |
@@ -1232,11 +1233,13 @@ spec:
 
 | 方法 | 路径 | 用途 | 请求 | 响应 | 主要错误码 |
 |---|---|---|---|---|---|
+| GET | `/api/v1/teacher/audit-application` | 查本人入驻审核状态与驳回原因 | — | `{teacherId,auditStatus,auditRemark,auditFromStatus,auditedBy,auditedAt,submittedAt}`；`auditStatus` 0 待审核/1 通过/2 驳回 | 40101,40301 |
+| POST | `/api/v1/teacher/audit-application` | 驳回后重新提交入驻审核（`2→0`；待审核时幂等，已通过返回 `40901`） | `{}` | 同上 | 40101,40301,40901 |
 | GET | `/api/v1/teacher/overview` | 教师总览（规划中；`totalRevenue30d` 单位分） | — | `{courseCount,publishedCount,pendingReviewCount,totalRevenue30d,learnerCount30d}` | 40101,40301 |
 | GET | `/api/v1/teacher/courses` | 我的课程列表 | query:`status,pageNum,pageSize` | 分页 `{items:[{courseId,title,subtitle,coverUrl,description,price,originalPrice,categoryId,level,status,reviewRemark,lessonCount,submittedAt,updatedAt}],total,pageNum,pageSize,counts:{draft,pending,published,offline}}`；`price` 单位分；`counts` 为本人全部课程按状态计数，不受 `status` 过滤与分页影响 | 40001,40101,40301 |
 | GET | `/api/v1/teacher/courses/{courseId}` | 我的课程详情（不含章节/课时，目录走 5.4 公开接口） | — | 同上单条 | 40301,40401 |
-| POST | `/api/v1/teacher/courses` | 建课草稿（`price`、`originalPrice` 单位分） | `{categoryId,title,subtitle?,coverUrl,description?,price,originalPrice?,level}` | 课程详情，`status:0` | 40001,40101,40301 |
-| PUT | `/api/v1/teacher/courses/{courseId}` | 编辑本人课程（草稿/已下架可改，字段可选；已下架编辑后回草稿 `3→0` 须重新审核） | 同建课字段，均可选 | 课程详情 | 40001,40301,40401,40901 |
+| POST | `/api/v1/teacher/courses` | 建课草稿（`price`、`originalPrice` 单位分；入驻审核未通过返回 `61006`） | `{categoryId,title,subtitle?,coverUrl,description?,price,originalPrice?,level}` | 课程详情，`status:0` | 40001,40101,40301,61006 |
+| PUT | `/api/v1/teacher/courses/{courseId}` | 编辑本人课程（草稿/已下架可改，字段可选；已下架编辑后回草稿 `3→0` 须重新审核；入驻审核未通过返回 `61006`） | 同建课字段，均可选 | 课程详情 | 40001,40301,40401,40901,61006 |
 | POST | `/api/v1/teacher/courses/{courseId}/submit` | 提交审核（`0→1` 或 `3→1`；至少 1 个带视频与有效时长的课时；待审核期间只读） | `{}` | 课程详情，`status:1` | 40001,40301,40401,40901 |
 | POST | `/api/v1/teacher/courses/{courseId}/publish` | 本人课程再上架（`3→2`；仅内容未变更可直接上架，编辑过须回草稿复审） | `{}` | `{status:2}` | 40301,40901 |
 | POST | `/api/v1/teacher/courses/{courseId}/unpublish` | 本人课程下架（`2→3`） | `{reason}` | `{status:3}` | 40301,40901 |
@@ -2176,7 +2179,7 @@ DoD：学伴无法回答率 ≤ 30%、找课点击率 +10%、售后 FAQ 命中�
 | 冲突 | 40901 | 重复/状态不允许（注册账号重复走此码） |
 | 限流 | 42901 | — |
 | 服务端 | 50001、50201–50306 | 50001 系统异常、50201 下游失败、**50202 支付宝渠道失败**、**50203 已移除（原微信支付渠道失败，编码保留不复用）**、**50204 对账存在未处理差异**、**50205 支付渠道/验签未配置**、50301/50302 AI 不可用、**50303 模型未配置**、**50304 密钥无效**、**50305 配额用尽**、**50306 上游超时/限流** |
-| 业务-课程 | 61001–61004 | 61001 课程不存在、61002 已购、**61003 视频上传校验未通过**、**61004 播放并发超限** |
+| 业务-课程 | 61001–61006 | 61001 课程不存在、61002 已购、**61003 视频上传校验未通过**、**61004 播放并发超限**、61005 课程不在待审核状态、**61006 教师入驻审核未通过** |
 | 业务-订单 | 62001–62015 | 62001 状态不允许、62002 已过期、62003 交易项不可用（已下架课程、券不可用等）、62004 退款不可申请、**62005 渠道与来源端不匹配**、**62006 订单已有进行中的支付单**、**62007 退款准入不满足（15.2 D6）**、**62008 已废弃**、**62009 支付金额不一致**、**62010 回调渠道不匹配**、**62011 支付方式已下线（小程序下单/发起支付）**、**62012 购买 ticket 已过期**、**62013 购买 ticket 已使用**、**62014 购买 ticket 不存在**、**62015 购买 ticket 归属其他用户** |
 | 业务-学习 | 63001 | 进度越界 |
 | 业务-内容 | 64001–64002 | 违规/举报目标 |
