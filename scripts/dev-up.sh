@@ -53,8 +53,23 @@ log "installing frontend dependencies"
 pnpm install --frozen-lockfile
 
 log "building student web and operations console"
-pnpm --filter @lp/web build
-pnpm --filter @lp/admin build
+build_frontend() {
+  local filter="$1"
+  local output
+  if ! output="$(pnpm --filter "${filter}" build 2>&1)"; then
+    printf '%s\n' "${output}" >&2
+    printf 'ERROR: frontend build failed for %s\n' "${filter}" >&2
+    exit 1
+  fi
+  if printf '%s' "${output}" | grep -q "No projects matched"; then
+    printf '%s\n' "${output}" >&2
+    printf 'ERROR: no workspace package matched %s\n' "${filter}" >&2
+    exit 1
+  fi
+  printf '%s\n' "${output}"
+}
+build_frontend lp-web
+build_frontend lp-admin
 
 log "starting containers"
 # RocketMQ and Nacos stay in the compose file for future use but are not part of the MVP
