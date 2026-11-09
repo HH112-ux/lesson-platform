@@ -2,6 +2,7 @@ package com.lp.trade.service.impl;
 
 import com.lp.common.exception.BizException;
 import com.lp.common.exception.ErrorCode;
+import com.lp.common.money.Money;
 import com.lp.trade.client.LearnProgressClient;
 import com.lp.trade.domain.OrderStatus;
 import com.lp.trade.domain.PaymentStatus;
@@ -309,13 +310,14 @@ public class RefundServiceImpl implements RefundService {
     }
 
     private BigDecimal resolveAmount(TradeOrder order, ApplyRefundRequest request) {
-        BigDecimal amount = request == null ? null : request.getAmount();
-        if (amount == null) {
-            amount = order.getPayAmount();
+        Long amountFen = request == null ? null : request.getAmountFen();
+        if (amountFen == null) {
+            amountFen = Money.toFen(order.getPayAmount());
         }
-        if (amount == null || amount.signum() <= 0) {
+        if (!Money.isStorable(amountFen) || amountFen <= 0) {
             throw new BizException(ErrorCode.PARAM_INVALID, "amount must be positive");
         }
+        BigDecimal amount = Money.toYuan(amountFen);
         if (amount.compareTo(order.getPayAmount()) != 0) {
             throw new BizException(ErrorCode.REFUND_AMOUNT_INVALID);
         }
@@ -370,7 +372,7 @@ public class RefundServiceImpl implements RefundService {
                 refund.getOrderId(),
                 order == null ? null : order.getOrderNo(),
                 refund.getChannel() == null ? 0 : refund.getChannel(),
-                refund.getAmount(),
+                Money.toFen(refund.getAmount()),
                 refund.getStatus() == null ? RefundStatus.PENDING_REVIEW : refund.getStatus(),
                 refund.getReason(),
                 refund.getReviewReason(),
@@ -385,7 +387,7 @@ public class RefundServiceImpl implements RefundService {
                 row.getOrderNo(),
                 row.getUserId(),
                 row.getChannel() == null ? 0 : row.getChannel(),
-                row.getAmount(),
+                Money.toFen(row.getAmount()),
                 row.getReason(),
                 row.getStatus() == null ? RefundStatus.PENDING_REVIEW : row.getStatus(),
                 row.getReviewReason(),

@@ -2,6 +2,7 @@ package com.lp.course.service.impl;
 
 import com.lp.common.exception.BizException;
 import com.lp.common.exception.ErrorCode;
+import com.lp.common.money.Money;
 import com.lp.course.dto.CourseInternalView;
 import com.lp.course.dto.CourseReviewAuditView;
 import com.lp.course.dto.CourseReviewResultView;
@@ -191,8 +192,9 @@ public class CourseInternalServiceImpl implements CourseInternalService {
     @Transactional
     public CourseReviewResultView review(
             long courseId, boolean approved, Long priceFen, String remark, long reviewerId) {
-        if (priceFen != null && priceFen < 0) {
-            // A negative price would be clamped to a free order on the trade side.
+        if (priceFen != null && !Money.isStorable(priceFen)) {
+            // A negative or oversized price would be clamped to a free order or overflow the
+            // column.
             throw new BizException(ErrorCode.PARAM_INVALID, "price is invalid");
         }
         LocalDateTime reviewedAt = LocalDateTime.now();

@@ -1,6 +1,5 @@
 package com.lp.trade.dto;
 
-import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 /**
@@ -21,7 +20,7 @@ public class RefundView {
 
     private final int channel;
 
-    private final BigDecimal amount;
+    private final long amountFen;
 
     private final int status;
 
@@ -41,7 +40,7 @@ public class RefundView {
      * @param orderId order id
      * @param orderNo business order number
      * @param channel channel fixed on the successful payment
-     * @param amount refunded amount in yuan
+     * @param amountFen refunded amount in fen
      * @param status status from {@code RefundStatus}
      * @param reason buyer supplied reason
      * @param reviewReason operations comment or rejection reason
@@ -56,7 +55,7 @@ public class RefundView {
             long orderId,
             String orderNo,
             int channel,
-            BigDecimal amount,
+            long amountFen,
             int status,
             String reason,
             String reviewReason,
@@ -67,7 +66,7 @@ public class RefundView {
         this.orderId = orderId;
         this.orderNo = orderNo;
         this.channel = channel;
-        this.amount = amount;
+        this.amountFen = amountFen;
         this.status = status;
         this.reason = reason;
         this.reviewReason = reviewReason;
@@ -133,12 +132,12 @@ public class RefundView {
     /**
      * Returns the refunded amount.
      *
-     * @return amount in yuan
+     * @return amount in fen
      * @author Caspian
      * @since 0.1.0
      */
-    public BigDecimal getAmount() {
-        return amount;
+    public long getAmountFen() {
+        return amountFen;
     }
 
     /**

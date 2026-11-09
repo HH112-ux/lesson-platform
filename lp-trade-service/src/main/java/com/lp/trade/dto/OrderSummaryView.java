@@ -19,7 +19,7 @@ public class OrderSummaryView {
 
     private final int channel;
 
-    private final java.math.BigDecimal payAmount;
+    private final long payAmountFen;
 
     private final LocalDateTime createdAt;
 
@@ -34,7 +34,7 @@ public class OrderSummaryView {
      * @param orderNo business order number
      * @param status order status
      * @param channel payment channel
-     * @param payAmount payable amount in yuan
+     * @param payAmountFen payable amount in fen
      * @param createdAt order creation time
      * @param items order lines
      * @param refund latest refund state, {@code null} when never applied
@@ -46,7 +46,7 @@ public class OrderSummaryView {
             String orderNo,
             int status,
             int channel,
-            java.math.BigDecimal payAmount,
+            long payAmountFen,
             LocalDateTime createdAt,
             List<OrderItemView> items,
             RefundSummaryView refund) {
@@ -54,7 +54,7 @@ public class OrderSummaryView {
         this.orderNo = orderNo;
         this.status = status;
         this.channel = channel;
-        this.payAmount = payAmount;
+        this.payAmountFen = payAmountFen;
         this.createdAt = createdAt;
         this.items = items;
         this.refund = refund;
@@ -107,12 +107,12 @@ public class OrderSummaryView {
     /**
      * Returns the payable amount.
      *
-     * @return amount in yuan
+     * @return amount in fen
      * @author Caspian
      * @since 0.1.0
      */
-    public java.math.BigDecimal getPayAmount() {
-        return payAmount;
+    public long getPayAmountFen() {
+        return payAmountFen;
     }
 
     /**

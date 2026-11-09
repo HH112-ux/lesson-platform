@@ -123,7 +123,7 @@ public class HttpDashboardClient implements DashboardClient {
                             METRICS_TYPE);
             AdminUserStats users = get(authClient, "/internal/v1/users/stats", USER_TYPE);
             return new AdminMetricsOverviewView(
-                    orders.gmv(),
+                    orders.gmvFen(),
                     orders.orderCount(),
                     orders.paidRate(),
                     users.newUsers(),

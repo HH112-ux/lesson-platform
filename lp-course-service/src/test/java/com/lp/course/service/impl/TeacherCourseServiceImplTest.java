@@ -231,6 +231,46 @@ class TeacherCourseServiceImplTest {
     }
 
     /**
+     * A price with three decimals is rejected instead of being rounded to two.
+     *
+     * @author Caspian
+     * @since 0.4.0
+     */
+    @Test
+    void rejectsPriceWithMoreThanTwoDecimals() {
+        when(teacherCourseMapper.selectTeacherIdByUser(1001L)).thenReturn(55L);
+        TeacherCourseRequest request =
+                new TeacherCourseRequest(
+                        3L, "Course", null, "cover", null, new BigDecimal("9.999"), null, 1);
+
+        BizException exception =
+                assertThrows(BizException.class, () -> service.create(1001L, "TEACHER", request));
+
+        assertEquals(40001, exception.getCode());
+        verify(teacherCourseMapper, never()).insert(any());
+    }
+
+    /**
+     * A price that overflows {@code DECIMAL(10,2)} is rejected before reaching the database.
+     *
+     * @author Caspian
+     * @since 0.4.0
+     */
+    @Test
+    void rejectsPriceAboveColumnMaximum() {
+        when(teacherCourseMapper.selectTeacherIdByUser(1001L)).thenReturn(55L);
+        TeacherCourseRequest request =
+                new TeacherCourseRequest(
+                        3L, "Course", null, "cover", null, new BigDecimal("100000000.00"), null, 1);
+
+        BizException exception =
+                assertThrows(BizException.class, () -> service.create(1001L, "TEACHER", request));
+
+        assertEquals(40001, exception.getCode());
+        verify(teacherCourseMapper, never()).insert(any());
+    }
+
+    /**
      * The list is always filtered by the caller's teacher profile.
      *
      * @author Caspian

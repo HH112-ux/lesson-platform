@@ -61,6 +61,9 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
     /** Maximum video object key length, matching {@code course_lesson.video_url}. */
     private static final int MAX_VIDEO_URL_LENGTH = 500;
 
+    /** Largest price that fits {@code DECIMAL(10,2)}, guarding against column overflow. */
+    private static final BigDecimal MAX_PRICE = new BigDecimal("99999999.99");
+
     private final TeacherCourseMapper teacherCourseMapper;
 
     /**
@@ -665,7 +668,9 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
      * @since 0.1.0
      */
     private BigDecimal requireMoney(BigDecimal value, String field) {
-        if (value.signum() < 0 || value.movePointRight(2).stripTrailingZeros().scale() > 0) {
+        if (value.signum() < 0
+                || value.movePointRight(2).stripTrailingZeros().scale() > 0
+                || value.compareTo(MAX_PRICE) > 0) {
             throw new BizException(ErrorCode.PARAM_INVALID, field + " is invalid");
         }
         return value;

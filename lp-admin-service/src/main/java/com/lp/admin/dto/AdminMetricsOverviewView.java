@@ -9,7 +9,7 @@ import java.util.List;
  * <p>The first five fields match the merged console contract exactly; the trailing three are
  * additive counters the console may render later and that older clients simply ignore.
  *
- * @param gmv settled revenue in yuan over the last seven days
+ * @param gmvFen settled revenue in fen over the last seven days
  * @param orderCount orders created over the last seven days
  * @param paidRate paid conversion of the same window
  * @param newUsers accounts registered over the last seven days
@@ -21,7 +21,7 @@ import java.util.List;
  * @since 0.2.0
  */
 public record AdminMetricsOverviewView(
-        BigDecimal gmv,
+        long gmvFen,
         long orderCount,
         BigDecimal paidRate,
         long newUsers,

@@ -6,7 +6,7 @@ import java.util.List;
 /**
  * Order metrics returned by trade-service for the dashboard window.
  *
- * @param gmv settled revenue in yuan
+ * @param gmvFen settled revenue in fen
  * @param orderCount orders created inside the window
  * @param paidOrderCount paid orders created inside the window
  * @param paidRate {@code paidOrderCount / orderCount}
@@ -15,7 +15,7 @@ import java.util.List;
  * @since 0.2.0
  */
 public record AdminOrderMetrics(
-        BigDecimal gmv,
+        long gmvFen,
         long orderCount,
         long paidOrderCount,
         BigDecimal paidRate,

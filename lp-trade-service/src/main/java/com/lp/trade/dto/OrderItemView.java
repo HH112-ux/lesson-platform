@@ -12,21 +12,21 @@ public class OrderItemView {
 
     private final String title;
 
-    private final java.math.BigDecimal price;
+    private final long priceFen;
 
     /**
      * Creates an order line projection.
      *
      * @param courseId course id
      * @param title course title snapshot taken at order creation
-     * @param price line price in yuan
+     * @param priceFen line price in fen
      * @author Caspian
      * @since 0.1.0
      */
-    public OrderItemView(long courseId, String title, java.math.BigDecimal price) {
+    public OrderItemView(long courseId, String title, long priceFen) {
         this.courseId = courseId;
         this.title = title;
-        this.price = price;
+        this.priceFen = priceFen;
     }
 
     /**
@@ -54,11 +54,11 @@ public class OrderItemView {
     /**
      * Returns the line price.
      *
-     * @return price in yuan
+     * @return price in fen
      * @author Caspian
      * @since 0.1.0
      */
-    public java.math.BigDecimal getPrice() {
-        return price;
+    public long getPriceFen() {
+        return priceFen;
     }
 }
