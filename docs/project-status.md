@@ -64,7 +64,7 @@
 | SPEC-TRADE-002 | 0 元订单 | 已完成 | — | 5/5 |
 | SPEC-TRADE-003 | 优惠券校验与核销 | 已完成 | — | 4/4 |
 | SPEC-TRADE-004 | 支付发起与重付约束 | 进行中 | L1-3、L2-2 | 3/5 |
-| SPEC-TRADE-005 | 支付回调与三态处理 | 已完成 | — | 5/5 |
+| SPEC-TRADE-005 | 支付回调与三态处理 | 进行中 | — | 5/6 |
 | SPEC-TRADE-006 | 订单取消 | 已完成 | — | 4/4 |
 | SPEC-TRADE-007 | 超时关单 | 未开始 | L1-3 | 0/4 |
 | SPEC-TRADE-008 | 退款准入 | 已完成 | — | 4/4 |
@@ -162,12 +162,22 @@
 
 # 4. 计划了但未做
 
+## 4.1 阻塞于商户凭据/渠道接入
+
+以下条目不取决于开发排期：缺真实商户凭据或渠道接入，凭据到位前无法实现与验证。
+
+| 功能 | 文档出处 | 现状 | 卡点 | 最后核对日期 |
+|---|---|---|---|---|
+| 真实支付宝支付 | engineering-plan 1.2、5.5、13.2 M2；15.2 D2 | 只有 `MockPaymentGateway` 与未配置即报 50205 的占位实现，无支付宝 SDK 适配器 | 缺商户号、应用私钥、公钥证书、回调域名 | 2026-11-09 |
+| 支付宝对账 | engineering-plan 1.2、13.2 M3、15.1 R11；SPEC-TRADE-014 | 无 `payment_reconcile` 表、无拉账任务、无差异告警 | 依赖商户号与账单权限；**未完成对账能力不得开启真实收款** | 2026-11-09 |
+| 支付宝回调 `app_id` 校验 | SPEC-TRADE-005 AC-6；engineering-plan 5.5、8.3 | 回调只验签与校验金额，未比对 `app_id`；当前为 Mock 渠道 | 阻塞：真实渠道接入时实现 | 2026-11-09 |
+
+## 4.2 其他未做功能
+
 | 功能 | 文档出处 | 现状 | 卡点 | 最后核对日期 |
 |---|---|---|---|---|
 | 评论、两级回复、收藏、举报与内容审核 | product-lifecycle F11/F12、4.3；engineering-plan 13.2 M3 | `lp-ugc-service` 仅有启动类与 `package-info`，`lp_ugc` 仅有 V1 基线 | 未排期；依赖 UGC 表设计与审核链路 | 2026-11-09 |
 | AI 课程画像、审核、文案、学伴、BYO 模型配置 | product-lifecycle F15–F18；engineering-plan 第 7 章、13.2 M4 | `lp-ai-service` 仅有启动类与 `package-info`，`lp_ai` 仅有 V1 基线 | 未排期；缺客户模型 key 与配置界面 | 2026-11-09 |
-| 真实支付宝支付 | engineering-plan 1.2、5.5、13.2 M2；15.2 D2 | 只有 `MockPaymentGateway` 与未配置即报 50205 的占位实现，无支付宝 SDK 适配器 | 缺商户号、应用私钥、公钥证书、回调域名 | 2026-11-09 |
-| 支付宝对账 | engineering-plan 1.2、13.2 M3、15.1 R11；SPEC-TRADE-014 | 无 `payment_reconcile` 表、无拉账任务、无差异告警 | 依赖商户号与账单权限；**未完成对账能力不得开启真实收款** | 2026-11-09 |
 | 购物车页面 | product-lifecycle F07、4.3 | 后端 `/api/v1/cart` 可用，Web 无购物车页面 | 未排期 | 2026-11-09 |
 | 优惠券发券与领券 | product-lifecycle F07 | 只有 `coupon`/`user_coupon` 表与下单核销逻辑，无发券、领券、券列表接口 | 未排期；无运营配置入口 | 2026-11-09 |
 | 教师入驻审核 | product-lifecycle F04；engineering-plan 13.2 M1 | `teacher_profile` 仅由种子数据写入，无申请、审核、角色开通接口 | 未排期 | 2026-11-09 |
