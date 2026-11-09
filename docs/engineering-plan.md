@@ -148,11 +148,11 @@ flowchart TB
     T4 --> L["AI 审核 / 摘要 / 文案"]
 ```
 
-> 支付渠道由**来源端**决定，不由用户选择：Web 端仅展示支付宝；**小程序端不提供支付**，只展示「去网页购买」引导。服务端对 `X-User-Source=miniapp` 的下单请求直接返回 `62011`（支付方式已下线），不创建订单；Web 请求 `channel` 与来源端不一致返回 `62005`；重新支付仅可在原渠道发起（先关闭原支付单），**不提供跨渠道切换**（07 §6.6）。
+> 支付渠道由**来源端**决定，不由用户选择：Web 端仅展示支付宝；**小程序端不提供支付**，只展示「去网页购买」引导。服务端对 `X-User-Source=miniapp` 的下单请求直接返回 `62011`（支付方式已下线），不创建订单；Web 请求 `channel` 与来源端不一致返回 `62005`；重新支付仅可在原渠道发起（先关闭原支付单），**不提供跨渠道切换**（见 2.3、SPEC-TRADE-004）。
 
 ## 2.3 关键流程的状态机
 
-**课程状态**：`0 草稿 → 1 待审核 → 2 已上架 → 3 已下架`；审核驳回回到 `0` 并记录 `review_remark`。规则（07 §6.4/7.1）：**待审核只读**，不可编辑、不可撤回、不可重复提交；运营**审核通过与定价、首次上架为同一动作**（`1→2`），不设置「审核通过待上架」的中间状态；已下架课程**未发生内容变更**可直接再上架（`3→2`），一旦编辑内容即回草稿（`3→0`）并必须重新审核。教师只能对自己 `owner_teacher_id` 的课程发起 `0→1`、`2→3`、`3→2`；`1→2` 只能由运营执行。
+**课程状态**：`0 草稿 → 1 待审核 → 2 已上架 → 3 已下架`；审核驳回回到 `0` 并记录 `review_remark`。规则（见 SPEC-COURSE-002/004）：**待审核只读**，不可编辑、不可撤回、不可重复提交；运营**审核通过与定价、首次上架为同一动作**（`1→2`），不设置「审核通过待上架」的中间状态；已下架课程**未发生内容变更**可直接再上架（`3→2`），一旦编辑内容即回草稿（`3→0`）并必须重新审核。教师只能对自己 `owner_teacher_id` 的课程发起 `0→1`、`2→3`、`3→2`；`1→2` 只能由运营执行。
 
 **订单状态**（仅支付宝单渠道，`payment_record.channel=1`；历史 `channel=2` 记录只读）：
 
@@ -172,10 +172,10 @@ stateDiagram-v2
 
 **支付单状态**（`payment_record.status`）：`0 待支付 / 1 成功 / 2 已关闭 / 3 已退款 / 4 退款中 / 5 退款失败`。
 
-**退款单状态**（`refund_request.status`）：`0 待审核 / 1 审核通过（调渠道中）/ 2 已退款 / 3 驳回 / 4 退款失败`。
+**退款单状态**（`refund_request.status`）：`0 待审核 / 1 审核通过（调渠道中）/ 2 已退款 / 3 驳回 / 4 退款失败`。审核通过时**先把状态 1 落库并提交事务，再调用渠道**；渠道结果回写 2 或 4，禁止在事务内等待渠道返回。状态 3 或 4 后可按准入规则重新申请，同一订单同时只允许一条进行中退款单（`uk_active_order`）。
 
 **权益**：支付宝支付成功后写入 `user_entitlement`（唯一约束 `user_id + course_id`）；退款成功后置为失效。重复购买由唯一约束拦截。
-**渠道固定**：订单渠道由来源端唯一决定（当前仅 Web→支付宝；小程序下单返回 `62011`），创建订单时写入且不可变更；重新发起支付前必须先关闭原支付单（`payment_record.status=2`），未关闭时返回 `62006`；**重新支付仅可在原渠道进行，不提供跨渠道切换**（07 §6.6）。
+**渠道固定**：订单渠道由来源端唯一决定（当前仅 Web→支付宝；小程序下单返回 `62011`），创建订单时写入且不可变更；重新发起支付前必须先关闭原支付单（`payment_record.status=2`），未关闭时返回 `62006`；**重新支付仅可在原渠道进行，不提供跨渠道切换**（见 SPEC-TRADE-004）。
 
 ---
 
@@ -344,7 +344,7 @@ flowchart TB
 |---|---|
 | 主键 | `id BIGINT UNSIGNED AUTO_INCREMENT` |
 | 公共字段 | `version INT NOT NULL DEFAULT 0`（乐观锁）、`deleted TINYINT NOT NULL DEFAULT 0`（逻辑删除）、`created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3)`、`updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)` |
-| 金额 | `DECIMAL(10,2)`，单位元；禁止 float/double |
+| 金额 | `DECIMAL(10,2)`，库内单位元；对外接口统一以分表示，服务边界完成换算；禁止 float/double |
 | 枚举 | `TINYINT`，取值在代码常量类统一定义 |
 | 外键 | 不建物理外键，用 `*_id` + 索引；跨库不 JOIN，冗余展示字段 |
 | 字符集 | `utf8mb4` / `utf8mb4_0900_ai_ci` |
@@ -447,7 +447,7 @@ erDiagram
 
 **sys_user_role / sys_role_menu**：`id, user_id/role_id, role_id/menu_id` + 公共字段；唯一索引 `uk_user_role(user_id, role_id)`、`uk_role_menu(role_id, menu_id)`；普通索引 `idx_role_id`、`idx_menu_id`。
 
-**teacher_profile 教师档案**
+**teacher_profile 教师档案（`lp_ums`）**
 
 | 字段 | 类型 | 约束 | 说明 |
 |---|---|---|---|
@@ -463,7 +463,7 @@ erDiagram
 | course_count | INT | NOT NULL DEFAULT 0 | 冗余：在架课程数（异步重算） |
 | 公共字段 | — | — | — |
 
-索引：`idx_audit_status(audit_status, created_at)`、`idx_status(status)`。教师入驻审核与课程审核是两条独立流程：入驻未通过不能建课（返回 `40301`）。
+索引：`idx_audit_status(audit_status, created_at)`、`idx_status(status)`。教师入驻审核与课程审核是两条独立流程：入驻未通过不能建课（返回 `40301`）。课程归属通过 `course.owner_teacher_id` 逻辑引用本表 `id`，不建跨库外键。
 
 **sys_user_wechat 微信身份绑定**
 
@@ -512,7 +512,7 @@ erDiagram
 | original_price | DECIMAL(10,2) | NULL | 划线价 |
 | instructor_id | BIGINT UNSIGNED | NOT NULL | 主讲 `teacher_profile.id`（通常 = owner_teacher_id） |
 | level | TINYINT | NOT NULL DEFAULT 1 | 1 入门/2 进阶/3 高级 |
-| status | TINYINT | NOT NULL DEFAULT 0 | 0 草稿/1 待审核/2 已上架/3 已下架；无「审核通过待上架」中间态（`1→2` 同一动作）；已下架编辑即回草稿须复审（07 §6.4/7.1） |
+| status | TINYINT | NOT NULL DEFAULT 0 | 0 草稿/1 待审核/2 已上架/3 已下架；无「审核通过待上架」中间态（`1→2` 同一动作）；已下架编辑即回草稿须复审（见 2.3、SPEC-COURSE-002/004） |
 | review_remark | VARCHAR(300) | NULL | 审核意见（驳回原因） |
 | submitted_at | DATETIME(3) | NULL | 提交审核时间 |
 | reviewed_by | BIGINT UNSIGNED | NULL | 审核人（运营） |
@@ -660,7 +660,7 @@ erDiagram
 | pay_amount | DECIMAL(10,2) | NOT NULL | 应付 |
 | status | TINYINT | NOT NULL DEFAULT 0 | 0 待支付/1 已支付/2 已取消/3 已关闭/4 退款中/5 已退款 |
 | coupon_id | BIGINT UNSIGNED | NULL | 使用的券 |
-| channel | TINYINT | NOT NULL | 渠道由来源端固定：1 支付宝（Web）；2 微信为历史数据，已停用且禁止新建（07 §6.6） |
+| channel | TINYINT | NOT NULL | 渠道由来源端固定：1 支付宝（Web）；2 微信为历史数据，已停用且禁止新建（见 2.3、SPEC-TRADE-004） |
 | pay_expire_at | DATETIME(3) | NULL | 支付截止（下单后 30 分钟，15.2 D11），超时由 job-worker 定时关单；0 元订单即时完成，该列为空 |
 | paid_at | DATETIME(3) | NULL | 支付时间 |
 | closed_at | DATETIME(3) | NULL | 关闭时间（取消或超时关单） |
@@ -704,13 +704,13 @@ erDiagram
 | order_id | BIGINT UNSIGNED | NOT NULL | — |
 | payment_id | BIGINT UNSIGNED | NOT NULL | 对应 `payment_record.id`（确定渠道） |
 | user_id | BIGINT UNSIGNED | NOT NULL | — |
-| channel | TINYINT | NOT NULL | 1 支付宝/2 微信（由 `payment_id` 决定，不信任前端） |
+| channel | TINYINT | NOT NULL | 1 支付宝；2 微信（历史数据只读，不新增），由 `payment_id` 决定，不信任前端 |
 | amount | DECIMAL(10,2) | NOT NULL | 首版仅全额退款，固定 = 实付金额（15.2 D6） |
 | reason | VARCHAR(300) | NOT NULL | 申请原因，1–300 字 |
 | review_reason | VARCHAR(300) | NULL | 审核意见，驳回时必填 |
 | status | TINYINT | NOT NULL DEFAULT 0 | 0 待审核/1 审核通过（调渠道中）/2 已退款/3 驳回/4 退款失败 |
-| channel_refund_no | VARCHAR(64) | NULL | **渠道退款单号**：微信 `out_refund_no` 回执 / 支付宝 `refund_no` |
-| channel_refund_id | VARCHAR(64) | NULL | 渠道退款流水号（微信 `refund_id`） |
+| channel_refund_no | VARCHAR(64) | NULL | **渠道退款单号**：支付宝 `refund_no`（微信字段保留历史只读） |
+| channel_refund_id | VARCHAR(64) | NULL | 渠道退款流水号（支付宝交易号；微信字段保留历史只读） |
 | reviewed_by | BIGINT UNSIGNED | NULL | — |
 | reviewed_at | DATETIME(3) | NULL | — |
 | refunded_at | DATETIME(3) | NULL | 渠道退款成功时间 |
@@ -724,7 +724,7 @@ erDiagram
 | 字段 | 类型 | 约束 | 说明 |
 |---|---|---|---|
 | id | BIGINT UNSIGNED | PK | — |
-| channel | TINYINT | NOT NULL | 1 支付宝/2 微信 |
+| channel | TINYINT | NOT NULL | 1 支付宝（首版唯一启用）；2 微信（历史，不新增对账任务） |
 | bill_date | DATE | NOT NULL | 账单日 |
 | bill_type | TINYINT | NOT NULL DEFAULT 1 | 1 支付账单/2 退款账单 |
 | channel_count | INT | NOT NULL DEFAULT 0 | 渠道账单笔数 |
@@ -767,9 +767,9 @@ erDiagram
 | course_id | BIGINT UNSIGNED | NOT NULL | 冗余 |
 | lesson_id | BIGINT UNSIGNED | NOT NULL | — |
 | position_seconds | INT | NOT NULL DEFAULT 0 | 最近播放位置（秒），允许回退 |
-| max_position_seconds | INT | NOT NULL DEFAULT 0 | 历史最大播放位置（秒），只增不减；仅用于续播 |
-| watched_sec | INT | NOT NULL DEFAULT 0 | 累计有效观看秒数（V4 新增），只增不减；完成态唯一依据 |
-| completed | TINYINT | NOT NULL DEFAULT 0 | 1 完成；仅服务端按 `watched_sec ≥ 课时时长 90%` 重算，客户端不可提交完成态（15.2 D7） |
+| max_position_seconds | INT | NOT NULL DEFAULT 0 | 历史最大播放位置（秒），只增不减；参与完课判定（与有效观看双 90%），同时用于续播 |
+| watched_sec | INT | NOT NULL DEFAULT 0 | 累计有效观看秒数（V4 新增），只增不减；完课判定的条件之一 |
+| completed | TINYINT | NOT NULL DEFAULT 0 | 1 完成；仅服务端按有效观看 ≥ 课时时长 90% 且播放位置 ≥ 课时时长 90% 重算，客户端不可提交完成态（15.2 D7） |
 | updated_at | DATETIME(3) | NOT NULL | 最近上报时间 |
 | 公共字段 | — | — | — |
 
@@ -919,12 +919,12 @@ erDiagram
 | 下单 | 单库事务：校验课程可售与已购 → 校验券 → 建 trade_order + trade_order_item → 锁券（`user_coupon` 条件更新）；删购物车随购物车接口后续补齐 |
 | 支付回调 | 以 `uk_pay_no` + `uk_channel_trade(channel, channel_trade_no)` 双唯一约束保证幂等；事务内更新 `payment_record` → `trade_order` → 写权益 → 发 MQ（事务消息或本地消息表）；重复回调直接返回渠道要求的成功应答 |
 | 发放权益 | 消费 MQ 幂等：`uk_user_course` 唯一约束 + 重复消费直接忽略 |
-| 退款 | 准入校验（付款后 7 天内且学习进度 ≤ 20%，15.2 D6）→ 生成 `status=0` 待审核单（**不同步调渠道，不自动退款**；超期或进度超限直接 `62007`，不落单）→ 运营审核通过 → 按 `payment_record.channel` 调对应渠道退款（仅全额）→ 成功后置订单 `已退款` + `payment_record.status=3` + 权益失效（优惠券不退回，视为已使用）；驳回置 `status=3` 并保留原因、恢复可申请；渠道失败置 `status=4` 并告警人工介入 |
-| 分渠道对账 | `job-worker` 每日拉取两渠道账单 → 写 `payment_reconcile`（`uk_channel_date_type` 覆盖更新）→ `diff_count>0` 置 `status=2` 并告警 |
+| 退款 | 准入校验（付款后 7 天内且学习进度 ≤ 20%，15.2 D6）→ 生成 `status=0` 待审核单（**不同步调渠道，不自动退款**；超期或进度超限直接 `62007`，不落单）→ 运营审核通过（**先置 `status=1` 并提交事务**）→ 按 `payment_record.channel` 调对应渠道退款（仅全额，当前仅支付宝）→ 成功后置订单 `已退款` + `payment_record.status=3` + 权益失效（优惠券不退回，视为已使用）；驳回置 `status=3` 并保留原因、恢复可申请；渠道失败置 `status=4` 并告警人工介入 |
+| 分渠道对账 | `job-worker` 每日拉取支付宝账单（`channel=1`；微信历史数据不新增对账任务） → 写 `payment_reconcile`（`uk_channel_date_type` 覆盖更新）→ `diff_count>0` 置 `status=2` 并告警 |
 | 教师数据范围 | 所有 `/api/v1/teacher/**` 在 service 层按 `owner_teacher_id = 当前教师ID` 过滤，不接受前端传教师 ID；看板只读 `course_daily_stat` |
 | 模型配置变更 | 单条事务更新 `ai_model_config` + 写 `audit_log`；提交后清空 `ai-service` 本地缓存（Nacos 配置刷新），失败不改旧配置 |
 | 学习进度 | `uk_user_lesson` + 条件更新（`watched_sec = GREATEST(watched_sec, ?)`、`max_position_seconds = GREATEST(...)`），可信增量上限为服务端时间差 × 1.5，乐观锁兜底 |
-| 评论计数 | 审核通过后异步重算课程评论计数（不产出评分，07 §2.5），避免热点行更新 |
+| 评论计数 | 审核通过后异步重算课程评论计数（不产出评分，见 product-lifecycle 2.5），避免热点行更新 |
 
 ---
 
@@ -949,7 +949,7 @@ erDiagram
 
 **埋点端点**：`POST /api/v1/metrics/events`，请求 `{events:[{name,props:{path?,code?,cost?}}]}`，响应 `{accepted:n}`；登录态可选（未登录按匿名计数）；服务端只做指标聚合，**不落明细、不收 PII**，超出 20 条/次或含敏感字段直接丢弃（返回 `40001`）。该端点由小程序与 Web 共用。
 
-> **跨端接口范围（07 §4.3）**：小程序首版不接入 5.7 收藏、5.8 AI 学伴与购物车接口（`/api/v1/cart/**` 仅 Web）；登录、课程浏览、课程详情、**去网页购买引导**、评论、退款、学习进度双端一致；**小程序不提供支付**，`X-User-Source=miniapp` 的下单请求返回 `62011`。越范围调用按 `X-User-Source=miniapp` 拦截（`40301`）。
+> **跨端接口范围（product-lifecycle 4.3）**：小程序首版不接入 5.7 收藏、5.8 AI 学伴与购物车接口（`/api/v1/cart/**` 仅 Web）；登录、课程浏览、课程详情、**去网页购买引导**、评论、退款、学习进度双端一致；**小程序不提供支付**，`X-User-Source=miniapp` 的下单请求返回 `62011`。越范围调用按 `X-User-Source=miniapp` 拦截（`40301`）。
 
 ## 5.2 错误码体系
 
@@ -1032,7 +1032,7 @@ erDiagram
 |---|---|---|---|---|---|
 | GET | `/api/v1/categories/tree` | 分类树（后台/运营） | — | `[{id,name,children[]}]` | — |
 | GET | `/api/v1/categories` | 公开分类列表（可选鉴权） | — | `[{categoryId,name,slug}]`，仅 `status=1` 且未删除 | — |
-| GET | `/api/v1/courses` | 公开课程列表（可选鉴权） | query:`category`(分类 id 或 slug)、`keyword`、`page`(默认 1)、`size`(默认 20，上限 100) | `{items:[{courseId,title,coverUrl,price,status,lessonCount,instructorName,owned}],total,page,size}`；仅返回 `status=2`；未登录可访问，登录态 `owned` 标记已购 | 40001 |
+| GET | `/api/v1/courses` | 公开课程列表（可选鉴权） | query:`category`(分类 id 或 slug)、`keyword`、`pageNum`(默认 1)、`pageSize`(默认 20，上限 100) | `{items:[{courseId,title,coverUrl,price,status,lessonCount,instructorName,owned}],total,pageNum,pageSize}`；`price` 单位分；仅返回 `status=2`；未登录可访问，登录态 `owned` 标记已购 | 40001 |
 | GET | `/api/v1/courses/{courseId}` | 详情（购买页，可选鉴权） | — | `{courseId,title,coverUrl,price,status,lessonCount,instructorName,owned}`；价格单位分；已下架（`status=3`）对无权益用户返回 `40401`，对已持有权益用户正常返回 `status=3`；草稿/待审核一律 `40401`；未登录可访问，不需要 `X-Internal-Token` | 40401 |
 | GET | `/api/v1/courses/{courseId}/chapters` | 章节目录（可选鉴权） | — | `{courseId,owned,chapters:[{chapterId,title,sort,lessons:[{lessonId,title,isFree,durationSec,sort,playable}]}]}`；仅 `status=2` 课程或本人已持有权益的已下架课程可读，其余（草稿/待审核/无权益的下架课）返回 `40401`；`playable = owned || isFree`，视频对象键不下发 | 40401 |
 | GET | `/api/v1/courses/{courseId}/comments` | 评论分页 | query:`pageNum,pageSize` | 分页 `{records:[{id,nickname,avatarUrl,content,likeCount,createdAt,replies[]}]}` | 40401 |
@@ -1103,6 +1103,8 @@ spec:
 | GET | `/api/v1/reconcile/daily` | 分渠道对账查询（运营/管理员） | query:`channel(1\|2),date,pageNum` | 分页 `{records:[{id,channel,billDate,billType,channelCount,channelAmount,localCount,localAmount,diffCount,diffAmount,status}]}` | 40101,40301 |
 | POST | `/api/v1/reconcile/{reconcileId}/recheck` | 重跑对账（运营/管理员） | `{}` | `{status,diffCount,diffAmount}` | 40301,40401,50204 |
 
+> **金额单位**：本表与 5.9、5.10 的交易、支付、退款金额字段（`totalAmount`、`discountAmount`、`payAmount`、`amount` 等）对外一律以**分**表示；库内 `DECIMAL(10,2)` 存元，换算在服务边界完成（SPEC-TRADE-013）。
+
 > **退款内部接口（trade-service，不经网关）**：`GET /internal/v1/refunds?status=&pageNum=&pageSize=` 返回 `{records:[{refundId,refundNo,orderId,orderNo,userId,channel,amount,reason,status,reviewReason?,failReason?,reviewedBy,reviewedAt,refundedAt,createdAt}],total,pageNum,pageSize}`；`POST /internal/v1/refunds/{refundId}/review`，请求 `{approved,rejectReason?,reviewerId}`，重复审核返回已存结果，驳回时 `rejectReason` 必填，`reviewerId` 必填。两者校验 `X-Internal-Token`，供 admin-service 后台调用。
 
 > **学习进度内部接口（learn-service，不经网关）**：`GET /internal/v1/learning/progress-summary?userId=&courseId=` 返回 `{completedLessons,lessonCount,progressPercent}`；trade-service 用它判断退款准入，**调用失败按失败关闭处理并返回 `50201`**，不得把不可用当作 0% 进度。
@@ -1125,7 +1127,7 @@ spec:
 |---|---|---|---|---|---|
 | GET | `/api/v1/learning/my-courses` | 我的课程 | query:`pageNum,pageSize` | 分页 `{records:[{courseId,title,coverUrl,progressPercent,lastLessonId}]}` | 40101 |
 | GET | `/api/v1/lessons/{lessonId}/play-token` | 获取签名播放地址（有效期 10 分钟，`expiresAt` 为 epoch 秒；签名失效后 MinIO 返回 403 `AccessDenied`/`SignatureDoesNotMatch`） | — | `{playUrl,expiresIn,expiresAt}` | 40302,40401,50206 |
-| POST | `/api/v1/learning/progress` | 上报进度（`watched_sec` 由服务端累加，完成态按 `watched_sec ≥ 课时时长 90%` 重算，请求不可直接置完成，15.2 D7） | `{lessonId,positionSeconds}` | `{lessonId,positionSeconds,maxPositionSeconds,watchedSeconds,completed,truncated,updatedAt}` | 40302,40401,63001 |
+| POST | `/api/v1/learning/progress` | 上报进度（`watched_sec` 由服务端累加，完成态按有效观看 ≥ 课时时长 90% 且播放位置 ≥ 课时时长 90% 重算，请求不可直接置完成，15.2 D7） | `{lessonId,positionSeconds}` | `{lessonId,positionSeconds,maxPositionSeconds,watchedSeconds,completed,truncated,updatedAt}` | 40302,40401,63001 |
 | GET | `/api/v1/learning/progress` | 课程进度 | query:`courseId` | `{courseId,lessons:[{lessonId,positionSeconds,maxPositionSeconds,watchedSeconds,completed,updatedAt}]}` | 40302,40401 |
 
 > **下架课程可见性（与 5.4 详情/目录同一口径）**：所属课程 `status != 2` 且用户未持有权益时，播放取签名与进度上报一律返回 `40401`，即使该课时 `is_free=1`；已持有权益的用户不受影响，仍可继续学习。判定依据是 `user_entitlement`，与角色无关。
@@ -1136,7 +1138,7 @@ spec:
 
 > **内部接口（不经网关对外）**：`POST /internal/v1/entitlements`，请求 `{userId,courseId,orderId?,source}`，响应 `{granted:true}`；重复投递返回成功。
 
-> **看板统计内部接口（trade-service，不经网关）**：`GET /internal/v1/orders/stats` 返回 `{totalOrders,paidOrders,paidAmountFen}`——`totalOrders` 为未删除订单总数，`paidOrders` 为 `status=1` 的订单数，`paidAmountFen` 为已支付订单 `pay_amount` 之和（元转分，无已支付订单时为 `0`）。`GET /internal/v1/orders?status=&channel=&orderNo=&userId=&dateFrom=&dateTo=&pageNum=&pageSize=` 返回 `{records:[{orderNo,userId,status,payAmount,createdAt}],total,pageNum,pageSize}`（`payAmount` 单位元，`dateFrom/dateTo` 为含首尾的 `yyyy-MM-dd`，内部转半开区间），供运营端订单列表。`GET /internal/v1/orders/metrics?days=7` 返回 `{gmv,orderCount,paidOrderCount,paidRate,courseSalesTop5:[{courseId,title,orderCount}]}`，窗口默认 7 天上限 90 天，`gmv` 单位元、`paidRate` 为 `paidOrderCount/orderCount`（4 位小数）。三个接口均校验 `X-Internal-Token`。
+> **看板统计内部接口（trade-service，不经网关）**：`GET /internal/v1/orders/stats` 返回 `{totalOrders,paidOrders,paidAmountFen}`——`totalOrders` 为未删除订单总数，`paidOrders` 为 `status=1` 的订单数，`paidAmountFen` 为已支付订单 `pay_amount` 之和（元转分，无已支付订单时为 `0`）。`GET /internal/v1/orders?status=&channel=&orderNo=&userId=&dateFrom=&dateTo=&pageNum=&pageSize=` 返回 `{records:[{orderNo,userId,status,payAmount,createdAt}],total,pageNum,pageSize}`（`payAmount` 单位分，`dateFrom/dateTo` 为含首尾的 `yyyy-MM-dd`，内部转半开区间），供运营端订单列表。`GET /internal/v1/orders/metrics?days=7` 返回 `{gmv,orderCount,paidOrderCount,paidRate,courseSalesTop5:[{courseId,title,orderCount}]}`，窗口默认 7 天上限 90 天，`gmv` 单位分、`paidRate` 为 `paidOrderCount/orderCount`（4 位小数）。三个接口均校验 `X-Internal-Token`。
 
 > **outbox 死信运维接口（trade-service，不经网关）**：`GET /internal/v1/entitlement-outbox/failed?pageNum=1&pageSize=20` 分页列出 `status=2`（放弃）记录，字段 `id/orderId/courseId/userId/retryCount/lastError/updatedAt`；`POST /internal/v1/entitlement-outbox/{id}/retry` 把放弃记录复位为 `status=0`、`retry_count=0`、清空 `last_error`，由中继按原节奏重投，记录不存在或非放弃态返回 `40401`。
 
@@ -1150,7 +1152,7 @@ spec:
 > - 首次上报只建立基线（无上次记录），`watched_sec` 保持 0；
 > - `watched_sec` 与 `max_position_seconds` 均只增不减；并发写入用 `GREATEST` 兜底。
 >
-> **完成态**：`watched_sec × 100 ≥ 课时时长 × 90` 时置 `completed=1`，一旦完成不再回退；`max_position_seconds` 不再参与完成判定，仅用于续播。
+> **完成态**：`watched_sec × 100 ≥ 课时时长 × 90` **且** `max_position_seconds × 100 ≥ 课时时长 × 90` 时置 `completed=1`，一旦完成不再回退；`max_position_seconds` 同时用于续播，客户端不可直接提交完成态。
 
 > **我的课程进度口径**：`progressPercent = 该课程 completed=1 的课时数 ÷ 课程当前可见课时数 × 100`，按整数**四舍五入**（`.5` 向上），上限 100；课程课时数为 0 时取 0。`lastLessonId` 取该课程 `learning_progress.updated_at` 最新一条的 `lesson_id`（同秒冲突时取较大的 `lesson_id`），无进度记录时为 `null`。进度数据只统计当前页课程，跨课程不串数据。
 
@@ -1172,7 +1174,7 @@ spec:
 | GET | `/api/v1/ai/conversations` | 我的会话 | query:`scene,pageNum` | 分页 `{records:[{id,title,scene,lastMessageAt}]}` | 40101 |
 | GET | `/api/v1/ai/conversations/{id}/messages` | 会话消息 | query:`pageNum,pageSize` | 分页 `{records:[{id,role,content,citations,createdAt}]}` | 40301,65001 |
 | POST | `/api/v1/ai/messages/{messageId}/feedback` | 反馈 | `{rating,comment?}` | `{saved:true}` | 40301,65001 |
-| GET | `/api/v1/ai/courses/{courseId}/profile` | 课程画像（**仅运营确认后公开**，未确认对学员返回 40401，C06-09） | — | `{summary,audience,objectives[],outline,difficulty}` | 40401 |
+| GET | `/api/v1/ai/courses/{courseId}/profile` | 课程画像（**仅运营确认后公开**，未确认对学员返回 40401，见 15.2 D4） | — | `{summary,audience,objectives[],outline,difficulty}` | 40401 |
 | GET | `/api/v1/ai/courses/{courseId}/faqs` | 课程 FAQ | — | `[{id,question}]`（答案随学伴返回） | 40401 |
 | GET | `/api/v1/ai/status` | **AI 能力可用状态**（前端据此显示/隐藏入口） | — | `{enabled:bool,reason?:"NOT_CONFIGURED"/"KEY_INVALID"/"QUOTA_EXHAUSTED"/"DISABLED"}` | — |
 
@@ -1184,24 +1186,24 @@ spec:
 |---|---|---|---|---|---|
 | GET | `/api/v1/admin/menus` | 按角色与权限码返回侧边栏菜单树（读取 `X-User-Permissions`，父节点只要有可见子节点即保留） | — | `[{key,name,path,permission,type,children[]}]`（`type` 1 菜单 / 2 按钮） | 40301 |
 | GET | `/api/v1/admin/dashboard` | 运营看板汇总（课程总数/待审核/已上架、订单总数/已支付数/已支付金额、用户数；金额单位分；近 7 日趋势暂不提供） | — | `{courseTotal,coursePendingReview,coursePublished,orderTotal,paidOrderCount,paidAmountFen,userTotal}` | 40301,50201 |
-| POST | `/api/v1/admin/courses` | 建课（草稿） | `{categoryId,title,subtitle,coverUrl,description,price,instructorId,level}` | `{courseId,status:0}` | 40001,40301 |
+| POST | `/api/v1/admin/courses` | 建课（草稿；`price` 单位分） | `{categoryId,title,subtitle,coverUrl,description,price,instructorId,level}` | `{courseId,status:0}` | 40001,40301 |
 | PUT | `/api/v1/admin/courses/{courseId}` | 编辑 | 同建课字段（可部分） | `{updated:true}` | 40301,40901 |
 | POST | `/api/v1/admin/courses/{courseId}/submit` | 提交审核（运营代提交） | `{}` | `{status:1}` | 40901 |
-| GET | `/api/v1/admin/courses/pending` | 课程审核队列（`status=1`，按提交时间正序） | query:`pageNum,pageSize` | 分页 `{records:[{courseId,title,coverUrl,ownerTeacherId,price,submittedAt}],total,pageNum,pageSize}`；`price` 单位元 | 40301 |
+| GET | `/api/v1/admin/courses/pending` | 课程审核队列（`status=1`，按提交时间正序） | query:`pageNum,pageSize` | 分页 `{records:[{courseId,title,coverUrl,ownerTeacherId,price,submittedAt}],total,pageNum,pageSize}`；`price` 单位分 | 40301 |
 | POST | `/api/v1/admin/courses/{courseId}/review` | **审核课程**（通过：定价并上架同一动作 `1→2`，无「待上架」中间态；驳回→草稿，`remark` 必填） | `{approved:bool,priceFen?,remark?}` | `{courseId,status:0\|2,priceFen,reviewedAt}` | 40001,40301,40401,61005 |
 | GET | `/api/v1/admin/courses/{courseId}/review-audits` | 课程审核审计流水（按决策时间倒序，供运营追溯） | — | `[{auditId,courseId,action,fromStatus,toStatus,reviewerId,remark,createdAt}]`；`action` 1 通过/2 驳回 | 40301,40401,50201 |
-| POST | `/api/v1/admin/courses/{courseId}/publish` | 上架并定价（运营；已下架未变更可直接再上架 `3→2`，内容变更过须回草稿复审） | `{price?,categoryId?}` | `{status:2}` | 40301,40901 |
+| POST | `/api/v1/admin/courses/{courseId}/publish` | 上架并定价（运营；已下架未变更可直接再上架 `3→2`，内容变更过须回草稿复审；`price` 单位分） | `{price?,categoryId?}` | `{status:2}` | 40301,40901 |
 | POST | `/api/v1/admin/courses/{courseId}/unpublish` | 下架 | `{reason}` | `{status:3}` | 40301 |
 | POST | `/api/v1/admin/entitlements/grant` | 运营发放课程权益（免费课开通/客诉补偿，不产生订单，15.2 D9） | `{userId,courseId,reason}` | `{entitlementId}` | 40001,40301,40901(已有权益) |
 | GET | `/api/v1/admin/teachers` | 教师列表/入驻审核队列 | query:`auditStatus,keyword,pageNum` | 分页 `{records:[{teacherId,userId,displayName,title,auditStatus,courseCount,createdAt}]}` | 40301 |
 | POST | `/api/v1/admin/teachers/{teacherId}/review` | 教师入驻审核 | `{approved:bool,remark?}` | `{auditStatus}` | 40301,40401 |
 | POST | `/api/v1/admin/courses/{courseId}/chapters` | 建章节 | `{title,sort}` | `{chapterId}` | 40301 |
 | POST | `/api/v1/admin/chapters/{chapterId}/lessons` | 建课时 | `{title,isFree,sort,coverUrl}` | `{lessonId}` | 40301 |
-| POST | `/api/v1/admin/lessons/{lessonId}/video` | 上传视频（multipart） | form-data `file` | `{videoUrl,durationSec,codec,width,height,sizeBytes}` | 40002,50001,61003 |
+| POST | `/api/v1/admin/lessons/{lessonId}/video` | 上传视频（multipart，服务端校验项见 SPEC-PLAT-006，当前未实现） | form-data `file` | `{videoUrl,durationSec,codec,width,height,sizeBytes}` | 40002,50001,61003 |
 | GET | `/api/v1/admin/users` | 用户分页（`keyword` 匹配用户名/昵称/手机号） | query:`keyword,status,pageNum,pageSize` | 分页 `{records:[{userId,username,nickname,phone,status,roles[],createdAt}],total,pageNum,pageSize}` | 40301 |
 | PUT | `/api/v1/admin/users/{userId}/status` | 启用/禁用 | `{status}` | `{updated:true}` | 40301 |
 | PUT | `/api/v1/admin/users/{userId}/roles` | 分配角色 | `{roleIds[]}` | `{updated:true}` | 40301 |
-| GET | `/api/v1/admin/orders` | 订单分页（`orderNo` 模糊，`dateFrom/dateTo` 含首尾） | query:`status,channel,orderNo,userId,dateFrom,dateTo,pageNum,pageSize` | 分页 `{records:[{orderNo,userId,status,payAmount,createdAt}],total,pageNum,pageSize}`；`payAmount` 单位元 | 40301 |
+| GET | `/api/v1/admin/orders` | 订单分页（`orderNo` 模糊，`dateFrom/dateTo` 含首尾） | query:`status,channel,orderNo,userId,dateFrom,dateTo,pageNum,pageSize` | 分页 `{records:[{orderNo,userId,status,payAmount,createdAt}],total,pageNum,pageSize}`；`payAmount` 单位分 | 40301 |
 | GET | `/api/v1/admin/refunds` | 退款列表 | query:`status,pageNum` | 分页 | 40301 |
 | POST | `/api/v1/admin/refunds/{refundId}/review` | 退款审核 | `{approved:bool,rejectReason?}` | `{status}` | 40301,62001 |
 | GET | `/api/v1/admin/comments` | 评论管理 | query:`status,riskLevel,pageNum` | 分页 | 40301 |
@@ -1211,9 +1213,9 @@ spec:
 | GET | `/api/v1/admin/ai/moderation` | AI 审核队列 | query:`riskLevel,action,pageNum` | 分页 `{records:[{id,bizType,bizId,snapshot,riskLevel,category,reason,action}]}` | 40301 |
 | PUT | `/api/v1/admin/ai/moderation/{id}/handle` | 人工处置 | `{action:1/2/3}` | `{updated:true}` | 40301,40401 |
 | POST | `/api/v1/admin/ai/course-profile/{courseId}/generate` | 重建课程画像 | `{force?:bool}` | `{taskId}` | 40301,50301 |
-| POST | `/api/v1/admin/ai/course-profile/{courseId}/confirm` | 确认课程画像（确认后才对学员公开；可先编辑再确认，C06-09） | `{summary?,audience?,objectives?,outline?,difficulty?}` | `{status:3}` | 40301,40401 |
+| POST | `/api/v1/admin/ai/course-profile/{courseId}/confirm` | 确认课程画像（确认后才对学员公开；可先编辑再确认，见 15.2 D4） | `{summary?,audience?,objectives?,outline?,difficulty?}` | `{status:3}` | 40301,40401 |
 | POST | `/api/v1/admin/ai/copy` | 文案生成 | `{scene:COURSE_DETAIL/NOTICE/BANNER/COUPON,fields:{},style?,length?}` | `{candidates:[{text,length}]}` | 40301,42901,50301 |
-| GET | `/api/v1/admin/metrics/overview` | 看板汇总（窗口固定近 7 日：成交额、订单数、支付转化率、新增用户、爆款 Top5，另附课程总数/待审核数与用户总数） | — | `{gmv,orderCount,paidRate,newUsers,courseSalesTop5:[{courseId,title,orderCount}],courseTotal,coursePendingReview,userTotal}`；`gmv` 单位元、`paidRate` 为 0–1 小数 | 40301,50201 |
+| GET | `/api/v1/admin/metrics/overview` | 看板汇总（窗口固定近 7 日：成交额、订单数、支付转化率、新增用户、爆款 Top5，另附课程总数/待审核数与用户总数） | — | `{gmv,orderCount,paidRate,newUsers,courseSalesTop5:[{courseId,title,orderCount}],courseTotal,coursePendingReview,userTotal}`；`gmv` 单位分、`paidRate` 为 0–1 小数 | 40301,50201 |
 | GET | `/api/v1/admin/ai/model-config` | **读取模型接入配置**（密钥仅尾号） | — | `{scope,tenantId,baseUrl,modelName,apiKeyMasked:"****{tail}",keyVersion,timeoutMs,maxRetries,dailyTokenLimit,monthlyTokenLimit,enabled,lastCheckAt,lastCheckStatus,lastError}` | 40301,40401(未配置) |
 | PUT | `/api/v1/admin/ai/model-config` | **保存/更新配置**（`apiKey` 明文仅入参，服务端加密） | `{baseUrl,modelName,apiKey?,timeoutMs?,maxRetries?,dailyTokenLimit?,monthlyTokenLimit?,enabled}` | `{updated:true,apiKeyMasked,keyVersion}` | 40001,40301,50304(保存后测试失败) |
 | POST | `/api/v1/admin/ai/model-config/test` | **连通性测试** | `{}` | `{ok:bool,latencyMs,model,error?}` | 40301,50303,50304,50306 |
@@ -1229,10 +1231,10 @@ spec:
 
 | 方法 | 路径 | 用途 | 请求 | 响应 | 主要错误码 |
 |---|---|---|---|---|---|
-| GET | `/api/v1/teacher/overview` | 教师总览（规划中） | — | `{courseCount,publishedCount,pendingReviewCount,totalRevenue30d,learnerCount30d}` | 40101,40301 |
-| GET | `/api/v1/teacher/courses` | 我的课程列表 | query:`status,pageNum,pageSize` | 分页 `{items:[{courseId,title,subtitle,coverUrl,description,price,originalPrice,categoryId,level,status,reviewRemark,lessonCount,submittedAt,updatedAt}],total,page,size,counts:{draft,pending,published,offline}}`；`price` 单位分；`counts` 为本人全部课程按状态计数，不受 `status` 过滤与分页影响 | 40001,40101,40301 |
+| GET | `/api/v1/teacher/overview` | 教师总览（规划中；`totalRevenue30d` 单位分） | — | `{courseCount,publishedCount,pendingReviewCount,totalRevenue30d,learnerCount30d}` | 40101,40301 |
+| GET | `/api/v1/teacher/courses` | 我的课程列表 | query:`status,pageNum,pageSize` | 分页 `{items:[{courseId,title,subtitle,coverUrl,description,price,originalPrice,categoryId,level,status,reviewRemark,lessonCount,submittedAt,updatedAt}],total,pageNum,pageSize,counts:{draft,pending,published,offline}}`；`price` 单位分；`counts` 为本人全部课程按状态计数，不受 `status` 过滤与分页影响 | 40001,40101,40301 |
 | GET | `/api/v1/teacher/courses/{courseId}` | 我的课程详情（不含章节/课时，目录走 5.4 公开接口） | — | 同上单条 | 40301,40401 |
-| POST | `/api/v1/teacher/courses` | 建课草稿 | `{categoryId,title,subtitle?,coverUrl,description?,price,originalPrice?,level}` | 课程详情，`status:0` | 40001,40101,40301 |
+| POST | `/api/v1/teacher/courses` | 建课草稿（`price`、`originalPrice` 单位分） | `{categoryId,title,subtitle?,coverUrl,description?,price,originalPrice?,level}` | 课程详情，`status:0` | 40001,40101,40301 |
 | PUT | `/api/v1/teacher/courses/{courseId}` | 编辑本人课程（草稿/已下架可改，字段可选；已下架编辑后回草稿 `3→0` 须重新审核） | 同建课字段，均可选 | 课程详情 | 40001,40301,40401,40901 |
 | POST | `/api/v1/teacher/courses/{courseId}/submit` | 提交审核（`0→1` 或 `3→1`；至少 1 个带视频与有效时长的课时；待审核期间只读） | `{}` | 课程详情，`status:1` | 40001,40301,40401,40901 |
 | POST | `/api/v1/teacher/courses/{courseId}/publish` | 本人课程再上架（`3→2`；仅内容未变更可直接上架，编辑过须回草稿复审） | `{}` | `{status:2}` | 40301,40901 |
@@ -1244,8 +1246,8 @@ spec:
 | POST | `/api/v1/teacher/courses/{courseId}/chapters/{chapterId}/lessons` | 建课时（`videoUrl` 与 `durationSec>0` 必填） | `{title,videoUrl,durationSec,isFree?,sort?,status?}` | 课时详情 | 40001,40301,40401,40901 |
 | PUT | `/api/v1/teacher/courses/{courseId}/chapters/{chapterId}/lessons/{lessonId}` | 改课时（字段可选） | `{title?,videoUrl?,durationSec?,isFree?,sort?,status?}` | 课时详情 | 40001,40301,40401,40901 |
 | DELETE | `/api/v1/teacher/courses/{courseId}/chapters/{chapterId}/lessons/{lessonId}` | 删课时（逻辑删） | — | `data:null` | 40301,40401,40901 |
-| POST | `/api/v1/teacher/lessons/{lessonId}/video` | 上传视频（multipart，同步校验） | form-data `file` | `{videoUrl,durationSec,codec,width,height,sizeBytes}` | 40301,40002,50001,61003 |
-| GET | `/api/v1/teacher/courses/{courseId}/dashboard` | **课程数据看板** | query:`dateFrom,dateTo`（≤90 天） | `{summary:{salesCount,revenue,refundAmount,newLearnerCount,avgProgressPercent,commentCount},trend:[{date,paidOrderCount,revenue,newLearnerCount}]}` | 40301,40401 |
+| POST | `/api/v1/teacher/lessons/{lessonId}/video` | 上传视频（multipart，服务端校验项见 SPEC-PLAT-006，当前未实现） | form-data `file` | `{videoUrl,durationSec,codec,width,height,sizeBytes}` | 40301,40002,50001,61003 |
+| GET | `/api/v1/teacher/courses/{courseId}/dashboard` | **课程数据看板**（`revenue`、`refundAmount` 与趋势内 `revenue` 单位分） | query:`dateFrom,dateTo`（≤90 天） | `{summary:{salesCount,revenue,refundAmount,newLearnerCount,avgProgressPercent,commentCount},trend:[{date,paidOrderCount,revenue,newLearnerCount}]}` | 40301,40401 |
 | GET | `/api/v1/teacher/courses/{courseId}/comments` | 本人课程评论查看（只读，不能处置） | query:`status,pageNum` | 分页 `{records:[{id,content,status,createdAt}]}` | 40301,40401 |
 
 > 教师接口的归属校验统一在 service 层按 `course.owner_teacher_id = 当前用户 teacher_profile.id` 完成（`ADMIN` 例外），`chapter/lesson` 再以 `course_id + chapter_id` 双条件反查；删除有已售订单的课时需先下架（`40901`）。
@@ -1282,7 +1284,7 @@ spec:
    - Web：账号密码 / 验证码登录。
    - 小程序：`wx.login()` 取 `code` → `POST /api/v1/auth/miniapp-login` → auth-service 调微信 `jscode2session`（`appid + secret`，secret 存 Secret）→ 得 `openid` → 按 `sys_user_wechat(uk_openid)` 查用户，无则建号 → **签发与 Web 完全相同的 JWT**（不新增第二套鉴权体系）。
 2. 请求携带 `Authorization: Bearer <access>` → gateway 验签（RS256 公钥）→ 校验 Redis 会话未被吊销。
-3. gateway **剥离**入站所有身份头 → 注入可信头 → 转发；`X-User-Source` 由网关按**入口域名/`X-Client-Platform` 头 + 会话属性**判定，**不采信客户端自报**（小程序请求由网关的 `/mp/**` 路由段统一标记为 `miniapp`）。
+3. gateway **剥离**入站所有身份头 → 注入可信头 → 转发；`X-User-Source` 由网关按**入口域名与会话属性**判定，**不采信客户端自报**。小程序与 Web 共用 `/api/v1/**` 路由，当前网关只能区分 `admin` 与 `web`，小程序请求会被记为 `web`，来源识别待补齐（SPEC-PLAT-002）。
 4. 下游服务只读可信头，不信任 body/path 中的用户 ID；教师归属、订单归属、会话归属一律用头里的 `X-User-Id` 反查。
 5. access 过期返回 `40102`，客户端用 refresh 换新；refresh 采用**一次性轮换**，换发后旧 refresh 立即失效，重复使用返回 `40102`；`logout` 吊销当前 refresh（幂等）。refresh 失效要求重新登录（小程序端重新 `wx.login`，不保留敏感授权）。
 
@@ -1292,7 +1294,7 @@ spec:
 |---|---|---|---|
 | `X-User-Id` | 是（登录态） | 数字字符串 | 唯一身份依据 |
 | `X-User-Roles` | 是 | 角色 code 逗号分隔，如 `STUDENT,OPS` | 用 code 不用中文；服务端二次校验 |
-| `X-User-Source` | 是 | `web/admin/miniapp/internal` | 来源端；`miniapp` 由网关按路由段 `/mp/**` 判定，下游据此拒绝 `channel=1`（支付宝）；**支付渠道由来源端固定**（Web→支付宝、小程序→微信），不提供跨渠道切换（07 §6.6） |
+| `X-User-Source` | 是 | `web/admin/miniapp/internal` | 来源端，由网关按入口判定并写入，不接受客户端自报；`internal` 仅服务间调用。当前只能稳定区分 `admin` 与 `web`，小程序来源识别待补齐（SPEC-PLAT-002）。**支付渠道由来源端固定**：仅 Web→支付宝；小程序不下单，下单与发起支付返回 `62011`，不提供跨渠道切换（见 2.3、SPEC-TRADE-004） |
 | `X-Request-Id` | 是 | UUID | 全链路追踪 |
 | `X-Tenant-Id` | 预留 | 固定 `default` | 首版单租户 |
 | `X-Auth-Timestamp` / `X-Auth-Signature` | 可选 | 时间戳 / HMAC-SHA256 | 内网加固开关 |
@@ -1312,7 +1314,7 @@ spec:
 | **教师访问他人课程** | `X-User-Id` → `teacher_profile.id` → 与 `course.owner_teacher_id` 比对；`chapter/lesson` 经 `course_id` 反查；不匹配返回 `40301` |
 | 回调被注入身份 | 支付回调走公开路径，只验签、不使用用户头 |
 | **支付宝回调伪造** | RSA2 验签（支付宝公钥）+ 校验 `app_id`、`out_trade_no`、`total_amount`；拒绝非本应用通知 |
-| **小程序 code 重放** | `code` 只能用一次；auth-service 换 `openid` 后立即丢弃，不做缓存；同一 `openid` 短时间高频登录触发风控（5 次/分钟） |
+| **小程序 code 重放** | `code` 只能使用一次，重复使用时由微信侧拒绝；auth-service 换 `openid` 后立即丢弃、不缓存；同一 `openid` 高频登录风控阈值规划中（SPEC-PLAT-003） |
 | 异步消息伪造 | MQ Topic 生产权限限制；消费端校验用户存在且消息来源可信 |
 
 **模型密钥保护与审计（BYO）**：
@@ -1334,7 +1336,7 @@ spec:
 | B 软切换 | 注入 | 优先读头，缺失回落并打点 | 回落命中连续 3 天为 0 |
 | C 强校验 | 注入 | 只读头，不一致拒绝 | 越权用例 100% 拦截 |
 | D 清理 | 注入 | 忽略/废弃用户 ID 参数 | 前端完成改造 |
-| E 多端接入 | 增加 `/mp/**` 路由与 `X-User-Source=miniapp` 判定；小程序登录走白名单 | 小程序不提供支付；教师接口按 `TEACHER` + 归属过滤 | 小程序体验版全链路通过、miniapp 下单返回 62011 的用例通过 |
+| E 多端接入 | 增加小程序来源识别并注入 `X-User-Source=miniapp`；小程序登录走白名单 | 小程序不提供支付；教师接口按 `TEACHER` + 归属过滤 | 小程序体验版全链路通过、miniapp 下单返回 62011 的用例通过（SPEC-PLAT-002） |
 
 开关（Nacos 动态刷新）：`identity.inject.enabled`、`identity.enforce.mode=obs|soft|hard`、`identity.enforce.paths`、`identity.sign.enabled`、`pay.channel.alipay.enabled`、`mp.enabled`（小程序入口总开关）。微信支付开关已随渠道移除。
 
@@ -2160,7 +2162,7 @@ DoD：学伴无法回答率 ≤ 30%、找课点击率 +10%、售后 FAQ 命中�
 | 成功 | 0 | — |
 | 参数 | 40001–40002 | 校验/格式 |
 | 认证 | 40101–40102 | 未登录/过期 |
-| 权限 | 40301–40301 | 40301 角色不足、40302 权益不足、**40301 非本人课程（教师越权）** |
+| 权限 | 40301–40302 | 40301 角色不足或非本人课程（教师越权）、40302 权益不足 |
 | 资源 | 40401 | 不存在 |
 | 冲突 | 40901 | 重复/状态不允许（注册账号重复走此码） |
 | 限流 | 42901 | — |
