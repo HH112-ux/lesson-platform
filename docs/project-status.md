@@ -187,6 +187,7 @@
 | 全文搜索与多维筛选 | product-lifecycle F02；engineering-plan 1.3 | 仅 `LIKE` 标题/副标题；无难度、热度、上新排序；`ft_` 索引未被查询使用 | 未排期 | 2026-11-09 |
 | 资料维护与账号注销 | product-lifecycle F01；engineering-plan 15.2 D8 | 只有 `GET /api/v1/auth/me`，无修改资料与注销流程 | 未排期 | 2026-11-09 |
 | 退款状态先落「调渠道中」 | SPEC-TRADE-009 AC-2 | 审核通过与调用渠道在同一事务内完成，未先提交状态 1；渠道失败时退回已支付 | 未排期；L1-1 | 2026-11-09 |
+| 手动取消不释放优惠券 | SPEC-TRADE-006、SPEC-TRADE-007 AC-5 | 超时关单会释放订单占用的优惠券，手动取消（`OrderServiceImpl.cancel`）只关闭订单与支付单，券仍停留为已使用且绑定该订单，用户丢券且两种取消行为不一致 | 未排期；行为不一致 | 2026-11-09 |
 | 端来源识别 | SPEC-PLAT-002 | 网关只能区分 `admin` 与 `web`，小程序请求被记为 `web`；`X-User-Source=miniapp` 的下单拦截不可达 | 未排期；L2-1 | 2026-11-09 |
 | 后台评论、举报与教师管理 | product-lifecycle F14 | 后台已有课程审核、用户、订单、退款审核与看板 | 依赖 UGC 与教师入驻接口 | 2026-11-09 |
 | 小程序评论 | product-lifecycle 4.3 | 小程序无评论页面 | 依赖 UGC | 2026-11-09 |
