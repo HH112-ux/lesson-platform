@@ -33,6 +33,35 @@ export interface OrderItemView {
   price: number
 }
 
+/** Refund state embedded in an order row. */
+export interface RefundSummaryView {
+  refundId: number
+  refundNo: string
+  /** 0 pending review, 1 approved, 2 refunded, 3 rejected, 4 failed. */
+  status: number
+  /** Refund amount in yuan. */
+  amount: number
+  reason: string
+  reviewReason?: string | null
+  failReason?: string | null
+  refundedAt?: string | null
+}
+
+/** Refund result returned by {@code POST /api/v1/orders/{orderId}/refund}. */
+export interface RefundView {
+  refundId: number
+  refundNo: string
+  orderId: number
+  orderNo: string
+  channel: number
+  amount: number
+  status: number
+  reason: string
+  reviewReason?: string | null
+  failReason?: string | null
+  refundedAt?: string | null
+}
+
 /** Order row of {@code GET /api/v1/orders}, aligned with {@code OrderSummaryView}. */
 export interface OrderSummaryView {
   orderId: number
@@ -43,6 +72,8 @@ export interface OrderSummaryView {
   payAmount: number
   createdAt: string
   items: OrderItemView[]
+  /** Latest refund request, {@code null} when never applied. */
+  refund?: RefundSummaryView | null
 }
 
 /** Page of orders, aligned with {@code OrderPageView}. */
@@ -79,7 +110,26 @@ export function listOrders(
 }
 
 /** Order status meaning "paid"; aligned with the backend {@code OrderStatus}. */
-export const ORDER_STATUS_PAID = 2
+export const ORDER_STATUS_PAID = 1
+
+/**
+ * Applies for a full refund of a paid order.
+ *
+ * <p>The request is admitted only within seven days of payment and while course progress is at
+ * most twenty percent. An admitted request waits for operations; it never refunds immediately.
+ *
+ * @param orderId order identifier
+ * @param reason buyer supplied reason, required
+ * @returns the created or already in-progress refund
+ * @author Caspian
+ * @since 0.1.0
+ */
+export function applyRefund(orderId: number, reason: string): Promise<RefundView> {
+  return apiRequest<RefundView>(`/api/v1/orders/${orderId}/refund`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  })
+}
 
 /**
  * Creates an order for a course.

@@ -82,13 +82,24 @@ void load()
   <main class="lp-page">
     <div class="lp-container">
       <section class="head">
-        <h1 class="title">
-          我的课程
-        </h1>
-        <a
-          class="lp-btn"
-          href="/"
-        >去选课</a>
+        <div>
+          <h1 class="title">
+            我的课程
+          </h1>
+          <p class="hint lp-small lp-subtle">
+            需要退款？在「我的订单」发起申请：付款后 7 天内且学习进度不超过 20%，仅支持全额退款，由运营审核。
+          </p>
+        </div>
+        <div class="head-actions">
+          <a
+            class="lp-btn"
+            href="/orders"
+          >我的订单</a>
+          <a
+            class="lp-btn"
+            href="/"
+          >去选课</a>
+        </div>
       </section>
 
       <PageState
@@ -205,6 +216,16 @@ void load()
 
 .title {
   font-size: 24px;
+}
+
+.hint {
+  margin: 6px 0 0;
+}
+
+.head-actions {
+  display: flex;
+  gap: 10px;
+  flex: none;
 }
 
 .course {
