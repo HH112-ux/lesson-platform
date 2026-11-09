@@ -1,6 +1,5 @@
 package com.lp.trade.dto;
 
-import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 /**
@@ -11,7 +10,7 @@ import java.time.LocalDateTime;
  * @param orderNo business order number
  * @param userId buyer id
  * @param channel payment channel
- * @param amount refund amount in yuan
+ * @param amountFen refund amount in fen
  * @param reason buyer supplied reason
  * @param status status from {@code RefundStatus}
  * @param reviewReason operations comment or rejection reason
@@ -29,7 +28,7 @@ public record RefundAdminView(
         String orderNo,
         long userId,
         int channel,
-        BigDecimal amount,
+        long amountFen,
         String reason,
         int status,
         String reviewReason,

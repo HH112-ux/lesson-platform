@@ -2,6 +2,7 @@ package com.lp.course.service.impl;
 
 import com.lp.common.exception.BizException;
 import com.lp.common.exception.ErrorCode;
+import com.lp.common.money.Money;
 import com.lp.course.dto.TeacherChapterRequest;
 import com.lp.course.dto.TeacherChapterView;
 import com.lp.course.dto.TeacherCoursePageView;
@@ -665,7 +666,9 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
      * @since 0.1.0
      */
     private BigDecimal requireMoney(BigDecimal value, String field) {
-        if (value.signum() < 0 || value.movePointRight(2).stripTrailingZeros().scale() > 0) {
+        try {
+            Money.toFen(value);
+        } catch (IllegalArgumentException exception) {
             throw new BizException(ErrorCode.PARAM_INVALID, field + " is invalid");
         }
         return value;
@@ -769,16 +772,14 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
      */
     private TeacherCourseView toView(Course course) {
         Long originalPriceFen =
-                course.getOriginalPrice() == null
-                        ? null
-                        : course.getOriginalPrice().movePointRight(2).longValueExact();
+                course.getOriginalPrice() == null ? null : Money.toFen(course.getOriginalPrice());
         return new TeacherCourseView(
                 course.getId(),
                 course.getTitle(),
                 course.getSubtitle(),
                 course.getCoverUrl(),
                 course.getDescription(),
-                course.getPrice().movePointRight(2).longValueExact(),
+                Money.toFen(course.getPrice()),
                 originalPriceFen,
                 course.getCategoryId(),
                 course.getLevel() == null ? 1 : course.getLevel(),

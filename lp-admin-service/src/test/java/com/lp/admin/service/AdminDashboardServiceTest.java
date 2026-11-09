@@ -53,14 +53,7 @@ class AdminDashboardServiceTest {
     void returnsOverviewFigures() {
         AdminMetricsOverviewView expected =
                 new AdminMetricsOverviewView(
-                        new BigDecimal("100.00"),
-                        4,
-                        new BigDecimal("0.2500"),
-                        2,
-                        List.of(),
-                        12,
-                        3,
-                        77);
+                        10000L, 4, new BigDecimal("0.2500"), 2, List.of(), 12, 3, 77);
         when(dashboardClient.overview()).thenReturn(expected);
 
         AdminMetricsOverviewView actual = service.overview();

@@ -1,6 +1,5 @@
 package com.lp.trade.dto;
 
-import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 /**
@@ -20,11 +19,11 @@ public class OrderView {
 
     private final int channel;
 
-    private final BigDecimal totalAmount;
+    private final long totalAmountFen;
 
-    private final BigDecimal discountAmount;
+    private final long discountAmountFen;
 
-    private final BigDecimal payAmount;
+    private final long payAmountFen;
 
     private final long courseId;
 
@@ -38,9 +37,9 @@ public class OrderView {
      * @param orderNo business order number
      * @param status status from {@link com.lp.trade.domain.OrderStatus}
      * @param channel channel from {@link com.lp.trade.domain.PaymentChannel}
-     * @param totalAmount original amount in yuan
-     * @param discountAmount discount in yuan
-     * @param payAmount payable amount in yuan
+     * @param totalAmountFen original amount in fen
+     * @param discountAmountFen discount in fen
+     * @param payAmountFen payable amount in fen
      * @param courseId course id
      * @param payExpireAt payment deadline, may be {@code null}
      * @param paidAt payment time, may be {@code null}
@@ -51,18 +50,18 @@ public class OrderView {
             String orderNo,
             int status,
             int channel,
-            BigDecimal totalAmount,
-            BigDecimal discountAmount,
-            BigDecimal payAmount,
+            long totalAmountFen,
+            long discountAmountFen,
+            long payAmountFen,
             long courseId,
             LocalDateTime payExpireAt,
             LocalDateTime paidAt) {
         this.orderNo = orderNo;
         this.status = status;
         this.channel = channel;
-        this.totalAmount = totalAmount;
-        this.discountAmount = discountAmount;
-        this.payAmount = payAmount;
+        this.totalAmountFen = totalAmountFen;
+        this.discountAmountFen = discountAmountFen;
+        this.payAmountFen = payAmountFen;
         this.courseId = courseId;
         this.payExpireAt = payExpireAt;
         this.paidAt = paidAt;
@@ -104,34 +103,34 @@ public class OrderView {
     /**
      * Returns the original amount.
      *
-     * @return amount in yuan
+     * @return amount in fen
      * @author Caspian
      * @since 0.1.0
      */
-    public BigDecimal getTotalAmount() {
-        return totalAmount;
+    public long getTotalAmountFen() {
+        return totalAmountFen;
     }
 
     /**
      * Returns the discount amount.
      *
-     * @return amount in yuan
+     * @return amount in fen
      * @author Caspian
      * @since 0.1.0
      */
-    public BigDecimal getDiscountAmount() {
-        return discountAmount;
+    public long getDiscountAmountFen() {
+        return discountAmountFen;
     }
 
     /**
      * Returns the payable amount.
      *
-     * @return amount in yuan
+     * @return amount in fen
      * @author Caspian
      * @since 0.1.0
      */
-    public BigDecimal getPayAmount() {
-        return payAmount;
+    public long getPayAmountFen() {
+        return payAmountFen;
     }
 
     /**

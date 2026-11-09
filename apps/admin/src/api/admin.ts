@@ -102,8 +102,8 @@ export interface AdminOrderView {
   orderNo: string
   userId: number
   status: number
-  /** Amount in yuan. */
-  payAmount: number
+  /** Amount in fen. */
+  payAmountFen: number
   createdAt: string
 }
 
@@ -124,8 +124,8 @@ export interface CourseSale {
 
 /** Operations overview returned by {@code GET /api/v1/admin/metrics/overview}. */
 export interface MetricsOverview {
-  /** Gross merchandise volume in yuan. */
-  gmv: number
+  /** Gross merchandise volume in fen. */
+  gmvFen: number
   orderCount: number
   /** Paid orders divided by created orders. */
   paidRate: number
@@ -194,8 +194,8 @@ export interface AdminRefundView {
   userId: number
   /** 1 Alipay, 2 WeChat. */
   channel: number
-  /** Refund amount in yuan. */
-  amount: number
+  /** Refund amount in fen. */
+  amountFen: number
   reason: string
   /** 0 pending, 1 approved, 2 refunded, 3 rejected, 4 failed. */
   status: number

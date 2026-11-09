@@ -11,7 +11,7 @@
 import { onMounted, ref } from 'vue'
 import { listRefunds, reviewRefund, type AdminRefundView } from '../api/admin'
 import { describeError } from '../utils/errors'
-import { formatTime, formatYuan } from '../utils/format'
+import { formatFen, formatTime } from '../utils/format'
 
 const PAGE_SIZE = 20
 
@@ -206,7 +206,7 @@ onMounted(load)
             <td>{{ refund.orderNo }}</td>
             <td>{{ refund.userId }}</td>
             <td>{{ channelText(refund.channel) }}</td>
-            <td>¥{{ formatYuan(refund.amount) }}</td>
+            <td>¥{{ formatFen(refund.amountFen) }}</td>
             <td>{{ refund.reason }}</td>
             <td>
               {{ statusText(refund.status) }}

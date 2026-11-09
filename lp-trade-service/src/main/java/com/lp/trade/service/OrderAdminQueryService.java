@@ -1,5 +1,6 @@
 package com.lp.trade.service;
 
+import com.lp.common.money.Money;
 import com.lp.trade.dto.AdminOrderPageView;
 import com.lp.trade.dto.AdminOrderView;
 import com.lp.trade.dto.CourseSaleView;
@@ -100,7 +101,7 @@ public class OrderAdminQueryService {
                                                 row.getOrderNo(),
                                                 row.getUserId(),
                                                 row.getStatus(),
-                                                row.getPayAmount(),
+                                                Money.toFen(row.getPayAmount()),
                                                 row.getCreatedAt()))
                         .toList();
         return new AdminOrderPageView(records, total, safePage, safeSize);
@@ -138,11 +139,6 @@ public class OrderAdminQueryService {
                                                         ? 0L
                                                         : row.getOrderCount()))
                         .toList();
-        return new OrderMetricsView(
-                gmv == null ? new BigDecimal("0.00") : gmv,
-                orderCount,
-                paidOrderCount,
-                paidRate,
-                top5);
+        return new OrderMetricsView(Money.toFen(gmv), orderCount, paidOrderCount, paidRate, top5);
     }
 }

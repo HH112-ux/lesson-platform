@@ -2,6 +2,7 @@ package com.lp.course.service.impl;
 
 import com.lp.common.exception.BizException;
 import com.lp.common.exception.ErrorCode;
+import com.lp.common.money.Money;
 import com.lp.course.dto.CourseInternalView;
 import com.lp.course.dto.CourseReviewAuditView;
 import com.lp.course.dto.CourseReviewResultView;
@@ -191,8 +192,9 @@ public class CourseInternalServiceImpl implements CourseInternalService {
     @Transactional
     public CourseReviewResultView review(
             long courseId, boolean approved, Long priceFen, String remark, long reviewerId) {
-        if (priceFen != null && priceFen < 0) {
-            // A negative price would be clamped to a free order on the trade side.
+        if (priceFen != null && !Money.isStorable(priceFen)) {
+            // A negative or oversized price would be clamped to a free order or overflow the
+            // column.
             throw new BizException(ErrorCode.PARAM_INVALID, "price is invalid");
         }
         LocalDateTime reviewedAt = LocalDateTime.now();
@@ -276,7 +278,7 @@ public class CourseInternalServiceImpl implements CourseInternalService {
      */
     private long currentPriceFen(long courseId) {
         BigDecimal price = courseMapper.selectPrice(courseId);
-        return price == null ? 0L : price.movePointRight(2).longValueExact();
+        return price == null ? 0L : Money.toFen(price);
     }
 
     private CourseInternalView toView(Course course) {
@@ -285,7 +287,7 @@ public class CourseInternalServiceImpl implements CourseInternalService {
                 course.getId(),
                 course.getTitle(),
                 course.getCoverUrl(),
-                course.getPrice().movePointRight(2).longValueExact(),
+                Money.toFen(course.getPrice()),
                 course.getStatus(),
                 course.getOwnerTeacherId(),
                 lessonCount,

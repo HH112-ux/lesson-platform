@@ -129,7 +129,7 @@ class RefundServiceImplTest {
 
         assertEquals(REFUND_NO, view.getRefundNo());
         assertEquals(RefundStatus.PENDING_REVIEW, view.getStatus());
-        assertEquals(PAY_AMOUNT, view.getAmount());
+        assertEquals(990L, view.getAmountFen());
         assertNull(view.getRefundedAt());
         verify(paymentGateway, never()).refund(any(), anyString(), any());
         verify(entitlementService, never()).revoke(anyLong(), anyLong(), anyLong(), anyString());
@@ -368,9 +368,7 @@ class RefundServiceImplTest {
         BizException exception =
                 assertThrows(
                         BizException.class,
-                        () ->
-                                refundService.apply(
-                                        USER_ID, ORDER_ID, request(new BigDecimal("10.00"))));
+                        () -> refundService.apply(USER_ID, ORDER_ID, request(1000L)));
 
         assertEquals(ErrorCode.REFUND_AMOUNT_INVALID.getCode(), exception.getCode());
         verify(refundRequestMapper, never()).insert(any(RefundRequest.class));
@@ -419,9 +417,9 @@ class RefundServiceImplTest {
         verify(refundRequestMapper, never()).insert(any(RefundRequest.class));
     }
 
-    private ApplyRefundRequest request(BigDecimal amount) {
+    private ApplyRefundRequest request(Long amountFen) {
         ApplyRefundRequest request = new ApplyRefundRequest();
-        request.setAmount(amount);
+        request.setAmountFen(amountFen);
         request.setReason("changed my mind");
         return request;
     }

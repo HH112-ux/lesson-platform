@@ -3,6 +3,7 @@ package com.lp.trade.service.impl;
 import com.lp.common.exception.BizException;
 import com.lp.common.exception.ErrorCode;
 import com.lp.common.identity.IdentityHeaders;
+import com.lp.common.money.Money;
 import com.lp.trade.client.CourseInternalClient;
 import com.lp.trade.domain.OrderStatus;
 import com.lp.trade.domain.PaymentChannel;
@@ -183,8 +184,9 @@ public class OrderServiceImpl implements OrderService {
         if (course.getStatus() != STATUS_PUBLISHED) {
             throw new BizException(ErrorCode.TRADE_UNAVAILABLE);
         }
-        if (course.getPrice() < 0) {
-            // A negative price would be clamped to a free order and grant ownership for nothing.
+        if (!Money.isStorable(course.getPrice())) {
+            // A negative or oversized price would be clamped to a free order or overflow the
+            // column.
             throw new BizException(ErrorCode.TRADE_UNAVAILABLE, "course price is invalid");
         }
         if (tradeOrderMapper.countOwned(userId, courseId) > 0) {
@@ -425,7 +427,7 @@ public class OrderServiceImpl implements OrderService {
                                                 order.getOrderNo(),
                                                 order.getStatus(),
                                                 order.getChannel(),
-                                                order.getPayAmount(),
+                                                Money.toFen(order.getPayAmount()),
                                                 order.getCreatedAt(),
                                                 List.of(toItemView(firstItems.get(order.getId()))),
                                                 refundSummary(latestRefunds.get(order.getId()))))
@@ -454,9 +456,9 @@ public class OrderServiceImpl implements OrderService {
                 order.getOrderNo(),
                 order.getStatus(),
                 order.getChannel(),
-                order.getTotalAmount(),
-                order.getDiscountAmount(),
-                order.getPayAmount(),
+                Money.toFen(order.getTotalAmount()),
+                Money.toFen(order.getDiscountAmount()),
+                Money.toFen(order.getPayAmount()),
                 order.getPayExpireAt(),
                 order.getPaidAt(),
                 order.getCreatedAt(),
@@ -552,9 +554,10 @@ public class OrderServiceImpl implements OrderService {
      */
     private OrderItemView toItemView(TradeOrderItem item) {
         if (item == null) {
-            return new OrderItemView(0L, "", ZERO);
+            return new OrderItemView(0L, "", 0L);
         }
-        return new OrderItemView(item.getCourseId(), item.getCourseTitle(), item.getPrice());
+        return new OrderItemView(
+                item.getCourseId(), item.getCourseTitle(), Money.toFen(item.getPrice()));
     }
 
     private RefundSummaryView refundSummary(RefundRequest refund) {
@@ -565,7 +568,7 @@ public class OrderServiceImpl implements OrderService {
                 refund.getId(),
                 refund.getRefundNo(),
                 refund.getStatus() == null ? 0 : refund.getStatus(),
-                refund.getAmount(),
+                Money.toFen(refund.getAmount()),
                 refund.getReason(),
                 refund.getReviewReason(),
                 refund.getFailReason(),
@@ -577,9 +580,9 @@ public class OrderServiceImpl implements OrderService {
                 order.getOrderNo(),
                 order.getStatus(),
                 order.getChannel(),
-                order.getTotalAmount(),
-                order.getDiscountAmount(),
-                order.getPayAmount(),
+                Money.toFen(order.getTotalAmount()),
+                Money.toFen(order.getDiscountAmount()),
+                Money.toFen(order.getPayAmount()),
                 courseId,
                 order.getPayExpireAt(),
                 order.getPaidAt());

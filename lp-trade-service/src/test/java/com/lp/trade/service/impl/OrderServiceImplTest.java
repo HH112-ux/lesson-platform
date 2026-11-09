@@ -128,7 +128,7 @@ class OrderServiceImplTest {
 
         assertEquals(OrderStatus.PENDING, view.getStatus());
         assertEquals(PaymentChannel.ALIPAY, view.getChannel());
-        assertEquals(0, new BigDecimal("99.00").compareTo(view.getPayAmount()));
+        assertEquals(9900L, view.getPayAmountFen());
         assertNotNull(view.getPayExpireAt());
         assertNull(view.getPaidAt());
         assertTrue(view.getOrderNo().startsWith("LP"));

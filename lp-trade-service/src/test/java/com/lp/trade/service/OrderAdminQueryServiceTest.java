@@ -68,7 +68,7 @@ class OrderAdminQueryServiceTest {
         assertThat(page.total()).isEqualTo(1L);
         assertThat(page.records()).hasSize(1);
         assertThat(page.records().get(0).orderNo()).isEqualTo("[ORDER_NO_1]");
-        assertThat(page.records().get(0).payAmount()).isEqualByComparingTo("99.00");
+        assertThat(page.records().get(0).payAmountFen()).isEqualTo(9900L);
     }
 
     /**
@@ -108,7 +108,7 @@ class OrderAdminQueryServiceTest {
 
         OrderMetricsView metrics = orderAdminQueryService.metrics(7);
 
-        assertThat(metrics.gmv()).isEqualByComparingTo("200.00");
+        assertThat(metrics.gmvFen()).isEqualTo(20000L);
         assertThat(metrics.orderCount()).isEqualTo(4L);
         assertThat(metrics.paidOrderCount()).isEqualTo(1L);
         assertThat(metrics.paidRate()).isEqualByComparingTo("0.2500");
@@ -131,7 +131,7 @@ class OrderAdminQueryServiceTest {
 
         OrderMetricsView metrics = orderAdminQueryService.metrics(0);
 
-        assertThat(metrics.gmv()).isEqualByComparingTo("0.00");
+        assertThat(metrics.gmvFen()).isZero();
         assertThat(metrics.paidRate()).isEqualByComparingTo("0");
         assertThat(metrics.courseSalesTop5()).isEmpty();
     }
