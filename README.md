@@ -1,7 +1,7 @@
 # 课程平台 · 本地可运行初版
 
 一条命令拉起 MySQL、Redis、MinIO、全部后端服务、学员 Web 与运营后台，并导入演示数据。
-用于本地联调与主链路演示，不包含真实支付、退款、对账、AI 能力与微信支付。
+用于本地联调与主链路演示，包含模拟支付、退款与权益演练；真实支付宝渠道、对账、AI 与 UGC 能力不在本地栈范围，见文末「已知限制」。
 
 ## 前置依赖
 
@@ -9,7 +9,7 @@
 |---|---|---|
 | Docker Desktop（含 compose v2） | 最新稳定版 | 运行全部容器 |
 | JDK | 17 | dev-up 在宿主机构建 jar |
-| Node.js + pnpm | Node 20 / pnpm 9 | 构建 `apps/web`、`apps/admin` |
+| Node.js + pnpm | Node 22 / pnpm 9 | 构建 `apps/web`、`apps/admin`、`apps/miniapp` |
 | jq | 1.6+ | 冒烟脚本解析响应 |
 
 首次使用执行一次 `corepack enable pnpm`。
@@ -171,6 +171,26 @@ bash scripts/refund-drill.sh
 | 播放地址无法打开 | `dev-up.sh` 使用宿主机局域网 IP 生成预签名地址；确认手机/浏览器与宿主机同网段，或改用 `127.0.0.1` 访问 |
 | 服务起不来 | `docker compose -f infra/docker-compose.yml logs <service>` 查看日志 |
 
-## 初版不包含
+## 文档索引
 
-退款与对账、真实支付渠道、微信支付、AI 服务接入、UGC 功能、小程序端发布流程。
+| 文档 | 用途 |
+|---|---|
+| [AGENTS.md](./AGENTS.md) | 分支、提交、评审、发布与命名规则 |
+| [product-lifecycle.md](./docs/product-lifecycle.md) | 产品范围、角色权限、业务规则与验收口径 |
+| [engineering-plan.md](./docs/engineering-plan.md) | 架构、数据模型、接口与部署 |
+| [project-status.md](./docs/project-status.md) | 能力实现状态、SPEC 索引与计划层级 |
+| [docs/specs](./docs/specs/) | 各域规格条目索引与 AC 摘要 |
+| [local-dev-guide.md](./docs/local-dev-guide.md) | 本地开发与联调细节 |
+| [purchase-flow.md](./docs/purchase-flow.md) | 去网页购买链路与当前缺口 |
+| [changelog.md](./docs/changelog.md) | 变更记录 |
+
+## 已知限制
+
+| 项 | 当前状态 | 计划层级 |
+|---|---|---|
+| 真实支付宝渠道 | 仅模拟支付（`LP_PAY_MOCK_ENABLED`）；真实凭据未配置时支付返回 `50205` | 接入真实收款前完成 |
+| 对账 | 未实现；未完成对账能力不得开启真实收款 | 真实收款前置 |
+| AI 能力 | 未接入 | 上线后首批 |
+| UGC（评论、收藏、举报） | 未实现 | 上线后首批 |
+| 微信小程序 | 已有登录、课程、我的课程与播放；去网页购买仅复制链接，未接入 ticket 签发与二维码 | 见 [purchase-flow](./docs/purchase-flow.md) |
+| 小程序发布流程 | 不在本地栈范围 | 上线阶段 |

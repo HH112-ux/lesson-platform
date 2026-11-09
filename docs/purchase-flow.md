@@ -2,7 +2,7 @@
 
 ## 1. 背景与范围
 
-微信支付已从本平台移除，小程序不再承载任何支付能力。课程购买统一走「小程序签发一次性购买链接 → 浏览器打开 → 支付宝完成支付」。本文约定该链路的时序、接口、错误处理与本地联调方式，并记录浏览器端已落地内容与小程序端待实施内容。
+微信支付已从本平台移除，小程序不再承载任何支付能力。课程购买统一走「小程序签发一次性购买链接 → 浏览器打开 → 支付宝完成支付」。本文约定该链路的时序、接口、错误处理与本地联调方式，并记录浏览器端已落地内容与小程序端现状。
 
 工程侧接口命名与错误码遵循 [engineering-plan.md](./engineering-plan.md) 第 5 章与 AGENTS.md 11.4。
 
@@ -17,13 +17,15 @@
 7. 学员点击「支付宝支付」，浏览器依次调用 `POST /api/v1/orders` 与 `POST /api/v1/payments/{orderNo}/pay`，跳转支付宝收银台。
 8. 支付宝异步回调由后端处理；学员回到浏览器刷新即可看到学习入口。
 
+当前小程序端只完成了第 3 步的「复制链接」，第 2 步的 ticket 签发与二维码渲染尚未接入，见第 7 章。
+
 ## 3. 接口约定
 
 | 方法 | 路径 | 鉴权 | 请求 | 响应 |
 |---|---|---|---|---|
 | POST | `/api/v1/orders/purchase-ticket` | 需登录 | `{courseId}` | `{url,qrPayload,ticket,expiresAt}` |
 | POST | `/api/v1/orders/purchase-ticket/redeem` | 无需登录 | `{ticket}` | `{accessToken,refreshToken,expiresIn,courseId}` |
-| GET | `/api/v1/courses/{courseId}` | 需登录 | — | 课程详情，含 `price`、`entitled` |
+| GET | `/api/v1/courses/{courseId}` | 需登录 | — | 课程详情，含 `price`（分）与 `owned` |
 | POST | `/api/v1/orders` | 需登录 | `{courseId,idempotencyKey}` | `{orderNo,status,payAmount,...}` |
 | POST | `/api/v1/payments/{orderNo}/pay` | 需登录 | — | `{payNo,channel,payParams}` |
 
@@ -40,10 +42,11 @@
 | 场景 | 后端错误码 | 页面表现 |
 |---|---|---|
 | 无 ticket 参数 | — | 「链接无效，请回到小程序重新获取」 |
-| ticket 过期、已用或不存在 | 40101 / 40102 | 「链接已过期或已使用」，提供重新获取引导 |
+| ticket 过期、已用或不存在 | 62012 / 62013 / 62014 | 「链接已过期或已使用」，提供重新获取引导 |
+| ticket 归属其他账号 | 62015 | 提示 ticket 不属于当前浏览器登录账号 |
 | 网络失败 | 0（前端合成） | 「网络连接失败，请检查网络后重试」 |
 | 课程下架 | 61001 / 62003 | 「课程已下架，暂时无法购买」 |
-| 已购过 | 61002 或 `entitled=true` | 「你已拥有该课程」并展示「去学习」入口 |
+| 已购过 | 61002 或 `owned=true` | 「你已拥有该课程」并展示「去学习」入口 |
 | 支付通道未配置 | 50205 | 「支付通道尚未配置，请联系客服」 |
 | 其他非 2xx | 原样 | 展示后端 `message`，不吞错 |
 
@@ -53,23 +56,19 @@
 - 登录态：`localStorage` 的 `lp.accessToken` 与 `lp.refreshToken`，读写集中在 `apps/web/src/api/client.ts`；请求统一加 `Authorization: Bearer <token>`。
 - 页面实现：`apps/web/src/views/PurchaseView.vue`；错误文案与价格格式化等纯函数在 `apps/web/src/utils/purchase.ts`，由 `purchase.spec.ts` 覆盖。
 - 下单与支付复用现有 `/api/v1/orders`、`/api/v1/payments/{orderNo}/pay`，不新增支付逻辑。
-- 「去学习」入口指向 `/learning/my-courses`，该页面尚未落地，属后续批次。
+- 「去学习」入口指向 `/learning/my-courses`，该页面已实现（按最近学习排序，含退款失效标记）。
 
-## 7. 小程序端方案（未实施）
+## 7. 小程序端现状与缺口
 
-当前仓库的小程序仅有一个骨架页，没有课程详情页、购买入口、登录态与二维码依赖，完整改造会超过 300 行且需要引入二维码库，因此本轮只给出方案：
+小程序已有微信登录（`apps/miniapp/utils/auth.js`）、课程详情（`pages/course`）、我的课程（`pages/my-courses`）与播放（`pages/player`）页面。课程页的购买入口当前只是把 `webBaseUrl + /courses/{courseId}` 复制到剪贴板，并弹窗提示到浏览器完成购买；**未调用 `POST /api/v1/orders/purchase-ticket`，也没有二维码渲染**。
 
-| 文件 | 变更 |
+| 缺口 | 说明 |
 |---|---|
-| `apps/miniapp/pages/course/course.js` | 新增课程详情页：拉取课程、维护购买面板状态、申请 ticket、复制链接、错误与重新获取 |
-| `apps/miniapp/pages/course/course.wxml` | 课程信息、「去网页购买」按钮、二维码面板、复制链接与提示文案 |
-| `apps/miniapp/pages/course/course.wxss` | 沿用现有配色与卡片样式 |
-| `apps/miniapp/pages/course/course.json` | 页面标题配置 |
-| `apps/miniapp/utils/request.js` | 封装 `wx.request`、token 注入与统一错误码解析 |
-| `apps/miniapp/utils/qrcode.js` | 轻量二维码编码实现或在 `package.json` 引入轻量库，用 canvas 绘制 |
-| `apps/miniapp/app.json` | 注册新页面 |
+| ticket 签发 | 课程页应携带 access token 调用 `purchase-ticket`，用返回的 `url` / `qrPayload` 生成二维码；ticket 只存在于内存，不写入日志或持久化存储 |
+| 二维码 | 需引入轻量二维码库或用 canvas 绘制，扫码与复制链接等价 |
+| 过期与重取 | ticket 15 分钟过期后提供「重新获取」，不复用旧 ticket |
 
-交互要求：未登录时提示先登录；接口失败展示可重试提示；ticket 过期时提供「重新获取」；不接入任何支付 SDK，不引入 wxpay。
+除上述缺口外，小程序不接入任何支付 SDK，不引入 wxpay。
 
 ## 8. 本地联调
 
@@ -80,7 +79,7 @@
 
 ## 9. 契约差异与已知限制
 
-- `GET /api/v1/courses/{courseId}` 已在文档定义，但当前代码仅实现内部接口 `/internal/v1/courses/{id}`，浏览器端按文档契约调用，公共接口落地前该请求会失败。
-- `POST /api/v1/orders/purchase-ticket` 与 `redeem` 由后端线并行实现，字段以实际返回为准；若字段名不同，以前端适配后端为准并回写本文。
+- `GET /api/v1/courses/{courseId}` 已由 `lp-course-service` 的公开接口（`CoursePublicController`）实现，返回 `price`（分）与 `owned`；小程序与浏览器端均调用该公开契约。
+- `POST /api/v1/orders/purchase-ticket` 与 `redeem` 已实现，字段以实际返回为准；若字段名不同，以前端适配后端为准并回写本文。
 - `payParams` 目前仅在支付凭证配置后填充；未配置时返回 50205，页面按「支付通道尚未配置」提示。
-- 小程序端未实施，原因见第 7 章。
+- 小程序端尚未签发 ticket 与渲染二维码，缺口见第 7 章。
