@@ -9,7 +9,7 @@
 #      revoke outbox row appear;
 #   4. the relay delivers the revoke: the entitlement is revoked, not deleted, progress stays;
 #   5. my-courses marks the course as refunded and the play token is rejected with 40302;
-#   6. re-applying after the refund is rejected with 62017 and adds no row;
+#   6. re-applying after the refund replays the original refund and adds no row;
 #   7. applying eight days after payment is rejected with 62007 and creates no row;
 #   8. a rejection requires a reason, keeps the order paid and allows a new application.
 #
@@ -17,9 +17,9 @@
 #   bash scripts/refund-drill.sh
 #
 # Requires the local stack (scripts/dev-up.sh) and jq. The script temporarily recreates
-# trade-service with LP_PAY_MOCK_ENABLED=true and restores it on exit. Every step prints the
-# observed values; the script exits non-zero on the first failed assertion. Each run creates
-# its own courses and orders, so it can be run repeatedly.
+# trade-service with LP_PAY_MOCK_ENABLED=true and a development mock secret, then restores it on
+# exit. Every step prints the observed values; the script exits non-zero on the first failed
+# assertion. Each run creates its own courses and orders, so it can be run repeatedly.
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -166,7 +166,9 @@ pass "gateway healthy"
 if grep -q '^LP_PAY_MOCK_ENABLED=true' "$ROOT/infra/.env" 2>/dev/null; then
   pass "mock payment already enabled"
 else
-  LP_PAY_MOCK_ENABLED=true "${COMPOSE[@]}" up -d --no-deps --force-recreate trade-service >/dev/null 2>&1 \
+  LP_PAY_MOCK_ENABLED=true \
+    LP_PAY_MOCK_SECRET="${LP_PAY_MOCK_SECRET:-lp_mock_drill_secret}" \
+    "${COMPOSE[@]}" up -d --no-deps --force-recreate trade-service >/dev/null 2>&1 \
     || die "cannot recreate trade-service with mock payment enabled"
   MOCK_TOGGLED=1
   wait_http "$TRADE_INTERNAL/actuator/health" 30 || die "trade-service did not become healthy"
@@ -260,18 +262,21 @@ PLAY_CODE="$(jq -r '.code // empty' <<<"$BODY")"
 [ "$PLAY_CODE" = "40302" ] || die "play token after refund returned code=$PLAY_CODE instead of 40302"
 pass "play token rejected with 40302"
 
-step 7 "re-applying after the refund is rejected and adds no row"
+step 7 "re-applying after the refund replays the original"
 req POST "/api/v1/orders/$ORDER_ID/refund" "$STUDENT_TOKEN" \
   '{"reason":"refund drill again"}'
-REPLAY_CODE="$(jq -r '.code // empty' <<<"$BODY")"
-[ "$REPLAY_CODE" = "62017" ] || die "re-apply returned code=$REPLAY_CODE instead of 62017"
+require_code "re-apply after refund"
+REPLAY_NO="$(jq -r '.data.refundNo' <<<"$BODY")"
+[ "$REPLAY_NO" = "$REFUND_NO" ] || die "re-apply returned $REPLAY_NO instead of $REFUND_NO"
+REPLAY_STATUS="$(jq -r '.data.status' <<<"$BODY")"
+[ "$REPLAY_STATUS" = "2" ] || die "re-apply returned status=$REPLAY_STATUS instead of 2"
 REFUND_ROWS="$(sql "SELECT COUNT(*) FROM lp_oms.refund_request WHERE order_id=$ORDER_ID")"
 [ "$REFUND_ROWS" = "1" ] || die "re-apply created $REFUND_ROWS refund rows"
 REVOKED_AT="$(sql "SELECT IFNULL(revoked_at,'') FROM lp_lms.user_entitlement WHERE user_id=$BUYER_ID AND course_id=$COURSE_ID")"
 [ "$REVOKED_AT" = "$FIRST_REVOKED_AT" ] || die "re-apply changed revoked_at from $FIRST_REVOKED_AT to $REVOKED_AT"
 REVOKE_ROWS="$(sql "SELECT COUNT(*) FROM lp_oms.entitlement_outbox WHERE order_id=$ORDER_ID AND action=1")"
 [ "$REVOKE_ROWS" = "1" ] || die "re-apply created $REVOKE_ROWS revoke outbox rows"
-pass "re-apply rejected with 62017, refund rows=1, revoke rows=1, revoked_at unchanged"
+pass "re-apply replayed $REFUND_NO status=2, refund rows=1, revoke rows=1, revoked_at unchanged"
 
 step 8 "over seven days: admission is rejected and no row is created"
 SECOND_PAIR="$(publish_course "$SECOND_COURSE_TITLE" 29.90)"
@@ -295,6 +300,8 @@ THIRD_PAIR="$(publish_course "$THIRD_COURSE_TITLE" 39.90)"
 THIRD_COURSE_ID="${THIRD_PAIR%%|*}"
 THIRD_ORDER_NO="$(buy_course "$THIRD_COURSE_ID" "refund-drill-reject-$RUN_ID")"
 THIRD_ORDER_ID="$(sql "SELECT id FROM lp_oms.trade_order WHERE order_no='$THIRD_ORDER_NO'")"
+THIRD_ENTITLEMENT="$(wait_sql "SELECT status FROM lp_lms.user_entitlement WHERE user_id=$BUYER_ID AND course_id=$THIRD_COURSE_ID" 0 60)"
+[ "$THIRD_ENTITLEMENT" = "0" ] || die "entitlement of order $THIRD_ORDER_NO is not active (status=$THIRD_ENTITLEMENT)"
 req POST "/api/v1/orders/$THIRD_ORDER_ID/refund" "$STUDENT_TOKEN" \
   '{"reason":"rejection drill"}'
 require_code "apply before rejection"
