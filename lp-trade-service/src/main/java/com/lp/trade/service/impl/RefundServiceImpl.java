@@ -1,5 +1,8 @@
 package com.lp.trade.service.impl;
 
+import com.lp.common.audit.AuditAction;
+import com.lp.common.audit.AuditObject;
+import com.lp.common.audit.OperatorRole;
 import com.lp.common.exception.BizException;
 import com.lp.common.exception.ErrorCode;
 import com.lp.common.money.Money;
@@ -14,10 +17,12 @@ import com.lp.trade.dto.RefundAdminView;
 import com.lp.trade.dto.RefundView;
 import com.lp.trade.entitlement.EntitlementService;
 import com.lp.trade.entity.AdminRefundRow;
+import com.lp.trade.entity.AuditOutbox;
 import com.lp.trade.entity.PaymentRecord;
 import com.lp.trade.entity.RefundRequest;
 import com.lp.trade.entity.TradeOrder;
 import com.lp.trade.entity.TradeOrderItem;
+import com.lp.trade.mapper.AuditOutboxMapper;
 import com.lp.trade.mapper.PaymentMapper;
 import com.lp.trade.mapper.RefundRequestMapper;
 import com.lp.trade.mapper.TradeOrderMapper;
@@ -25,6 +30,7 @@ import com.lp.trade.payment.PaymentGateway;
 import com.lp.trade.service.RefundService;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Objects;
 import org.slf4j.Logger;
@@ -87,6 +93,8 @@ public class RefundServiceImpl implements RefundService {
 
     private final TransactionTemplate transactionTemplate;
 
+    private final AuditOutboxMapper auditOutboxMapper;
+
     /**
      * Creates the service with its dependencies.
      *
@@ -97,6 +105,7 @@ public class RefundServiceImpl implements RefundService {
      * @param entitlementService outbox backed entitlement operations
      * @param learnProgressClient internal course progress lookup for admission
      * @param transactionTemplate explicit transaction boundary for the channel call
+     * @param auditOutboxMapper refund audit intents written in the decision transaction
      * @author Caspian
      * @since 0.1.0
      */
@@ -107,7 +116,8 @@ public class RefundServiceImpl implements RefundService {
             PaymentGateway paymentGateway,
             EntitlementService entitlementService,
             LearnProgressClient learnProgressClient,
-            TransactionTemplate transactionTemplate) {
+            TransactionTemplate transactionTemplate,
+            AuditOutboxMapper auditOutboxMapper) {
         this.tradeOrderMapper = tradeOrderMapper;
         this.paymentMapper = paymentMapper;
         this.refundRequestMapper = refundRequestMapper;
@@ -115,6 +125,7 @@ public class RefundServiceImpl implements RefundService {
         this.entitlementService = entitlementService;
         this.learnProgressClient = learnProgressClient;
         this.transactionTemplate = transactionTemplate;
+        this.auditOutboxMapper = auditOutboxMapper;
     }
 
     /**
@@ -213,6 +224,8 @@ public class RefundServiceImpl implements RefundService {
      * @param approved {@code true} to approve, {@code false} to reject
      * @param rejectReason required rejection reason
      * @param reviewerId operations user id
+     * @param operatorRole operator role code, 0 operations, 1 administrator
+     * @param traceId request trace id carried by the audit intent
      * @return refund state after the decision
      * @throws BizException when the refund is absent or the rejection reason is missing
      * @author Caspian
@@ -220,7 +233,15 @@ public class RefundServiceImpl implements RefundService {
      */
     @Override
     public RefundView review(
-            long refundId, boolean approved, String rejectReason, long reviewerId) {
+            long refundId,
+            boolean approved,
+            String rejectReason,
+            long reviewerId,
+            int operatorRole,
+            String traceId) {
+        if (!OperatorRole.isValid(operatorRole)) {
+            throw new BizException(ErrorCode.PARAM_INVALID, "operatorRole is invalid");
+        }
         RefundRequest refund = refundRequestMapper.selectById(refundId);
         if (refund == null) {
             throw new BizException(ErrorCode.NOT_FOUND);
@@ -232,18 +253,75 @@ public class RefundServiceImpl implements RefundService {
         LocalDateTime now = LocalDateTime.now();
         if (!approved) {
             String reason = validateReason(rejectReason);
+            // The status change and the audit intent commit together; the relay closes the gap to
+            // lp_cms.
             transactionTemplate.executeWithoutResult(
-                    status -> refundRequestMapper.markRejected(refundId, reason, reviewerId, now));
+                    status -> {
+                        refundRequestMapper.markRejected(refundId, reason, reviewerId, now);
+                        auditOutboxMapper.insert(
+                                auditIntent(
+                                        refundId,
+                                        reviewerId,
+                                        operatorRole,
+                                        traceId,
+                                        AuditAction.REFUND_REJECT,
+                                        RefundStatus.REJECTED,
+                                        reason,
+                                        now));
+                    });
             LOG.info("refund rejected: refund={}, reviewer={}", refund.getRefundNo(), reviewerId);
             return view(order, refundRequestMapper.selectById(refundId));
         }
         Boolean claimed =
                 transactionTemplate.execute(
-                        status -> refundRequestMapper.markApproved(refundId, reviewerId, now) > 0);
+                        status -> {
+                            if (refundRequestMapper.markApproved(refundId, reviewerId, now) == 0) {
+                                return false;
+                            }
+                            auditOutboxMapper.insert(
+                                    auditIntent(
+                                            refundId,
+                                            reviewerId,
+                                            operatorRole,
+                                            traceId,
+                                            AuditAction.REFUND_APPROVE,
+                                            RefundStatus.APPROVED,
+                                            null,
+                                            now));
+                            return true;
+                        });
         if (!Boolean.TRUE.equals(claimed)) {
             return view(order, refundRequestMapper.selectById(refundId));
         }
         return settleApproved(refundId, reviewerId, order);
+    }
+
+    private static AuditOutbox auditIntent(
+            long refundId,
+            long reviewerId,
+            int operatorRole,
+            String traceId,
+            int actionType,
+            int toStatus,
+            String remark,
+            LocalDateTime occurredAt) {
+        AuditOutbox outbox = new AuditOutbox();
+        outbox.setDedupeKey(
+                "refund-review:"
+                        + refundId
+                        + ":"
+                        + occurredAt.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli());
+        outbox.setOperatorId(reviewerId);
+        outbox.setOperatorRole(operatorRole);
+        outbox.setActionType(actionType);
+        outbox.setObjectType(AuditObject.REFUND);
+        outbox.setObjectId(refundId);
+        outbox.setFromStatus(RefundStatus.PENDING_REVIEW);
+        outbox.setToStatus(toStatus);
+        outbox.setRemark(remark);
+        outbox.setTraceId(traceId);
+        outbox.setOccurredAt(occurredAt);
+        return outbox;
     }
 
     /**

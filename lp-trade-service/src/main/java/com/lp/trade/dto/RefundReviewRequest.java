@@ -14,6 +14,8 @@ public class RefundReviewRequest {
 
     private Long reviewerId;
 
+    private Integer operatorRole;
+
     /**
      * Returns whether the request is approved.
      *
@@ -78,5 +80,27 @@ public class RefundReviewRequest {
      */
     public void setReviewerId(Long reviewerId) {
         this.reviewerId = reviewerId;
+    }
+
+    /**
+     * Returns the operator role code forwarded by the admin service.
+     *
+     * @return 0 operations, 1 administrator
+     * @author Caspian
+     * @since 0.6.0
+     */
+    public Integer getOperatorRole() {
+        return operatorRole;
+    }
+
+    /**
+     * Sets the operator role code.
+     *
+     * @param operatorRole 0 operations, 1 administrator
+     * @author Caspian
+     * @since 0.6.0
+     */
+    public void setOperatorRole(Integer operatorRole) {
+        this.operatorRole = operatorRole;
     }
 }
