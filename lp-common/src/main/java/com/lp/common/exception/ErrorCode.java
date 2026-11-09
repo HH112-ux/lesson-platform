@@ -76,6 +76,9 @@ public enum ErrorCode {
     /** Trade-side goods unavailable: a course went offline or a coupon is unusable. */
     TRADE_UNAVAILABLE(62003, "trade item unavailable"),
 
+    /** The refund request does not meet the seven-day and twenty-percent admission rules. */
+    REFUND_ADMISSION_NOT_MET(62007, "refund admission conditions are not met"),
+
     /** Payment channel does not match the request source platform. */
     TRADE_CHANNEL_SOURCE_MISMATCH(62005, "payment channel does not match request source"),
 

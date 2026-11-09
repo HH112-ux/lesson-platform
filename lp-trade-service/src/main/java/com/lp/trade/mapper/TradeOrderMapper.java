@@ -121,6 +121,27 @@ public interface TradeOrderMapper {
     TradeOrder selectById(@Param("orderId") long orderId);
 
     /**
+     * Locks one order row for the duration of the transaction.
+     *
+     * <p>Refund applications use this read to serialize concurrent submissions for the same order;
+     * the generated unique key on the refund table remains the final guard.
+     *
+     * @param orderId order primary key
+     * @return locked order, or {@code null} when absent
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Select(
+            "SELECT id, order_no AS orderNo, user_id AS userId, "
+                    + "total_amount AS totalAmount, discount_amount AS discountAmount, "
+                    + "pay_amount AS payAmount, status, coupon_id AS couponId, channel, "
+                    + "pay_expire_at AS payExpireAt, paid_at AS paidAt, closed_at AS closedAt, "
+                    + "idempotency_key AS idempotencyKey, created_at AS createdAt, "
+                    + "cancel_reason AS cancelReason FROM trade_order "
+                    + "WHERE id = #{orderId} AND deleted = 0 FOR UPDATE")
+    TradeOrder selectByIdForUpdate(@Param("orderId") long orderId);
+
+    /**
      * Counts the orders of one buyer, optionally filtered by status.
      *
      * @param userId buyer user id
@@ -195,18 +216,40 @@ public interface TradeOrderMapper {
     int markPaid(@Param("id") long id, @Param("paidAt") LocalDateTime paidAt);
 
     /**
-     * Marks a paid order as refunded.
+     * Marks an approved refund as in progress so no other refund can leave the paid state.
+     *
+     * @param id order primary key
+     * @return affected rows, {@code 0} when the order is no longer paid
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Update("UPDATE trade_order SET status = 4 WHERE id = #{id} AND status = 1")
+    int markRefunding(@Param("id") long id);
+
+    /**
+     * Marks one paid order as refunded after the channel confirmed the money movement.
      *
      * @param id order primary key
      * @param refundedAt refund time
-     * @return affected rows, {@code 0} when the order is not paid any more
+     * @return affected rows, {@code 0} when the order is not refunding
      * @author Caspian
      * @since 0.1.0
      */
     @Update(
             "UPDATE trade_order SET status = 5, closed_at = #{refundedAt} "
-                    + "WHERE id = #{id} AND status = 1")
+                    + "WHERE id = #{id} AND status = 4")
     int markRefunded(@Param("id") long id, @Param("refundedAt") LocalDateTime refundedAt);
+
+    /**
+     * Returns a refunding order to paid after the channel refund failed.
+     *
+     * @param id order primary key
+     * @return affected rows, {@code 0} when the order is not refunding
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Update("UPDATE trade_order SET status = 1 WHERE id = #{id} AND status = 4")
+    int markPaidAfterRefundFailure(@Param("id") long id);
 
     /**
      * Marks a pending order as closed.

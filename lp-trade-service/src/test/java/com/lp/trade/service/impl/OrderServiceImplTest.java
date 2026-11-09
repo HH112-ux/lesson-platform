@@ -31,6 +31,7 @@ import com.lp.trade.entity.TradeOrderItem;
 import com.lp.trade.entity.UserCoupon;
 import com.lp.trade.mapper.CouponMapper;
 import com.lp.trade.mapper.PaymentMapper;
+import com.lp.trade.mapper.RefundRequestMapper;
 import com.lp.trade.mapper.TradeOrderMapper;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -71,6 +72,8 @@ class OrderServiceImplTest {
 
     @Mock private PaymentMapper paymentMapper;
 
+    @Mock private RefundRequestMapper refundRequestMapper;
+
     @Mock private TransactionTemplate transactionTemplate;
 
     private OrderServiceImpl orderService;
@@ -99,6 +102,7 @@ class OrderServiceImplTest {
                         courseInternalClient,
                         entitlementService,
                         paymentMapper,
+                        refundRequestMapper,
                         transactionTemplate);
     }
 

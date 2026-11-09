@@ -6,7 +6,8 @@ import java.time.LocalDateTime;
 /**
  * Row read from and written to {@code refund_request}.
  *
- * <p>The unique key {@code uk_order} allows at most one refund per order; {@code refund_no} doubles
+ * <p>The generated column {@code active_order_id} and its unique key allow at most one in-progress
+ * refund per order while leaving rejected or failed requests retryable. {@code refund_no} doubles
  * as the channel idempotency key, so retrying a crashed refund cannot move money twice.
  *
  * @author Caspian
@@ -30,9 +31,17 @@ public class RefundRequest {
 
     private String reason;
 
+    private String reviewReason;
+
+    private Long reviewedBy;
+
+    private LocalDateTime reviewedAt;
+
     private Integer status;
 
     private String channelRefundNo;
+
+    private String failReason;
 
     private LocalDateTime refundedAt;
 
@@ -213,6 +222,72 @@ public class RefundRequest {
     }
 
     /**
+     * Returns the operations review comment.
+     *
+     * @return review comment, required when the request was rejected
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public String getReviewReason() {
+        return reviewReason;
+    }
+
+    /**
+     * Sets the operations review comment.
+     *
+     * @param reviewReason review comment, may be {@code null} before a decision
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public void setReviewReason(String reviewReason) {
+        this.reviewReason = reviewReason;
+    }
+
+    /**
+     * Returns the operator who made the decision.
+     *
+     * @return operator user id, {@code null} while pending
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public Long getReviewedBy() {
+        return reviewedBy;
+    }
+
+    /**
+     * Sets the operator who made the decision.
+     *
+     * @param reviewedBy operator user id
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public void setReviewedBy(Long reviewedBy) {
+        this.reviewedBy = reviewedBy;
+    }
+
+    /**
+     * Returns when the decision was made.
+     *
+     * @return decision time, {@code null} while pending
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public LocalDateTime getReviewedAt() {
+        return reviewedAt;
+    }
+
+    /**
+     * Sets when the decision was made.
+     *
+     * @param reviewedAt decision time
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public void setReviewedAt(LocalDateTime reviewedAt) {
+        this.reviewedAt = reviewedAt;
+    }
+
+    /**
      * Returns the refund status.
      *
      * @return status from {@link com.lp.trade.domain.RefundStatus}
@@ -254,6 +329,28 @@ public class RefundRequest {
      */
     public void setChannelRefundNo(String channelRefundNo) {
         this.channelRefundNo = channelRefundNo;
+    }
+
+    /**
+     * Returns why the channel refund failed.
+     *
+     * @return failure reason, {@code null} unless the status is {@code 4}
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public String getFailReason() {
+        return failReason;
+    }
+
+    /**
+     * Sets why the channel refund failed.
+     *
+     * @param failReason failure reason, may be {@code null}
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public void setFailReason(String failReason) {
+        this.failReason = failReason;
     }
 
     /**
