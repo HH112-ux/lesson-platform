@@ -12,17 +12,21 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.lp.common.audit.OperatorRole;
 import com.lp.common.exception.BizException;
+import com.lp.course.dto.AuditLogCreateRequest;
 import com.lp.course.dto.TeacherAuditApplicationView;
 import com.lp.course.dto.TeacherAuditPageView;
 import com.lp.course.dto.TeacherAuditResultView;
 import com.lp.course.entity.TeacherProfileAudit;
 import com.lp.course.mapper.TeacherAuditMapper;
+import com.lp.course.service.AdminAuditService;
 import java.time.LocalDateTime;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -37,17 +41,19 @@ class TeacherAuditServiceImplTest {
 
     @Mock private TeacherAuditMapper teacherAuditMapper;
 
+    @Mock private AdminAuditService adminAuditService;
+
     private TeacherAuditServiceImpl service;
 
     /**
-     * Builds the service under test with a mocked mapper.
+     * Builds the service under test with mocked dependencies.
      *
      * @author Caspian
      * @since 0.5.0
      */
     @BeforeEach
     void setUp() {
-        service = new TeacherAuditServiceImpl(teacherAuditMapper);
+        service = new TeacherAuditServiceImpl(teacherAuditMapper, adminAuditService);
     }
 
     /**
@@ -94,11 +100,14 @@ class TeacherAuditServiceImplTest {
         when(teacherAuditMapper.selectById(7L)).thenReturn(profile(7L, 0));
 
         BizException exception =
-                assertThrows(BizException.class, () -> service.review(7L, false, "  ", 900L));
+                assertThrows(
+                        BizException.class,
+                        () -> service.review(7L, false, "  ", 900L, OperatorRole.OPS, "trace-1"));
 
         assertEquals(40001, exception.getCode());
         verify(teacherAuditMapper, never())
                 .applyReview(anyLong(), anyInt(), any(), anyLong(), any());
+        verify(adminAuditService, never()).record(any(AuditLogCreateRequest.class));
     }
 
     /**
@@ -113,11 +122,21 @@ class TeacherAuditServiceImplTest {
         when(teacherAuditMapper.applyReview(eq(7L), eq(1), isNull(), eq(900L), any()))
                 .thenReturn(1);
 
-        TeacherAuditResultView result = service.review(7L, true, null, 900L);
+        TeacherAuditResultView result =
+                service.review(7L, true, null, 900L, OperatorRole.ADMIN, "trace-approve");
 
         assertEquals(1, result.auditStatus());
         assertNull(result.auditRemark());
         assertEquals(900L, result.auditedBy());
+        AuditLogCreateRequest recorded = captureUnifiedAudit();
+        assertEquals(900L, recorded.operatorId());
+        assertEquals(OperatorRole.ADMIN, recorded.operatorRole());
+        assertEquals(4, recorded.actionType());
+        assertEquals(2, recorded.objectType());
+        assertEquals(7L, recorded.objectId());
+        assertEquals(0, recorded.fromStatus());
+        assertEquals(1, recorded.toStatus());
+        assertEquals("trace-approve", recorded.traceId());
     }
 
     /**
@@ -131,9 +150,33 @@ class TeacherAuditServiceImplTest {
         when(teacherAuditMapper.selectById(7L)).thenReturn(profile(7L, 1));
 
         BizException exception =
-                assertThrows(BizException.class, () -> service.review(7L, false, "bad", 900L));
+                assertThrows(
+                        BizException.class,
+                        () -> service.review(7L, false, "bad", 900L, OperatorRole.OPS, "trace-1"));
 
         assertEquals(40901, exception.getCode());
+        verify(adminAuditService, never()).record(any(AuditLogCreateRequest.class));
+    }
+
+    /**
+     * A rejection writes one unified audit entry carrying the reason.
+     *
+     * @author Caspian
+     * @since 0.6.0
+     */
+    @Test
+    void recordsUnifiedAuditOnRejection() {
+        when(teacherAuditMapper.selectById(7L)).thenReturn(profile(7L, 0));
+        when(teacherAuditMapper.applyReview(eq(7L), eq(2), eq("bad profile"), eq(900L), any()))
+                .thenReturn(1);
+
+        service.review(7L, false, " bad profile ", 900L, OperatorRole.OPS, "trace-reject");
+
+        AuditLogCreateRequest recorded = captureUnifiedAudit();
+        assertEquals(5, recorded.actionType());
+        assertEquals(2, recorded.toStatus());
+        assertEquals("bad profile", recorded.remark());
+        assertEquals("trace-reject", recorded.traceId());
     }
 
     /**
@@ -170,6 +213,20 @@ class TeacherAuditServiceImplTest {
 
         assertEquals(40901, exception.getCode());
         verify(teacherAuditMapper, never()).resubmit(anyLong(), any());
+    }
+
+    /**
+     * Captures the unified audit entry written by the decision.
+     *
+     * @return recorded command
+     * @author Caspian
+     * @since 0.6.0
+     */
+    private AuditLogCreateRequest captureUnifiedAudit() {
+        ArgumentCaptor<AuditLogCreateRequest> captor =
+                ArgumentCaptor.forClass(AuditLogCreateRequest.class);
+        verify(adminAuditService).record(captor.capture());
+        return captor.getValue();
     }
 
     /**

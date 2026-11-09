@@ -1,5 +1,6 @@
 package com.lp.course.controller;
 
+import com.lp.common.audit.OperatorRole;
 import com.lp.common.exception.BizException;
 import com.lp.common.exception.ErrorCode;
 import com.lp.common.result.Result;
@@ -71,10 +72,10 @@ public class TeacherAuditInternalController {
      * Applies an approval or rejection to one pending application.
      *
      * @param teacherId profile primary key
-     * @param body decision, optional remark and the operator id
+     * @param body decision, optional remark, the operator id and role
      * @param request current request, used to resolve the trace id
      * @return application state after the decision
-     * @throws BizException with {@code 40001} when the operator id is missing
+     * @throws BizException with {@code 40001} when the operator id or role is missing
      * @author Caspian
      * @since 0.5.0
      */
@@ -86,9 +87,18 @@ public class TeacherAuditInternalController {
         if (body.reviewerId() == null || body.reviewerId() <= 0) {
             throw new BizException(ErrorCode.PARAM_INVALID, "reviewerId is required");
         }
+        if (!OperatorRole.isValid(body.operatorRole())) {
+            throw new BizException(ErrorCode.PARAM_INVALID, "operatorRole is invalid");
+        }
+        String traceId = TraceIds.resolve(request);
         return Result.ok(
                 teacherAuditService.review(
-                        teacherId, body.approved(), body.remark(), body.reviewerId()),
-                TraceIds.resolve(request));
+                        teacherId,
+                        body.approved(),
+                        body.remark(),
+                        body.reviewerId(),
+                        body.operatorRole(),
+                        traceId),
+                traceId);
     }
 }
