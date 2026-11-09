@@ -106,6 +106,17 @@ public interface PaymentMapper {
             @Param("paidAt") LocalDateTime paidAt);
 
     /**
+     * Marks one successful payment as refunded after the channel confirmed the money movement.
+     *
+     * @param id payment primary key
+     * @return affected rows, {@code 0} when the payment is not successful
+     * @author Caspian
+     * @since 0.2.0
+     */
+    @Update("UPDATE payment_record SET status = 3 WHERE id = #{id} AND status = 1")
+    int markRefunded(@Param("id") long id);
+
+    /**
      * Records a payment that arrived after the attempt was closed.
      *
      * <p>The row is moved to the dedicated late-paid state instead of success so no ownership is

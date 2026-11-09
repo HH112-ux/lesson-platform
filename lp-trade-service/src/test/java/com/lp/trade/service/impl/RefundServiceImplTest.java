@@ -4,10 +4,12 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -32,11 +34,24 @@ import com.lp.trade.mapper.TradeOrderMapper;
 import com.lp.trade.payment.PaymentGateway;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DuplicateKeyException;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.TransactionStatus;
+import org.springframework.transaction.support.SimpleTransactionStatus;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Unit tests for refund admission, review and idempotency; persistence and the channel are mocked.
@@ -99,7 +114,8 @@ class RefundServiceImplTest {
                         refundRequestMapper,
                         paymentGateway,
                         entitlementService,
-                        learnProgressClient);
+                        learnProgressClient,
+                        new TransactionTemplate(new SynchronousTransactionManager()));
     }
 
     /**
@@ -110,7 +126,7 @@ class RefundServiceImplTest {
      */
     @Test
     void createsPendingRequestWithoutCallingChannel() {
-        when(tradeOrderMapper.selectByIdForUpdate(ORDER_ID))
+        when(tradeOrderMapper.selectById(ORDER_ID))
                 .thenReturn(paidOrder(LocalDateTime.now().minusDays(1)));
         when(refundRequestMapper.selectActiveByOrderId(ORDER_ID)).thenReturn(null);
         when(paymentMapper.selectLatestByOrderId(ORDER_ID)).thenReturn(payment());
@@ -144,7 +160,7 @@ class RefundServiceImplTest {
      */
     @Test
     void rejectsApplicationAfterSevenDays() {
-        when(tradeOrderMapper.selectByIdForUpdate(ORDER_ID))
+        when(tradeOrderMapper.selectById(ORDER_ID))
                 .thenReturn(paidOrder(LocalDateTime.now().minusDays(8)));
         when(refundRequestMapper.selectActiveByOrderId(ORDER_ID)).thenReturn(null);
         when(paymentMapper.selectLatestByOrderId(ORDER_ID)).thenReturn(payment());
@@ -168,7 +184,7 @@ class RefundServiceImplTest {
      */
     @Test
     void rejectsApplicationAboveTwentyPercentProgress() {
-        when(tradeOrderMapper.selectByIdForUpdate(ORDER_ID))
+        when(tradeOrderMapper.selectById(ORDER_ID))
                 .thenReturn(paidOrder(LocalDateTime.now().minusDays(1)));
         when(refundRequestMapper.selectActiveByOrderId(ORDER_ID)).thenReturn(null);
         when(paymentMapper.selectLatestByOrderId(ORDER_ID)).thenReturn(payment());
@@ -192,7 +208,7 @@ class RefundServiceImplTest {
      */
     @Test
     void failsClosedWhenProgressIsUnavailable() {
-        when(tradeOrderMapper.selectByIdForUpdate(ORDER_ID))
+        when(tradeOrderMapper.selectById(ORDER_ID))
                 .thenReturn(paidOrder(LocalDateTime.now().minusDays(1)));
         when(refundRequestMapper.selectActiveByOrderId(ORDER_ID)).thenReturn(null);
         when(paymentMapper.selectLatestByOrderId(ORDER_ID)).thenReturn(payment());
@@ -217,7 +233,7 @@ class RefundServiceImplTest {
      */
     @Test
     void repeatedApplicationReturnsPendingRequest() {
-        when(tradeOrderMapper.selectByIdForUpdate(ORDER_ID))
+        when(tradeOrderMapper.selectById(ORDER_ID))
                 .thenReturn(paidOrder(LocalDateTime.now().minusDays(1)));
         when(refundRequestMapper.selectActiveByOrderId(ORDER_ID)).thenReturn(pendingRefund());
 
@@ -251,11 +267,17 @@ class RefundServiceImplTest {
         when(refundRequestMapper.markSuccess(eq(REFUND_ID), eq(CHANNEL_REFUND_NO), any()))
                 .thenReturn(1);
         when(tradeOrderMapper.markRefunded(eq(ORDER_ID), any())).thenReturn(1);
+        when(paymentMapper.markRefunded(3L)).thenReturn(1);
 
         RefundView view = refundService.review(REFUND_ID, true, null, REVIEWER_ID);
 
         assertEquals(RefundStatus.REFUNDED, view.getStatus());
         assertNotNull(view.getRefundedAt());
+        InOrder order = inOrder(refundRequestMapper, paymentGateway);
+        order.verify(refundRequestMapper).markApproved(eq(REFUND_ID), eq(REVIEWER_ID), any());
+        order.verify(paymentGateway)
+                .refund(any(PaymentRecord.class), eq(REFUND_NO), eq(PAY_AMOUNT));
+        verify(paymentMapper).markRefunded(3L);
         verify(entitlementService).revoke(USER_ID, COURSE_ID, ORDER_ID, ORDER_NO);
     }
 
@@ -332,6 +354,7 @@ class RefundServiceImplTest {
     void channelFailureKeepsOrderPaidAndEntitlementActive() {
         RefundRequest pending = pendingRefund();
         RefundRequest failed = failedRefund();
+        failed.setFailReason("BizException: channel down");
         when(refundRequestMapper.selectById(REFUND_ID)).thenReturn(pending, pending, failed);
         when(tradeOrderMapper.selectById(ORDER_ID)).thenReturn(paidOrder(LocalDateTime.now()));
         when(paymentMapper.selectLatestByOrderId(ORDER_ID)).thenReturn(payment());
@@ -346,9 +369,127 @@ class RefundServiceImplTest {
         RefundView view = refundService.review(REFUND_ID, true, null, REVIEWER_ID);
 
         assertEquals(RefundStatus.FAILED, view.getStatus());
-        assertEquals("channel down", view.getFailReason());
+        assertEquals("BizException: channel down", view.getFailReason());
         verify(tradeOrderMapper).markPaidAfterRefundFailure(ORDER_ID);
         verify(entitlementService, never()).revoke(anyLong(), anyLong(), anyLong(), anyString());
+    }
+
+    /**
+     * A channel timeout is recorded as failed with its exception type instead of rolling back.
+     *
+     * @author Caspian
+     * @since 0.2.0
+     */
+    @Test
+    void channelTimeoutIsRecordedAsFailedWithType() {
+        RefundRequest pending = pendingRefund();
+        RefundRequest failed = failedRefund();
+        failed.setFailReason("RuntimeException: Read timed out");
+        when(refundRequestMapper.selectById(REFUND_ID)).thenReturn(pending, pending, failed);
+        when(tradeOrderMapper.selectById(ORDER_ID)).thenReturn(paidOrder(LocalDateTime.now()));
+        when(paymentMapper.selectLatestByOrderId(ORDER_ID)).thenReturn(payment());
+        when(tradeOrderMapper.selectFirstItem(ORDER_ID)).thenReturn(item());
+        when(refundRequestMapper.markApproved(eq(REFUND_ID), eq(REVIEWER_ID), any())).thenReturn(1);
+        when(tradeOrderMapper.markRefunding(ORDER_ID)).thenReturn(1);
+        when(paymentGateway.refund(any(PaymentRecord.class), eq(REFUND_NO), eq(PAY_AMOUNT)))
+                .thenThrow(new RuntimeException("Read timed out"));
+        when(refundRequestMapper.markFailed(eq(REFUND_ID), anyString())).thenReturn(1);
+        when(tradeOrderMapper.markPaidAfterRefundFailure(ORDER_ID)).thenReturn(1);
+
+        RefundView view = refundService.review(REFUND_ID, true, null, REVIEWER_ID);
+
+        assertEquals(RefundStatus.FAILED, view.getStatus());
+        assertEquals("RuntimeException: Read timed out", view.getFailReason());
+        verify(refundRequestMapper).markFailed(REFUND_ID, "RuntimeException: Read timed out");
+        verify(tradeOrderMapper).markPaidAfterRefundFailure(ORDER_ID);
+        verify(entitlementService, never()).revoke(anyLong(), anyLong(), anyLong(), anyString());
+    }
+
+    /**
+     * While the channel call is blocked another reader already observes the approved status.
+     *
+     * @throws Exception when the threads are interrupted
+     * @author Caspian
+     * @since 0.2.0
+     */
+    @Test
+    void approvedStatusIsVisibleWhileChannelIsStillRunning() throws Exception {
+        AtomicInteger storedStatus = new AtomicInteger(RefundStatus.PENDING_REVIEW);
+        when(refundRequestMapper.selectById(REFUND_ID))
+                .thenAnswer(
+                        invocation -> {
+                            RefundRequest snapshot = pendingRefund();
+                            snapshot.setStatus(storedStatus.get());
+                            return snapshot;
+                        });
+        when(tradeOrderMapper.selectById(ORDER_ID)).thenReturn(paidOrder(LocalDateTime.now()));
+        when(paymentMapper.selectLatestByOrderId(ORDER_ID)).thenReturn(payment());
+        when(tradeOrderMapper.selectFirstItem(ORDER_ID)).thenReturn(item());
+        when(refundRequestMapper.markApproved(eq(REFUND_ID), eq(REVIEWER_ID), any()))
+                .thenAnswer(
+                        invocation -> {
+                            storedStatus.compareAndSet(
+                                    RefundStatus.PENDING_REVIEW, RefundStatus.APPROVED);
+                            return 1;
+                        });
+        when(tradeOrderMapper.markRefunding(ORDER_ID)).thenReturn(1);
+        CountDownLatch channelEntered = new CountDownLatch(1);
+        CountDownLatch releaseChannel = new CountDownLatch(1);
+        when(paymentGateway.refund(any(PaymentRecord.class), eq(REFUND_NO), eq(PAY_AMOUNT)))
+                .thenAnswer(
+                        invocation -> {
+                            channelEntered.countDown();
+                            assertTrue(releaseChannel.await(5, TimeUnit.SECONDS));
+                            return CHANNEL_REFUND_NO;
+                        });
+        when(refundRequestMapper.markSuccess(eq(REFUND_ID), eq(CHANNEL_REFUND_NO), any()))
+                .thenAnswer(
+                        invocation -> {
+                            storedStatus.set(RefundStatus.REFUNDED);
+                            return 1;
+                        });
+        when(tradeOrderMapper.markRefunded(eq(ORDER_ID), any())).thenReturn(1);
+        when(paymentMapper.markRefunded(3L)).thenReturn(1);
+
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            Future<RefundView> review =
+                    pool.submit(() -> refundService.review(REFUND_ID, true, null, REVIEWER_ID));
+            assertTrue(channelEntered.await(5, TimeUnit.SECONDS));
+            Future<Integer> observed =
+                    pool.submit(() -> refundRequestMapper.selectById(REFUND_ID).getStatus());
+            assertEquals(RefundStatus.APPROVED, observed.get(5, TimeUnit.SECONDS));
+            releaseChannel.countDown();
+            assertEquals(RefundStatus.REFUNDED, review.get(5, TimeUnit.SECONDS).getStatus());
+        } finally {
+            releaseChannel.countDown();
+            pool.shutdownNow();
+        }
+    }
+
+    /**
+     * Losing the unique key race returns the in-progress refund instead of a {@code 500}.
+     *
+     * @author Caspian
+     * @since 0.2.0
+     */
+    @Test
+    void concurrentApplicationReturnsInProgressRefund() {
+        when(tradeOrderMapper.selectById(ORDER_ID))
+                .thenReturn(paidOrder(LocalDateTime.now().minusDays(1)));
+        when(refundRequestMapper.selectActiveByOrderId(ORDER_ID)).thenReturn(null, pendingRefund());
+        when(paymentMapper.selectLatestByOrderId(ORDER_ID)).thenReturn(payment());
+        when(tradeOrderMapper.selectFirstItem(ORDER_ID)).thenReturn(item());
+        when(learnProgressClient.progress(USER_ID, COURSE_ID)).thenReturn(progress(20));
+        when(refundRequestMapper.countByOrderId(ORDER_ID)).thenReturn(0);
+        when(refundRequestMapper.insert(any(RefundRequest.class)))
+                .thenThrow(new DuplicateKeyException("uk_active_order"));
+
+        RefundView view = refundService.apply(USER_ID, ORDER_ID, request(null));
+
+        assertEquals(REFUND_NO, view.getRefundNo());
+        assertEquals(RefundStatus.PENDING_REVIEW, view.getStatus());
+        verify(paymentGateway, never()).refund(any(), anyString(), any());
     }
 
     /**
@@ -359,7 +500,7 @@ class RefundServiceImplTest {
      */
     @Test
     void rejectsAmountThatDiffersFromPaidAmount() {
-        when(tradeOrderMapper.selectByIdForUpdate(ORDER_ID))
+        when(tradeOrderMapper.selectById(ORDER_ID))
                 .thenReturn(paidOrder(LocalDateTime.now().minusDays(1)));
         when(refundRequestMapper.selectActiveByOrderId(ORDER_ID)).thenReturn(null);
         when(paymentMapper.selectLatestByOrderId(ORDER_ID)).thenReturn(payment());
@@ -384,7 +525,7 @@ class RefundServiceImplTest {
     void rejectsOrderThatIsNotPaid() {
         TradeOrder order = paidOrder(LocalDateTime.now());
         order.setStatus(OrderStatus.PENDING);
-        when(tradeOrderMapper.selectByIdForUpdate(ORDER_ID)).thenReturn(order);
+        when(tradeOrderMapper.selectById(ORDER_ID)).thenReturn(order);
         when(refundRequestMapper.selectActiveByOrderId(ORDER_ID)).thenReturn(null);
 
         BizException exception =
@@ -406,7 +547,7 @@ class RefundServiceImplTest {
     void rejectsOrderOwnedByAnotherUser() {
         TradeOrder order = paidOrder(LocalDateTime.now());
         order.setUserId(2002L);
-        when(tradeOrderMapper.selectByIdForUpdate(ORDER_ID)).thenReturn(order);
+        when(tradeOrderMapper.selectById(ORDER_ID)).thenReturn(order);
 
         BizException exception =
                 assertThrows(
@@ -494,5 +635,25 @@ class RefundServiceImplTest {
         refund.setReason("changed my mind");
         refund.setStatus(status);
         return refund;
+    }
+
+    /**
+     * Runs every callback synchronously so the commit-then-call order remains observable.
+     *
+     * @author Caspian
+     * @since 0.2.0
+     */
+    private static final class SynchronousTransactionManager implements PlatformTransactionManager {
+
+        @Override
+        public TransactionStatus getTransaction(TransactionDefinition definition) {
+            return new SimpleTransactionStatus();
+        }
+
+        @Override
+        public void commit(TransactionStatus status) {}
+
+        @Override
+        public void rollback(TransactionStatus status) {}
     }
 }

@@ -29,8 +29,9 @@ import java.util.List;
 import java.util.Objects;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Default {@link RefundService}.
@@ -75,6 +76,8 @@ public class RefundServiceImpl implements RefundService {
 
     private final LearnProgressClient learnProgressClient;
 
+    private final TransactionTemplate transactionTemplate;
+
     /**
      * Creates the service with its dependencies.
      *
@@ -84,6 +87,7 @@ public class RefundServiceImpl implements RefundService {
      * @param paymentGateway channel adapter
      * @param entitlementService outbox backed entitlement operations
      * @param learnProgressClient internal course progress lookup for admission
+     * @param transactionTemplate explicit transaction boundary for the channel call
      * @author Caspian
      * @since 0.1.0
      */
@@ -93,13 +97,15 @@ public class RefundServiceImpl implements RefundService {
             RefundRequestMapper refundRequestMapper,
             PaymentGateway paymentGateway,
             EntitlementService entitlementService,
-            LearnProgressClient learnProgressClient) {
+            LearnProgressClient learnProgressClient,
+            TransactionTemplate transactionTemplate) {
         this.tradeOrderMapper = tradeOrderMapper;
         this.paymentMapper = paymentMapper;
         this.refundRequestMapper = refundRequestMapper;
         this.paymentGateway = paymentGateway;
         this.entitlementService = entitlementService;
         this.learnProgressClient = learnProgressClient;
+        this.transactionTemplate = transactionTemplate;
     }
 
     /**
@@ -115,9 +121,8 @@ public class RefundServiceImpl implements RefundService {
      * @since 0.1.0
      */
     @Override
-    @Transactional(rollbackFor = Exception.class)
     public RefundView apply(long userId, long orderId, ApplyRefundRequest request) {
-        TradeOrder order = tradeOrderMapper.selectByIdForUpdate(orderId);
+        TradeOrder order = tradeOrderMapper.selectById(orderId);
         if (order == null || !Objects.equals(order.getUserId(), userId)) {
             throw new BizException(ErrorCode.NOT_FOUND);
         }
@@ -140,7 +145,21 @@ public class RefundServiceImpl implements RefundService {
         BigDecimal amount = resolveAmount(order, request);
         checkAdmission(order, userId, item.getCourseId());
 
-        RefundRequest refund = createRefund(order, payment, amount, reason);
+        RefundRequest refund;
+        try {
+            refund = createRefund(order, payment, amount, reason);
+        } catch (DuplicateKeyException exception) {
+            // Another request won the unique index race; return its row instead of a 500.
+            RefundRequest concurrent = refundRequestMapper.selectActiveByOrderId(orderId);
+            if (concurrent == null) {
+                throw exception;
+            }
+            LOG.info(
+                    "refund application raced: order={}, refund={}",
+                    order.getOrderNo(),
+                    concurrent.getRefundNo());
+            return view(order, concurrent);
+        }
         LOG.info(
                 "refund application accepted: order={}, refund={}, amount={}",
                 order.getOrderNo(),
@@ -175,10 +194,11 @@ public class RefundServiceImpl implements RefundService {
     /**
      * Records an operations decision and, when approved, calls the channel.
      *
-     * <p>The pending request is claimed with {@code WHERE status = 0}; a duplicated review returns
-     * the stored decision. A rejection requires a reason and leaves the order paid. A channel
-     * failure stores its reason, returns the order to paid and keeps the entitlement, so operations
-     * can handle it manually.
+     * <p>The pending request is claimed with {@code WHERE status = 0} inside its own committed
+     * transaction, so the in-progress status is visible to later queries before the channel is
+     * contacted. A rejection requires a reason and leaves the order paid. Any channel failure,
+     * including a timeout or network error, is stored as failed with its reason and returns the
+     * order to paid, so the decision is never rolled back to a blank state.
      *
      * @param refundId refund primary key
      * @param approved {@code true} to approve, {@code false} to reject
@@ -190,7 +210,6 @@ public class RefundServiceImpl implements RefundService {
      * @since 0.1.0
      */
     @Override
-    @Transactional(rollbackFor = Exception.class)
     public RefundView review(
             long refundId, boolean approved, String rejectReason, long reviewerId) {
         RefundRequest refund = refundRequestMapper.selectById(refundId);
@@ -204,13 +223,15 @@ public class RefundServiceImpl implements RefundService {
         LocalDateTime now = LocalDateTime.now();
         if (!approved) {
             String reason = validateReason(rejectReason);
-            if (refundRequestMapper.markRejected(refundId, reason, reviewerId, now) == 0) {
-                return view(order, refundRequestMapper.selectById(refundId));
-            }
+            transactionTemplate.executeWithoutResult(
+                    status -> refundRequestMapper.markRejected(refundId, reason, reviewerId, now));
             LOG.info("refund rejected: refund={}, reviewer={}", refund.getRefundNo(), reviewerId);
             return view(order, refundRequestMapper.selectById(refundId));
         }
-        if (refundRequestMapper.markApproved(refundId, reviewerId, now) == 0) {
+        Boolean claimed =
+                transactionTemplate.execute(
+                        status -> refundRequestMapper.markApproved(refundId, reviewerId, now) > 0);
+        if (!Boolean.TRUE.equals(claimed)) {
             return view(order, refundRequestMapper.selectById(refundId));
         }
         return settleApproved(refundId, reviewerId, order);
@@ -248,8 +269,7 @@ public class RefundServiceImpl implements RefundService {
     private RefundView settleApproved(long refundId, long reviewerId, TradeOrder order) {
         RefundRequest refund = refundRequestMapper.selectById(refundId);
         if (order == null) {
-            refundRequestMapper.markFailed(refundId, "order not found");
-            return view(null, refundRequestMapper.selectById(refundId));
+            return fail(refundId, null, "order not found");
         }
         PaymentRecord payment = paymentMapper.selectLatestByOrderId(order.getId());
         TradeOrderItem item = tradeOrderMapper.selectFirstItem(order.getId());
@@ -257,34 +277,48 @@ public class RefundServiceImpl implements RefundService {
                 || payment == null
                 || !Objects.equals(payment.getStatus(), PaymentStatus.SUCCESS)
                 || item == null) {
-            refundRequestMapper.markFailed(refundId, "order is no longer refundable");
-            return view(order, refundRequestMapper.selectById(refundId));
+            return fail(refundId, order, "order is no longer refundable");
         }
-        if (tradeOrderMapper.markRefunding(order.getId()) == 0) {
-            refundRequestMapper.markFailed(refundId, "order is no longer paid");
-            return view(order, refundRequestMapper.selectById(refundId));
+        Boolean claimed =
+                transactionTemplate.execute(
+                        status -> tradeOrderMapper.markRefunding(order.getId()) > 0);
+        if (!Boolean.TRUE.equals(claimed)) {
+            return fail(refundId, order, "order is no longer paid");
         }
         String channelRefundNo;
         try {
             channelRefundNo =
                     paymentGateway.refund(payment, refund.getRefundNo(), refund.getAmount());
-        } catch (BizException exception) {
-            refundRequestMapper.markFailed(refundId, failureReason(exception));
-            tradeOrderMapper.markPaidAfterRefundFailure(order.getId());
+        } catch (RuntimeException exception) {
+            // A timeout or network error means the channel outcome is unknown; never roll the
+            // decision back to a blank state, record it as failed with its type and reason.
+            String reason = failureReason(exception);
+            transactionTemplate.executeWithoutResult(
+                    status -> {
+                        refundRequestMapper.markFailed(refundId, reason);
+                        tradeOrderMapper.markPaidAfterRefundFailure(order.getId());
+                    });
             LOG.warn(
                     "refund channel failed: order={}, refund={}, reason={}",
                     order.getOrderNo(),
                     refund.getRefundNo(),
-                    exception.getMessage());
+                    reason);
             return view(order, refundRequestMapper.selectById(refundId));
         }
         LocalDateTime now = LocalDateTime.now();
-        if (refundRequestMapper.markSuccess(refundId, channelRefundNo, now) == 0) {
-            throw new BizException(ErrorCode.STATE_CONFLICT, "refund is no longer approved");
-        }
-        if (tradeOrderMapper.markRefunded(order.getId(), now) == 0) {
-            LOG.warn("order did not move to refunded: order={}", order.getOrderNo());
-        }
+        transactionTemplate.executeWithoutResult(
+                status -> {
+                    if (refundRequestMapper.markSuccess(refundId, channelRefundNo, now) == 0) {
+                        throw new BizException(
+                                ErrorCode.STATE_CONFLICT, "refund is no longer approved");
+                    }
+                    if (tradeOrderMapper.markRefunded(order.getId(), now) == 0) {
+                        LOG.warn("order did not move to refunded: order={}", order.getOrderNo());
+                    }
+                    if (paymentMapper.markRefunded(payment.getId()) == 0) {
+                        LOG.warn("payment did not move to refunded: order={}", order.getOrderNo());
+                    }
+                });
         entitlementService.revoke(
                 order.getUserId(), item.getCourseId(), order.getId(), order.getOrderNo());
         LOG.info(
@@ -292,6 +326,12 @@ public class RefundServiceImpl implements RefundService {
                 order.getOrderNo(),
                 refund.getRefundNo(),
                 reviewerId);
+        return view(order, refundRequestMapper.selectById(refundId));
+    }
+
+    private RefundView fail(long refundId, TradeOrder order, String reason) {
+        transactionTemplate.executeWithoutResult(
+                status -> refundRequestMapper.markFailed(refundId, reason));
         return view(order, refundRequestMapper.selectById(refundId));
     }
 
@@ -355,14 +395,16 @@ public class RefundServiceImpl implements RefundService {
         return refund;
     }
 
-    private static String failureReason(BizException exception) {
+    private static String failureReason(RuntimeException exception) {
         String message = exception.getMessage();
-        if (message == null || message.isBlank()) {
-            return "channel refund failed";
+        String detail =
+                message == null || message.isBlank()
+                        ? exception.getClass().getSimpleName()
+                        : exception.getClass().getSimpleName() + ": " + message;
+        if (detail.length() <= REASON_MAX_LENGTH) {
+            return detail;
         }
-        return message.length() <= REASON_MAX_LENGTH
-                ? message
-                : message.substring(0, REASON_MAX_LENGTH);
+        return detail.substring(0, REASON_MAX_LENGTH);
     }
 
     private static RefundView view(TradeOrder order, RefundRequest refund) {

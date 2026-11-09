@@ -22,6 +22,9 @@ public final class PaymentStatus {
     /** Closed before any successful callback. */
     public static final int CLOSED = 2;
 
+    /** Channel confirmed the refund of this payment. */
+    public static final int REFUNDED = 3;
+
     /**
      * Channel confirmed the payment after the order was closed and the attempt was discarded.
      *
