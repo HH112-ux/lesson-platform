@@ -6,7 +6,7 @@
  * @since 0.2.0
  */
 import { computed, onMounted } from 'vue'
-import { clearSession, readAccessToken } from './api/client'
+import { accessToken, clearSession } from './api/client'
 import { currentRoute, currentUser, navigate, syncRoute } from './router'
 import DashboardView from './views/DashboardView.vue'
 import LoginView from './views/LoginView.vue'
@@ -14,7 +14,7 @@ import OrdersView from './views/OrdersView.vue'
 import ReviewQueueView from './views/ReviewQueueView.vue'
 import UsersView from './views/UsersView.vue'
 
-const signedIn = computed(() => Boolean(readAccessToken()) && Boolean(currentUser.value))
+const signedIn = computed(() => Boolean(accessToken.value) && Boolean(currentUser.value))
 
 const showLogin = computed(() => !signedIn.value || currentRoute.value.name === 'login')
 

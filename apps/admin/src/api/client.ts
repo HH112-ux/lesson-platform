@@ -8,6 +8,7 @@
  * @author Caspian
  * @since 0.2.0
  */
+import { shallowRef } from 'vue'
 
 /** Local storage key of the console access token. */
 export const ACCESS_TOKEN_KEY = 'lp.admin.accessToken'
@@ -69,6 +70,9 @@ export function readAccessToken(): string | null {
   return storage()?.getItem(ACCESS_TOKEN_KEY) ?? null
 }
 
+/** Reactive mirror of the stored access token, so views react to sign-in and sign-out. */
+export const accessToken = shallowRef<string | null>(readAccessToken())
+
 /** Returns the cached operator profile, or {@code null} when absent or unreadable. */
 export function readUser(): SessionUser | null {
   const raw = storage()?.getItem(USER_KEY)
@@ -85,14 +89,15 @@ export function readUser(): SessionUser | null {
 /**
  * Stores a freshly issued token pair.
  *
- * @param accessToken signed access token
+ * @param token signed access token
  * @param refreshToken opaque refresh token
  * @author Caspian
  * @since 0.2.0
  */
-export function storeTokens(accessToken: string, refreshToken: string): void {
-  storage()?.setItem(ACCESS_TOKEN_KEY, accessToken)
+export function storeTokens(token: string, refreshToken: string): void {
+  storage()?.setItem(ACCESS_TOKEN_KEY, token)
   storage()?.setItem(REFRESH_TOKEN_KEY, refreshToken)
+  accessToken.value = token
 }
 
 /**
@@ -111,6 +116,7 @@ export function clearSession(): void {
   storage()?.removeItem(ACCESS_TOKEN_KEY)
   storage()?.removeItem(REFRESH_TOKEN_KEY)
   storage()?.removeItem(USER_KEY)
+  accessToken.value = null
 }
 
 let refreshInFlight: Promise<boolean> | null = null
