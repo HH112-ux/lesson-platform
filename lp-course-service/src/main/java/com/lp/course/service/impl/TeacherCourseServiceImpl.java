@@ -47,6 +47,9 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
     /** Status of a course taken offline by operations. */
     private static final int STATUS_OFFLINE = 3;
 
+    /** Onboarding audit status of a teacher allowed to write courses. */
+    private static final int AUDIT_APPROVED = 1;
+
     /** Maximum page size accepted by the console. */
     private static final int MAX_PAGE_SIZE = 100;
 
@@ -162,6 +165,7 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
         if (actor.teacherId() == null) {
             throw new BizException(ErrorCode.FORBIDDEN, "teacher profile is required");
         }
+        requireAuditedTeacher(actor);
         Course course = new Course();
         course.setOwnerTeacherId(actor.teacherId());
         apply(course, request);
@@ -191,6 +195,7 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
     public TeacherCourseView update(
             long userId, String roles, long courseId, TeacherCourseRequest request) {
         Actor actor = resolveActor(userId, roles);
+        requireAuditedTeacher(actor);
         Course course = requireAccessible(actor, courseId);
         requireEditable(course);
         apply(course, request);
@@ -465,6 +470,28 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
             throw new BizException(ErrorCode.NOT_FOUND);
         }
         afterContentChange(course);
+    }
+
+    /**
+     * Rejects course writes from a teacher whose onboarding review has not passed.
+     *
+     * <p>The check runs in the service layer so a controller or client cannot bypass it. It applies
+     * to course creation and metadata editing; administrators are exempt because operations may
+     * need to correct content before the teacher is approved.
+     *
+     * @param actor resolved caller
+     * @throws BizException with {@code 61006} when the profile is pending or rejected
+     * @author Caspian
+     * @since 0.5.0
+     */
+    private void requireAuditedTeacher(Actor actor) {
+        if (actor.admin() || actor.teacherId() == null) {
+            return;
+        }
+        Integer auditStatus = teacherCourseMapper.selectAuditStatusByTeacherId(actor.teacherId());
+        if (auditStatus == null || auditStatus != AUDIT_APPROVED) {
+            throw new BizException(ErrorCode.COURSE_TEACHER_NOT_APPROVED);
+        }
     }
 
     /**

@@ -40,6 +40,19 @@ public interface TeacherCourseMapper {
     Long selectTeacherIdByUser(@Param("userId") long userId);
 
     /**
+     * Reads the onboarding audit status of a teacher profile.
+     *
+     * @param teacherId {@code teacher_profile.id}
+     * @return {@code 0} pending, {@code 1} approved, {@code 2} rejected; {@code null} when absent
+     * @author Caspian
+     * @since 0.5.0
+     */
+    @Select(
+            "SELECT audit_status FROM teacher_profile "
+                    + "WHERE id = #{teacherId} AND deleted = 0 LIMIT 1")
+    Integer selectAuditStatusByTeacherId(@Param("teacherId") long teacherId);
+
+    /**
      * Reads one course including the columns the teacher console exposes.
      *
      * @param courseId course primary key

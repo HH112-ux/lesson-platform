@@ -52,6 +52,45 @@ class TeacherCourseServiceImplTest {
     }
 
     /**
+     * A teacher whose onboarding review is still pending cannot create a course.
+     *
+     * @author Caspian
+     * @since 0.5.0
+     */
+    @Test
+    void rejectsCreateWhenTeacherAuditPending() {
+        when(teacherCourseMapper.selectTeacherIdByUser(1001L)).thenReturn(55L);
+        when(teacherCourseMapper.selectAuditStatusByTeacherId(55L)).thenReturn(0);
+
+        BizException exception =
+                assertThrows(
+                        BizException.class, () -> service.create(1001L, "TEACHER", validRequest()));
+
+        assertEquals(61006, exception.getCode());
+        verify(teacherCourseMapper, never()).insert(any());
+    }
+
+    /**
+     * A rejected teacher cannot edit a course either, and no update reaches the database.
+     *
+     * @author Caspian
+     * @since 0.5.0
+     */
+    @Test
+    void rejectsUpdateWhenTeacherAuditRejected() {
+        when(teacherCourseMapper.selectTeacherIdByUser(1001L)).thenReturn(55L);
+        when(teacherCourseMapper.selectAuditStatusByTeacherId(55L)).thenReturn(2);
+
+        BizException exception =
+                assertThrows(
+                        BizException.class,
+                        () -> service.update(1001L, "TEACHER", 9L, validRequest()));
+
+        assertEquals(61006, exception.getCode());
+        verify(teacherCourseMapper, never()).updateEditable(any());
+    }
+
+    /**
      * A teacher creates a draft owned by their own profile.
      *
      * @author Caspian
@@ -60,6 +99,7 @@ class TeacherCourseServiceImplTest {
     @Test
     void createsDraftCourseForOwnTeacherProfile() {
         when(teacherCourseMapper.selectTeacherIdByUser(1001L)).thenReturn(55L);
+        when(teacherCourseMapper.selectAuditStatusByTeacherId(55L)).thenReturn(1);
         when(teacherCourseMapper.insert(any(Course.class)))
                 .thenAnswer(
                         invocation -> {
@@ -102,6 +142,7 @@ class TeacherCourseServiceImplTest {
     @Test
     void rejectsEditingAnotherTeachersCourse() {
         when(teacherCourseMapper.selectTeacherIdByUser(1001L)).thenReturn(55L);
+        when(teacherCourseMapper.selectAuditStatusByTeacherId(55L)).thenReturn(1);
         when(teacherCourseMapper.selectById(9L)).thenReturn(draft(9L, 77L, 0));
 
         BizException exception =
@@ -122,6 +163,7 @@ class TeacherCourseServiceImplTest {
     @Test
     void rejectsEditingPublishedCourse() {
         when(teacherCourseMapper.selectTeacherIdByUser(1001L)).thenReturn(55L);
+        when(teacherCourseMapper.selectAuditStatusByTeacherId(55L)).thenReturn(1);
         when(teacherCourseMapper.selectById(9L)).thenReturn(draft(9L, 55L, 2));
 
         BizException exception =
@@ -141,6 +183,7 @@ class TeacherCourseServiceImplTest {
     @Test
     void editingOfflineCourseSendsItBackToDraft() {
         when(teacherCourseMapper.selectTeacherIdByUser(1001L)).thenReturn(55L);
+        when(teacherCourseMapper.selectAuditStatusByTeacherId(55L)).thenReturn(1);
         when(teacherCourseMapper.selectById(9L)).thenReturn(draft(9L, 55L, 3));
         when(teacherCourseMapper.updateEditable(any(Course.class))).thenReturn(1);
         when(teacherCourseMapper.selectById(9L))
@@ -219,6 +262,7 @@ class TeacherCourseServiceImplTest {
     @Test
     void rejectsNegativePrice() {
         when(teacherCourseMapper.selectTeacherIdByUser(1001L)).thenReturn(55L);
+        when(teacherCourseMapper.selectAuditStatusByTeacherId(55L)).thenReturn(1);
         TeacherCourseRequest request =
                 new TeacherCourseRequest(
                         3L, "Course", null, "cover", null, new BigDecimal("-1"), null, 1);
@@ -239,6 +283,7 @@ class TeacherCourseServiceImplTest {
     @Test
     void rejectsPriceWithMoreThanTwoDecimals() {
         when(teacherCourseMapper.selectTeacherIdByUser(1001L)).thenReturn(55L);
+        when(teacherCourseMapper.selectAuditStatusByTeacherId(55L)).thenReturn(1);
         TeacherCourseRequest request =
                 new TeacherCourseRequest(
                         3L, "Course", null, "cover", null, new BigDecimal("9.999"), null, 1);
@@ -259,6 +304,7 @@ class TeacherCourseServiceImplTest {
     @Test
     void rejectsPriceAboveColumnMaximum() {
         when(teacherCourseMapper.selectTeacherIdByUser(1001L)).thenReturn(55L);
+        when(teacherCourseMapper.selectAuditStatusByTeacherId(55L)).thenReturn(1);
         TeacherCourseRequest request =
                 new TeacherCourseRequest(
                         3L, "Course", null, "cover", null, new BigDecimal("100000000.00"), null, 1);
