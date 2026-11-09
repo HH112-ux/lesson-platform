@@ -964,7 +964,8 @@ erDiagram
 | 40302 | 未购买该课程 | 播放签名与学习接口校验权益失败 |
 | 40303 | 已停用（保留编码） | 教师越权统一返回 `40301`，该码不再下发 |
 | 40401 | 资源不存在（含对无权益用户不可见的已下架课程） | — |
-| 40901 | 状态冲突 | 重复购买、订单状态不允许、课程状态不允许、注册账号重复、幂等键与请求体摘要不一致 |
+| 40901 | 状态冲突 | 重复购买、订单状态不允许、课程状态不允许、注册账号重复、幂等键与请求体摘要不一致；客户端不得重试 |
+| 40902 | 幂等请求处理中 | 同一幂等键的首次请求尚未结束；客户端应在数秒后用同一键重试 |
 | 42901 | 请求过于频繁 | 网关限流 |
 | 50001 | 系统异常 | 未捕获异常 |
 | 50201 | 下游服务失败 | Feign 超时/错误 |
@@ -1090,15 +1091,15 @@ spec:
 | GET | `/api/v1/coupons/available` | 可用券 | query:`amount` | `[{id,name,type,threshold,value}]` | — |
 | POST | `/api/v1/coupons/{couponId}/receive` | 领券 | `{}` | `{received:true}` | 40901(重复领),62003 |
 | GET | `/api/v1/coupons/mine` | 我的券 | query:`status` | `[{id,couponId,name,status,expireAt}]` | 40101 |
-| POST | `/api/v1/orders` | 创建订单（幂等） | `{courseId,idempotencyKey,couponId?}`；`idempotencyKey` ≤ 64 字符；`channel` 由服务端按 `X-User-Source` 固定（web→alipay；miniapp 已下线，直接返回 62011），不接受前端传参 | `{orderNo,status,channel,totalAmount,discountAmount,payAmount,courseId,payExpireAt,paidAt}` | 40001,40401,40901,61002,62003,62011 |
+| POST | `/api/v1/orders` | 创建订单（幂等） | `{courseId,couponId?}` + `Idempotency-Key` 头（≤ 64 字符，必填；过渡期兼容 body `idempotencyKey`）；`channel` 由服务端按 `X-User-Source` 固定（web→alipay；miniapp 已下线，直接返回 62011），不接受前端传参 | `{orderNo,status,channel,totalAmount,discountAmount,payAmount,courseId,payExpireAt,paidAt}` | 40001,40401,40901,40902,61002,62003,62011 |
 | GET | `/api/v1/orders` | 我的订单 | query:`status,pageNum,pageSize` | 分页 `{records:[{orderId,orderNo,payAmount,channel,status,createdAt,items[]}]}` | 40101 |
 | GET | `/api/v1/orders/{orderId}` | 订单详情 | — | `{orderId,orderNo,totalAmount,discountAmount,payAmount,channel,status,payExpireAt,items:[{courseId,title,price}]}` | 40301,40401 |
 | POST | `/api/v1/orders/{orderId}/cancel` | 取消（同时关闭进行中的支付单） | `{reason?}` | `{status:2}` | 40301,62001 |
 | POST | `/api/v1/orders/purchase-ticket` | 签发网页购买 ticket（小程序调用，需登录） | `{courseId}` | `{url,qrPayload,ticket,expiresAt}`；`url=https://<web-host>/purchase?ticket=<ticket>`，`qrPayload` 与 `url` 相同 | 40001,40101,40401,62003 |
 | POST | `/api/v1/orders/purchase-ticket/redeem` | 兑换 ticket（浏览器，可选鉴权） | `{ticket}` | `{accessToken,refreshToken,expiresIn,courseId}` | 40001,62012,62013,62014,62015,50201 |
-| POST | `/api/v1/payments/{orderNo}/pay` | 发起支付（幂等；渠道由订单与 `X-User-Source` 固定，请求不传 `channel`） | `{}` | `{payNo,channel,payParams}`；未配置渠道密钥时返回 `50205`，不返回伪造的支付参数 | 40001,40401,62001,62002,62005,50205 |
+| POST | `/api/v1/payments/{orderNo}/pay` | 发起支付（幂等；渠道由订单与 `X-User-Source` 固定，请求不传 `channel`） | `{}` + `Idempotency-Key` 头（必填）；首次成功结果缓存 30 分钟，过期后按待支付单复用重新发起 | `{payNo,channel,payParams}`；未配置渠道密钥时返回 `50205`，不返回伪造的支付参数 | 40001,40401,40901,40902,62001,62002,62005,50205 |
 | POST | `/api/v1/payments/alipay/notify` | 支付宝异步通知（公开，RSA2 验签） | `application/x-www-form-urlencoded` 原文 | 纯文本 `success`/`failure`；验签未配置时返回 `failure` | 50205 |
-| POST | `/api/v1/orders/{orderId}/refund` | 申请全额退款（付款后 7 天内且学习进度 ≤ 20%，15.2 D6） | `{reason}` + `Idempotency-Key` | `{refundId,refundNo,channel,status:0}` | 40301,62001,62004,62007 |
+| POST | `/api/v1/orders/{orderId}/refund` | 申请全额退款（付款后 7 天内且学习进度 ≤ 20%，15.2 D6） | `{reason}` + `Idempotency-Key`（必填） | `{refundId,refundNo,channel,status:0}` | 40001,40301,40901,40902,62001,62004,62007 |
 | GET | `/api/v1/refunds/{refundId}` | 退款进度（用户自查） | — | `{refundNo,channel,amount,status,reason,reviewReason?,failReason?,refundedAt}` | 40301,40401 |
 | GET | `/api/v1/reconcile/daily` | 分渠道对账查询（运营/管理员；当前仅支付宝） | query:`channel(1),date,pageNum,pageSize` | 分页 `{records:[{id,channel,billDate,billType,channelCount,channelAmount,localCount,localAmount,diffCount,diffAmount,status}],total,pageNum,pageSize}` | 40101,40301 |
 | POST | `/api/v1/reconcile/{reconcileId}/recheck` | 重跑对账（运营/管理员） | `{}` | `{status,diffCount,diffAmount}` | 40301,40401,50204 |
