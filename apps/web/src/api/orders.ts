@@ -120,13 +120,19 @@ export const ORDER_STATUS_PAID = 1
  *
  * @param orderId order identifier
  * @param reason buyer supplied reason, required
+ * @param idempotencyKey key generated once per refund intent
  * @returns the created or already in-progress refund
  * @author Caspian
  * @since 0.1.0
  */
-export function applyRefund(orderId: number, reason: string): Promise<RefundView> {
+export function applyRefund(
+  orderId: number,
+  reason: string,
+  idempotencyKey: string,
+): Promise<RefundView> {
   return apiRequest<RefundView>(`/api/v1/orders/${orderId}/refund`, {
     method: 'POST',
+    headers: { 'Idempotency-Key': idempotencyKey },
     body: JSON.stringify({ reason }),
   })
 }
@@ -135,21 +141,24 @@ export function applyRefund(orderId: number, reason: string): Promise<RefundView
  * Creates an order for a course.
  *
  * @param courseId course to buy
+ * @param idempotencyKey key generated once per purchase intent and reused on retries
  * @param couponId optional coupon
  * @returns the created order
  * @author Caspian
  * @since 0.2.0
  */
-export function createOrder(courseId: number, couponId?: number): Promise<OrderView> {
-  const body: Record<string, unknown> = {
-    courseId,
-    idempotencyKey: crypto.randomUUID(),
-  }
+export function createOrder(
+  courseId: number,
+  idempotencyKey: string,
+  couponId?: number,
+): Promise<OrderView> {
+  const body: Record<string, unknown> = { courseId }
   if (typeof couponId === 'number') {
     body.couponId = couponId
   }
   return apiRequest<OrderView>('/api/v1/orders', {
     method: 'POST',
+    headers: { 'Idempotency-Key': idempotencyKey },
     body: JSON.stringify(body),
   })
 }
@@ -158,13 +167,15 @@ export function createOrder(courseId: number, couponId?: number): Promise<OrderV
  * Starts the payment of an order.
  *
  * @param orderNo order to pay
+ * @param idempotencyKey key generated once per payment intent and reused on retries
  * @returns the channel payload, usually carrying a {@code payUrl}
  * @author Caspian
  * @since 0.2.0
  */
-export function payOrder(orderNo: string): Promise<PayView> {
+export function payOrder(orderNo: string, idempotencyKey: string): Promise<PayView> {
   return apiRequest<PayView>(`/api/v1/payments/${encodeURIComponent(orderNo)}/pay`, {
     method: 'POST',
+    headers: { 'Idempotency-Key': idempotencyKey },
   })
 }
 

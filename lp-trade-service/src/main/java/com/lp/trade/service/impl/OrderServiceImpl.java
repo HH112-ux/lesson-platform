@@ -22,6 +22,7 @@ import com.lp.trade.entity.RefundRequest;
 import com.lp.trade.entity.TradeOrder;
 import com.lp.trade.entity.TradeOrderItem;
 import com.lp.trade.entity.UserCoupon;
+import com.lp.trade.idempotency.IdempotencyDigests;
 import com.lp.trade.mapper.CouponMapper;
 import com.lp.trade.mapper.PaymentMapper;
 import com.lp.trade.mapper.RefundRequestMapper;
@@ -29,13 +30,9 @@ import com.lp.trade.mapper.TradeOrderMapper;
 import com.lp.trade.service.OrderService;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -367,15 +364,7 @@ public class OrderServiceImpl implements OrderService {
      * @since 0.3.0
      */
     private String requestDigest(long courseId, Long couponId) {
-        String payload = "v1|course=" + courseId + "|coupon=" + (couponId == null ? "-" : couponId);
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            return HexFormat.of()
-                    .formatHex(digest.digest(payload.getBytes(StandardCharsets.UTF_8)));
-        } catch (NoSuchAlgorithmException exception) {
-            // SHA-256 is mandatory in every JCA implementation, so this cannot happen at runtime.
-            throw new IllegalStateException("SHA-256 is not available", exception);
-        }
+        return IdempotencyDigests.order(courseId, couponId);
     }
 
     /**

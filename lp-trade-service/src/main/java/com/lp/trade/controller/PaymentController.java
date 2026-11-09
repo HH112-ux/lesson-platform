@@ -3,17 +3,24 @@ package com.lp.trade.controller;
 import com.lp.common.exception.BizException;
 import com.lp.common.exception.ErrorCode;
 import com.lp.common.identity.IdentityHeaders;
-import com.lp.common.result.Result;
 import com.lp.common.web.TraceIds;
 import com.lp.trade.domain.PaymentChannel;
-import com.lp.trade.dto.PayView;
 import com.lp.trade.dto.PaymentNotification;
+import com.lp.trade.idempotency.IdempotencyDigests;
+import com.lp.trade.idempotency.IdempotencyHeaders;
+import com.lp.trade.idempotency.IdempotencyKeys;
+import com.lp.trade.idempotency.IdempotencyOutcome;
+import com.lp.trade.idempotency.IdempotencyScope;
+import com.lp.trade.idempotency.IdempotencyService;
 import com.lp.trade.service.PaymentService;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import java.math.BigDecimal;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -39,15 +46,19 @@ public class PaymentController {
 
     private final PaymentService paymentService;
 
+    private final IdempotencyService idempotencyService;
+
     /**
-     * Creates the controller with its service dependency.
+     * Creates the controller with its service dependencies.
      *
      * @param paymentService payment operations
+     * @param idempotencyService replay and concurrency guard for payment initiation
      * @author Caspian
      * @since 0.1.0
      */
-    public PaymentController(PaymentService paymentService) {
+    public PaymentController(PaymentService paymentService, IdempotencyService idempotencyService) {
         this.paymentService = paymentService;
+        this.idempotencyService = idempotencyService;
     }
 
     /**
@@ -55,21 +66,37 @@ public class PaymentController {
      *
      * @param userId gateway injected user id
      * @param source gateway injected request source that fixes the channel
+     * @param idempotencyKey required header key
      * @param orderNo business order number
      * @param request current request, used to resolve the trace id
-     * @return prepay payload, or {@code 50205} while credentials are missing
+     * @param response current response, marked when the body is a replay
+     * @return serialized response envelope, written back verbatim on a replay
      * @author Caspian
      * @since 0.1.0
      */
     @PostMapping("/{orderNo}/pay")
-    public Result<PayView> pay(
+    public ResponseEntity<String> pay(
             @RequestHeader(value = IdentityHeaders.USER_ID, required = false) Long userId,
             @RequestHeader(value = IdentityHeaders.USER_SOURCE, required = false) String source,
+            @RequestHeader(value = IdempotencyHeaders.IDEMPOTENCY_KEY, required = false)
+                    String idempotencyKey,
             @PathVariable String orderNo,
-            HttpServletRequest request) {
-        return Result.ok(
-                paymentService.initiate(requireUser(userId), source, orderNo),
-                TraceIds.resolve(request));
+            HttpServletRequest request,
+            HttpServletResponse response) {
+        long uid = requireUser(userId);
+        String key = IdempotencyKeys.require(idempotencyKey);
+        IdempotencyOutcome<String> outcome =
+                idempotencyService.execute(
+                        IdempotencyScope.PAYMENT_INITIATE,
+                        uid,
+                        key,
+                        IdempotencyDigests.payment(orderNo),
+                        TraceIds.resolve(request),
+                        () -> paymentService.initiate(uid, source, orderNo));
+        if (outcome.replayed()) {
+            response.setHeader(IdempotencyHeaders.REPLAYED, "true");
+        }
+        return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(outcome.value());
     }
 
     /**

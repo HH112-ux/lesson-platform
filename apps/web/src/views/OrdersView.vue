@@ -17,6 +17,7 @@ const errorText = ref('')
 const needLogin = ref(false)
 const applyingOrder = ref<OrderSummaryView | null>(null)
 const refundReason = ref('')
+const refundKey = ref('')
 const applyError = ref('')
 const submitting = ref(false)
 
@@ -106,6 +107,7 @@ function canApply(order: OrderSummaryView): boolean {
 function openApply(order: OrderSummaryView): void {
   applyError.value = ''
   refundReason.value = ''
+  refundKey.value = crypto.randomUUID()
   applyingOrder.value = order
 }
 
@@ -126,7 +128,7 @@ async function submitApply(): Promise<void> {
   submitting.value = true
   applyError.value = ''
   try {
-    await applyRefund(applyingOrder.value.orderId, reason)
+    await applyRefund(applyingOrder.value.orderId, reason, refundKey.value)
     applyingOrder.value = null
     await load()
   } catch (error) {

@@ -43,6 +43,12 @@ public enum ErrorCode {
     /** Resource is in a state that rejects the requested transition. */
     STATE_CONFLICT(40901, "state conflict"),
 
+    /**
+     * Another request with the same idempotency key is still running. Clients must retry later with
+     * the same key, unlike {@link #STATE_CONFLICT} where retrying is pointless.
+     */
+    IDEMPOTENCY_IN_PROGRESS(40902, "idempotent request in progress"),
+
     /** Request rate exceeded the configured limit. */
     RATE_LIMITED(42901, "too many requests"),
 

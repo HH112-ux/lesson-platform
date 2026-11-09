@@ -21,6 +21,8 @@ const offline = ref(false)
 const orderNo = ref('')
 const buying = ref(false)
 const notice = ref('')
+const orderKey = crypto.randomUUID()
+const paymentKey = crypto.randomUUID()
 const redeemed = ref(false)
 const redeemedCourseId = ref<number | null>(null)
 
@@ -132,13 +134,13 @@ async function buy(): Promise<void> {
   buying.value = true
   notice.value = ''
   try {
-    const order = await createOrder(course.value.courseId)
+    const order = await createOrder(course.value.courseId, orderKey)
     orderNo.value = order.orderNo
     if (isOrderPaid(order)) {
       phase.value = 'done'
       return
     }
-    const payment = await payOrder(order.orderNo)
+    const payment = await payOrder(order.orderNo, paymentKey)
     const payUrl = payment.payParams?.payUrl
     if (payUrl) {
       window.location.assign(payUrl)
