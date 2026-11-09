@@ -376,30 +376,36 @@ ON DUPLICATE KEY UPDATE name   = VALUES(name),
                         sort   = VALUES(sort),
                         status = VALUES(status);
 
-INSERT INTO lp_cms.teacher_profile (user_id, display_name, avatar_url, bio, status)
+INSERT INTO lp_cms.teacher_profile
+    (user_id, display_name, avatar_url, bio, status,
+     audit_status, audit_from_status, submitted_at, audited_at)
 SELECT NULL,
        '林知远',
        'https://picsum.photos/seed/lp-teacher-lin/200/200',
        '职场沟通与表达教练，服务过多家企业的管理者培训项目。',
-       1
+       1, 1, 0, NOW(3), NOW(3)
 FROM DUAL
 WHERE NOT EXISTS (SELECT 1 FROM lp_cms.teacher_profile WHERE display_name = '林知远');
 
-INSERT INTO lp_cms.teacher_profile (user_id, display_name, avatar_url, bio, status)
+INSERT INTO lp_cms.teacher_profile
+    (user_id, display_name, avatar_url, bio, status,
+     audit_status, audit_from_status, submitted_at, audited_at)
 SELECT NULL,
        '苏晴',
        'https://picsum.photos/seed/lp-teacher-su/200/200',
        '产品设计师，长期负责设计系统与品牌视觉落地。',
-       1
+       1, 1, 0, NOW(3), NOW(3)
 FROM DUAL
 WHERE NOT EXISTS (SELECT 1 FROM lp_cms.teacher_profile WHERE display_name = '苏晴');
 
-INSERT INTO lp_cms.teacher_profile (user_id, display_name, avatar_url, bio, status)
+INSERT INTO lp_cms.teacher_profile
+    (user_id, display_name, avatar_url, bio, status,
+     audit_status, audit_from_status, submitted_at, audited_at)
 SELECT NULL,
        '陈亦舟',
        'https://picsum.photos/seed/lp-teacher-chen/200/200',
        '后端工程师，专注 Java 工程化、数据库性能与微服务治理。',
-       1
+       1, 1, 0, NOW(3), NOW(3)
 FROM DUAL
 WHERE NOT EXISTS (SELECT 1 FROM lp_cms.teacher_profile WHERE display_name = '陈亦舟');
 
