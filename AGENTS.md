@@ -372,7 +372,7 @@ chore(deps): upgrade wechatpay-java to 0.2.12
 
 - 域索引固定为 `docs/specs/course.md`、`trade.md`、`learning.md`、`platform.md`；只放条目索引与状态，不写长篇场景。
 - 编号格式 `SPEC-{DOMAIN}-{NNN}`，`DOMAIN` ∈ `COURSE/TRADE/LEARN/PLAT`，`NNN` 三位、按域递增；**编号由域文件分配，不得复用或跳号后回填**。
-- 单个功能的详细规格放 `docs/specs/features/SPEC-XXX-NNN/`；当前只维护模板 `docs/specs/features/_template-spec.md`，不批量回填历史功能。
+- 单个功能的详细规格放 `docs/specs/features/SPEC-XXX-NNN/`，模板为 `_template-spec.md` 与 `_template-tasks.md`；已展开 8 条核心条目的详情，其余 34 条保持索引层，不批量回填。
 - 不引入 `.specify/` 或其他工具目录，不提交任何 CLI 生成产物；规格全部手写维护。
 
 **条目字段（缺一不可）**：编号、标题、来源（D 编号 / 已登记决策 / 文档章节）、状态、层级、最后核对日期、验收标准摘要。状态仅允许 `未开始`、`进行中`、`已完成`、`已废弃`；层级仅允许 `L1`、`L2`、`L3`、`上线后首批`、`真实收款前置`。
@@ -383,7 +383,7 @@ chore(deps): upgrade wechatpay-java to 0.2.12
 - AC 必须来自已冻结决策，**不得从现状文档或现有实现反推**；文档与代码都没定的口径先列为待确认，不得自行补写。
 - 已废弃的错误码或规则不得保留在 AC 中，需在对应条目注明废弃依据。
 
-**详情模板**：`_template-spec.md` 使用中文，不引入英文占位符体系；未决事项统一写 `[待澄清]`，数量不设机械上限。
+**详情模板**：`_template-spec.md` 与 `_template-tasks.md` 使用中文，不引入英文占位符体系；未决事项统一写 `[待定]`，每条必须带 owner 与结案条件，数量不设机械上限。
 
 **维护规则**：
 
