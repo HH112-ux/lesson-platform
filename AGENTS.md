@@ -215,6 +215,24 @@ chore(deps): upgrade wechatpay-java to 0.2.12
   3. 不引入 Node/commitlint 工具链，校验以 shell 脚本为准。
 - Merge queue：CI 已监听 `merge_group` 事件，队列中的合并组会正常跑必需检查。
 
+### 7.4 规则执行方式
+
+执行方式只标四类：`hook`（本地提交钩子）、`ci`（流水线必需检查）、`review`（人工评审或平台约束）、`none`（无自动检查，仅作建议）。能脚本化的不放 `review`，只能人工判断的不假装有检查。
+
+| 规则组 | 条款 | 执行方式 | 落地位置 |
+|---|---|---|---|
+| 提交信息与 PR 标题格式 | 第六节、第八节 | hook + ci | `.githooks/commit-msg`、`scripts/check-commit-msg.sh`，docs-check 复用同一脚本校验 PR 标题 |
+| 文档命名、链接、HTML 与旧命名 | 第十一节（文档部分） | hook + ci | `.githooks/pre-commit` 与 `scripts/check-docs.sh` |
+| 规格体系：编号、状态、AC 连续、索引双向一致、PR 引用 | 第十二节 | hook + ci | `scripts/check-specs.sh`，由 `scripts/check-docs.sh` 调用 |
+| 分支模型与受保护分支 | 第五节、7.2 | review | GitHub 分支保护与 PR 流程，无本地脚本 |
+| 后端构建、单测与格式 | 第七节 | ci | `backend-build`、`backend-test`；暂存含 `*.java` 时由 pre-commit 跑 spotless |
+| Web 与运营后台检查 | 第七节 | ci | `frontend-check` |
+| 小程序检查 | 第七节 | ci | `miniapp-check` |
+| 支付、鉴权、退款、教师归属等高风险改动 | 第八节 | review | PR 六段正文 + 越权/验签/金额一致性用例，人工评审 |
+| 密钥与敏感信息 | 3.2 | review | 人工评审；发现即停并报告，暂无自动扫描钩子 |
+| 发布、tag 与小程序审核 | 第八节 | review | 人工发布单与微信后台操作，禁止自动化 |
+| 开工前四查与进度档案 | 第二节 | none（降级为建议，不设门禁） | 依赖 Agent 与人类自检，无脚本可判定 |
+
 ---
 
 ## 八、PR 评审、合并与发布版本
