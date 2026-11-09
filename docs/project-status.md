@@ -66,7 +66,7 @@
 | SPEC-TRADE-004 | 支付发起与重付约束 | 进行中 | L1-3、L2-2 | 3/5 |
 | SPEC-TRADE-005 | 支付回调与三态处理 | 进行中 | — | 5/6 |
 | SPEC-TRADE-006 | 订单取消 | 已完成 | — | 4/4 |
-| SPEC-TRADE-007 | 超时关单 | 未开始 | L1-3 | 0/4 |
+| SPEC-TRADE-007 | 超时关单 | 已完成 | — | 5/5 |
 | SPEC-TRADE-008 | 退款准入 | 已完成 | — | 4/4 |
 | SPEC-TRADE-009 | 退款审核与状态机 | 已完成 | — | 7/7 |
 | SPEC-TRADE-010 | 退款失败与补偿 | 已完成 | — | 3/3 |
@@ -106,7 +106,7 @@
 | 课程浏览 | 已上架课程分页、分类、关键词（`LIKE` 标题/副标题）、详情、目录；下架课程对非持有者按 404 处理 | `lp-course-service/.../controller/CoursePublicController.java`、`mapper/CourseMapper.java` | 2026-11-09 |
 | 教师课程 API | 建课、改课、提交审核、章节课时增删改、状态计数；按 `owner_teacher_id` 做归属校验 | `controller/TeacherCourseController.java`、`service/impl/TeacherCourseServiceImpl.java` | 2026-11-09 |
 | 课程审核 | 待审队列、通过并定价上架、驳回、审核审计查询 | `lp-admin-service/.../controller/AdminCourseController.java`、`db/migration/course/V4__course_review_audit.sql` | 2026-11-09 |
-| 交易 | 购物车 API、下单幂等、0 元课直接完成、订单列表/详情/取消；优惠券在下单时校验并核销 | `lp-trade-service/.../controller/OrderController.java`、`service/impl/OrderServiceImpl.java` | 2026-11-09 |
+| 交易 | 购物车 API、下单幂等、0 元课直接完成、订单列表/详情/取消、超时关单（30 分钟，条件更新与支付回调竞争安全，同时关闭待支付记录并释放优惠券）；优惠券在下单时校验并核销 | `lp-trade-service/.../controller/OrderController.java`、`service/impl/OrderServiceImpl.java`、`job/OrderTimeoutJob.java` | 2026-11-09 |
 | 支付 | 支付发起、`/api/v1/payments/alipay/notify` 回调入口、金额与渠道校验、重复回调幂等；**真实渠道未配置时统一返回 50205**，本地由 mock 渠道替代 | `payment/MockPaymentGateway.java`、`payment/UnconfiguredPaymentGateway.java`、`controller/PaymentController.java` | 2026-11-09 |
 | 退款 | 准入校验（付款后 7 天内且学习进度 ≤ 20%，超限返回 `62007` 且不落单）、生成待审核单（不自动退款）、运营审核、驳回需原因并可再次申请、审核通过后原渠道退款、权益软失效、撤销 outbox；渠道明确拒绝落 4 并放回可申请，调用超时等结果未知落 5 且订单保持退款中，learn 进度不可用时失败关闭返回 `50201` | `service/impl/RefundServiceImpl.java`、`db/migration/trade/V7__refund_review.sql`、`db/migration/trade/V9__refund_unknown_result.sql`、`controller/RefundInternalController.java` | 2026-11-09 |
 | 权益与 outbox | 本地消息表、定时中继、指数退避、死信、运营重放、Prometheus 指标 | `entitlement/EntitlementRelay.java`、`entitlement/OutboxAdminService.java`、`controller/InternalEntitlementOutboxController.java` | 2026-11-09 |
@@ -186,7 +186,8 @@
 | 视频上传与 ffprobe 校验 | product-lifecycle F06；engineering-plan 15.2 D5 | 无上传接口；播放仅对已存在对象签名 | 未排期；存储与校验方案未落地 | 2026-11-09 |
 | 全文搜索与多维筛选 | product-lifecycle F02；engineering-plan 1.3 | 仅 `LIKE` 标题/副标题；无难度、热度、上新排序；`ft_` 索引未被查询使用 | 未排期 | 2026-11-09 |
 | 资料维护与账号注销 | product-lifecycle F01；engineering-plan 15.2 D8 | 只有 `GET /api/v1/auth/me`，无修改资料与注销流程 | 未排期 | 2026-11-09 |
-| 订单超时关闭 | engineering-plan 15.2 D11；SPEC-TRADE-007 | 无 30 分钟自动关单任务，仅支持手动取消 | 未排期 | 2026-11-09 |
+| 退款状态先落「调渠道中」 | SPEC-TRADE-009 AC-2 | 审核通过与调用渠道在同一事务内完成，未先提交状态 1；渠道失败时退回已支付 | 未排期；L1-1 | 2026-11-09 |
+| 手动取消不释放优惠券 | SPEC-TRADE-006、SPEC-TRADE-007 AC-5 | 超时关单会释放订单占用的优惠券，手动取消（`OrderServiceImpl.cancel`）只关闭订单与支付单，券仍停留为已使用且绑定该订单，用户丢券且两种取消行为不一致 | 未排期；行为不一致 | 2026-11-09 |
 | 端来源识别 | SPEC-PLAT-002 | 网关只能区分 `admin` 与 `web`，小程序请求被记为 `web`；`X-User-Source=miniapp` 的下单拦截不可达 | 未排期；L2-1 | 2026-11-09 |
 | 后台评论、举报与教师管理 | product-lifecycle F14 | 后台已有课程审核、用户、订单、退款审核与看板 | 依赖 UGC 与教师入驻接口 | 2026-11-09 |
 | 小程序评论 | product-lifecycle 4.3 | 小程序无评论页面 | 依赖 UGC | 2026-11-09 |

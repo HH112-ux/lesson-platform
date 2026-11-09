@@ -266,6 +266,45 @@ public interface TradeOrderMapper {
     int markClosed(@Param("id") long id, @Param("closedAt") LocalDateTime closedAt);
 
     /**
+     * Lists pending orders whose payment deadline has passed.
+     *
+     * <p>Uses {@code idx_status_expire} so the periodic timeout scan does not read the whole table.
+     *
+     * @param now scan time
+     * @param limit maximum rows per scan
+     * @return expired pending orders ordered by id
+     * @author Caspian
+     * @since 0.2.0
+     */
+    @Select(
+            "SELECT id, order_no AS orderNo, user_id AS userId, "
+                    + "total_amount AS totalAmount, discount_amount AS discountAmount, "
+                    + "pay_amount AS payAmount, status, coupon_id AS couponId, channel, "
+                    + "pay_expire_at AS payExpireAt, paid_at AS paidAt, closed_at AS closedAt, "
+                    + "idempotency_key AS idempotencyKey FROM trade_order "
+                    + "WHERE status = 0 AND deleted = 0 AND pay_expire_at IS NOT NULL "
+                    + "AND pay_expire_at < #{now} ORDER BY id LIMIT #{limit}")
+    List<TradeOrder> selectExpiredPending(
+            @Param("now") LocalDateTime now, @Param("limit") int limit);
+
+    /**
+     * Closes a pending order because its payment deadline passed.
+     *
+     * <p>The {@code status = 0} predicate makes the close lose against a payment callback that
+     * already committed, so a paid order can never be closed by the scan.
+     *
+     * @param id order primary key
+     * @param closedAt close time
+     * @return affected rows, {@code 0} when the order was paid or already closed
+     * @author Caspian
+     * @since 0.2.0
+     */
+    @Update(
+            "UPDATE trade_order SET status = 3, cancel_reason = 'payment timeout', "
+                    + "closed_at = #{closedAt} WHERE id = #{id} AND status = 0")
+    int markTimedOut(@Param("id") long id, @Param("closedAt") LocalDateTime closedAt);
+
+    /**
      * Loads the first line of an order.
      *
      * <p>The first release sells one course per order, so the first line is the only line.
