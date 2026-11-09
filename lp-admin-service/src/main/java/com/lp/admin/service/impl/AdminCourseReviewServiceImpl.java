@@ -59,6 +59,7 @@ public class AdminCourseReviewServiceImpl implements AdminCourseReviewService {
      * @param priceFen price in fen set on approval, {@code null} keeps the current price
      * @param remark rejection remark, required when rejecting
      * @param reviewerId operator user id
+     * @param operatorRole operator role code, 0 operations, 1 administrator
      * @return course state after the decision
      * @throws BizException when a rejection carries no remark
      * @author Caspian
@@ -66,11 +67,17 @@ public class AdminCourseReviewServiceImpl implements AdminCourseReviewService {
      */
     @Override
     public AdminReviewResultView review(
-            long courseId, boolean approved, Long priceFen, String remark, long reviewerId) {
+            long courseId,
+            boolean approved,
+            Long priceFen,
+            String remark,
+            long reviewerId,
+            int operatorRole) {
         if (!approved && (remark == null || remark.isBlank())) {
             throw new BizException(ErrorCode.PARAM_INVALID, "remark is required on rejection");
         }
-        return courseReviewClient.review(courseId, approved, priceFen, remark, reviewerId);
+        return courseReviewClient.review(
+                courseId, approved, priceFen, remark, reviewerId, operatorRole);
     }
 
     /**

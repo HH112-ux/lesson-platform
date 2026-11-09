@@ -73,6 +73,7 @@ public class AdminTeacherAuditServiceImpl implements AdminTeacherAuditService {
      * @param approved {@code true} to approve, {@code false} to reject
      * @param remark rejection remark, required when rejecting
      * @param reviewerId operator user id
+     * @param operatorRole operator role code, 0 operations, 1 administrator
      * @return application state after the decision
      * @throws BizException with {@code 40001} when a rejection carries no remark
      * @author Caspian
@@ -80,7 +81,7 @@ public class AdminTeacherAuditServiceImpl implements AdminTeacherAuditService {
      */
     @Override
     public AdminTeacherReviewResultView review(
-            long teacherId, boolean approved, String remark, long reviewerId) {
+            long teacherId, boolean approved, String remark, long reviewerId, int operatorRole) {
         String remarkText = null;
         if (!approved) {
             String trimmed = remark == null ? "" : remark.trim();
@@ -89,6 +90,6 @@ public class AdminTeacherAuditServiceImpl implements AdminTeacherAuditService {
             }
             remarkText = trimmed.substring(0, Math.min(trimmed.length(), MAX_REMARK_LENGTH));
         }
-        return teacherAuditClient.review(teacherId, approved, remarkText, reviewerId);
+        return teacherAuditClient.review(teacherId, approved, remarkText, reviewerId, operatorRole);
     }
 }

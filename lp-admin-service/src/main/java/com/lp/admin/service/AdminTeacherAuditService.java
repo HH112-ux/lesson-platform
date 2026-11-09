@@ -31,10 +31,11 @@ public interface AdminTeacherAuditService {
      * @param approved {@code true} to approve, {@code false} to reject
      * @param remark rejection remark, required when rejecting
      * @param reviewerId operator user id
+     * @param operatorRole operator role code, 0 operations, 1 administrator
      * @return application state after the decision
      * @author Caspian
      * @since 0.5.0
      */
     AdminTeacherReviewResultView review(
-            long teacherId, boolean approved, String remark, long reviewerId);
+            long teacherId, boolean approved, String remark, long reviewerId, int operatorRole);
 }

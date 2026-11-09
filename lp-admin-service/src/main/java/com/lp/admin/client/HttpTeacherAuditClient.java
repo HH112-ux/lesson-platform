@@ -110,6 +110,7 @@ public class HttpTeacherAuditClient implements TeacherAuditClient {
      * @param approved {@code true} to approve, {@code false} to reject
      * @param remark rejection remark, required when rejecting
      * @param reviewerId operator user id
+     * @param operatorRole operator role code, 0 operations, 1 administrator
      * @return application state after the decision
      * @throws BizException when the upstream call fails
      * @author Caspian
@@ -117,10 +118,11 @@ public class HttpTeacherAuditClient implements TeacherAuditClient {
      */
     @Override
     public AdminTeacherReviewResultView review(
-            long teacherId, boolean approved, String remark, long reviewerId) {
+            long teacherId, boolean approved, String remark, long reviewerId, int operatorRole) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("approved", approved);
         body.put("reviewerId", reviewerId);
+        body.put("operatorRole", operatorRole);
         if (remark != null) {
             body.put("remark", remark);
         }

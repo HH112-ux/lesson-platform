@@ -106,6 +106,7 @@ public class HttpCourseReviewClient implements CourseReviewClient {
      * @param priceFen price in fen set on approval, {@code null} keeps the current price
      * @param remark rejection remark, required when rejecting
      * @param reviewerId operator user id
+     * @param operatorRole operator role code, 0 operations, 1 administrator
      * @return course state after the decision
      * @throws BizException when the upstream call fails or the course is not pending
      * @author Caspian
@@ -113,10 +114,16 @@ public class HttpCourseReviewClient implements CourseReviewClient {
      */
     @Override
     public AdminReviewResultView review(
-            long courseId, boolean approved, Long priceFen, String remark, long reviewerId) {
+            long courseId,
+            boolean approved,
+            Long priceFen,
+            String remark,
+            long reviewerId,
+            int operatorRole) {
         Map<String, Object> body = new java.util.LinkedHashMap<>();
         body.put("approved", approved);
         body.put("reviewerId", reviewerId);
+        body.put("operatorRole", operatorRole);
         if (priceFen != null) {
             body.put("priceFen", priceFen);
         }

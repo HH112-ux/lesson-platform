@@ -66,6 +66,13 @@ public class AdminMenuService {
                             "/admin/teachers",
                             ConsoleRoles.TEACHER_AUDIT,
                             TYPE_MENU,
+                            List.of()),
+                    new AdminMenuView(
+                            "audit-logs",
+                            "审计日志",
+                            "/admin/audit-logs",
+                            ConsoleRoles.AUDIT_LIST,
+                            TYPE_MENU,
                             List.of()));
 
     /**
