@@ -11,6 +11,7 @@ import static org.mockito.Mockito.when;
 import com.lp.learn.client.CourseInternalClient;
 import com.lp.learn.client.CourseSnapshot;
 import com.lp.learn.domain.EntitlementStatus;
+import com.lp.learn.dto.CourseProgressSummaryView;
 import com.lp.learn.dto.MyCourseView;
 import com.lp.learn.dto.PageView;
 import com.lp.learn.entity.LearningProgress;
@@ -225,6 +226,27 @@ class MyCourseServiceImplTest {
         assertEquals(33, view.getProgressPercent());
         assertEquals(11L, view.getLastLessonId());
         assertTrue(view.isRefunded());
+    }
+
+    /**
+     * The internal summary reports the live lesson count and rounds like my-courses.
+     *
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Test
+    void progressSummaryReportsCompletedShare() {
+        when(courseInternalClient.courses(List.of(COURSE_ID)))
+                .thenReturn(
+                        List.of(new CourseSnapshot(COURSE_ID, "Spring Boot 实战", "cover.png", 5)));
+        when(learningProgressMapper.selectByUserCourse(USER_ID, COURSE_ID))
+                .thenReturn(List.of(progress(1L, 1, 0, 1), progress(2L, 0, 10, 0)));
+
+        CourseProgressSummaryView summary = myCourseService.progressSummary(USER_ID, COURSE_ID);
+
+        assertEquals(1, summary.getCompletedLessons());
+        assertEquals(5, summary.getLessonCount());
+        assertEquals(20, summary.getProgressPercent());
     }
 
     private void stubEntitlement() {

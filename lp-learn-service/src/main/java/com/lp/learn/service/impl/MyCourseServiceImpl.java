@@ -1,8 +1,11 @@
 package com.lp.learn.service.impl;
 
+import com.lp.common.exception.BizException;
+import com.lp.common.exception.ErrorCode;
 import com.lp.learn.client.CourseInternalClient;
 import com.lp.learn.client.CourseSnapshot;
 import com.lp.learn.domain.EntitlementStatus;
+import com.lp.learn.dto.CourseProgressSummaryView;
 import com.lp.learn.dto.MyCourseView;
 import com.lp.learn.dto.PageView;
 import com.lp.learn.entity.LearningProgress;
@@ -138,5 +141,33 @@ public class MyCourseServiceImpl implements MyCourseService {
         }
         long rounded = Math.round(completedLessons * (double) FULL_PERCENT / lessonCount);
         return (int) Math.min(rounded, FULL_PERCENT);
+    }
+
+    /**
+     * Returns the completed share of one student in one course for refund admission.
+     *
+     * @param userId student user id
+     * @param courseId course id
+     * @return completed lessons, live lesson count and rounded percentage
+     * @throws BizException with {@code 40401} when the course is missing
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Override
+    public CourseProgressSummaryView progressSummary(long userId, long courseId) {
+        List<CourseSnapshot> courses = courseInternalClient.courses(List.of(courseId));
+        if (courses.isEmpty()) {
+            throw new BizException(ErrorCode.NOT_FOUND, "course not found");
+        }
+        int lessonCount = courses.get(0).getLessonCount();
+        int completedLessons = 0;
+        for (LearningProgress progress :
+                learningProgressMapper.selectByUserCourse(userId, courseId)) {
+            if (progress.getCompleted() != null && progress.getCompleted() == 1) {
+                completedLessons++;
+            }
+        }
+        return new CourseProgressSummaryView(
+                completedLessons, lessonCount, percent(completedLessons, lessonCount));
     }
 }

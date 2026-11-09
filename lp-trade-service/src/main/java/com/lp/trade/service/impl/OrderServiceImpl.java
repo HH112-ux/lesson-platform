@@ -14,13 +14,16 @@ import com.lp.trade.dto.OrderItemView;
 import com.lp.trade.dto.OrderPageView;
 import com.lp.trade.dto.OrderSummaryView;
 import com.lp.trade.dto.OrderView;
+import com.lp.trade.dto.RefundSummaryView;
 import com.lp.trade.entitlement.EntitlementService;
 import com.lp.trade.entity.Coupon;
+import com.lp.trade.entity.RefundRequest;
 import com.lp.trade.entity.TradeOrder;
 import com.lp.trade.entity.TradeOrderItem;
 import com.lp.trade.entity.UserCoupon;
 import com.lp.trade.mapper.CouponMapper;
 import com.lp.trade.mapper.PaymentMapper;
+import com.lp.trade.mapper.RefundRequestMapper;
 import com.lp.trade.mapper.TradeOrderMapper;
 import com.lp.trade.service.OrderService;
 import java.math.BigDecimal;
@@ -79,6 +82,8 @@ public class OrderServiceImpl implements OrderService {
 
     private final PaymentMapper paymentMapper;
 
+    private final RefundRequestMapper refundRequestMapper;
+
     private final TransactionTemplate transactionTemplate;
 
     /**
@@ -89,6 +94,7 @@ public class OrderServiceImpl implements OrderService {
      * @param courseInternalClient course-service reader
      * @param entitlementService ownership port
      * @param paymentMapper payment persistence used to close attempts on cancel
+     * @param refundRequestMapper refund state embedded in order rows
      * @param transactionTemplate transaction boundary around order creation
      * @author Caspian
      * @since 0.1.0
@@ -99,12 +105,14 @@ public class OrderServiceImpl implements OrderService {
             CourseInternalClient courseInternalClient,
             EntitlementService entitlementService,
             PaymentMapper paymentMapper,
+            RefundRequestMapper refundRequestMapper,
             TransactionTemplate transactionTemplate) {
         this.tradeOrderMapper = tradeOrderMapper;
         this.couponMapper = couponMapper;
         this.courseInternalClient = courseInternalClient;
         this.entitlementService = entitlementService;
         this.paymentMapper = paymentMapper;
+        this.refundRequestMapper = refundRequestMapper;
         this.transactionTemplate = transactionTemplate;
     }
 
@@ -355,6 +363,14 @@ public class OrderServiceImpl implements OrderService {
                 firstItems.putIfAbsent(item.getOrderId(), item);
             }
         }
+        Map<Long, RefundRequest> latestRefunds = new HashMap<>();
+        if (!rows.isEmpty()) {
+            for (RefundRequest refund :
+                    refundRequestMapper.selectLatestByOrderIds(
+                            rows.stream().map(TradeOrder::getId).toList())) {
+                latestRefunds.put(refund.getOrderId(), refund);
+            }
+        }
         List<OrderSummaryView> records =
                 rows.stream()
                         .map(
@@ -366,7 +382,8 @@ public class OrderServiceImpl implements OrderService {
                                                 order.getChannel(),
                                                 order.getPayAmount(),
                                                 order.getCreatedAt(),
-                                                List.of(toItemView(firstItems.get(order.getId())))))
+                                                List.of(toItemView(firstItems.get(order.getId()))),
+                                                refundSummary(latestRefunds.get(order.getId()))))
                         .toList();
         return new OrderPageView(records, total, safePage, safeSize);
     }
@@ -386,6 +403,7 @@ public class OrderServiceImpl implements OrderService {
         TradeOrder order = requireOwnedOrder(userId, orderId);
         List<OrderItemView> items =
                 tradeOrderMapper.selectItems(orderId).stream().map(this::toItemView).toList();
+        List<RefundRequest> refunds = refundRequestMapper.selectLatestByOrderIds(List.of(orderId));
         return new OrderDetailView(
                 order.getId(),
                 order.getOrderNo(),
@@ -398,7 +416,8 @@ public class OrderServiceImpl implements OrderService {
                 order.getPaidAt(),
                 order.getCreatedAt(),
                 order.getCancelReason(),
-                items);
+                items,
+                refundSummary(refunds.isEmpty() ? null : refunds.get(0)));
     }
 
     /**
@@ -491,6 +510,21 @@ public class OrderServiceImpl implements OrderService {
             return new OrderItemView(0L, "", ZERO);
         }
         return new OrderItemView(item.getCourseId(), item.getCourseTitle(), item.getPrice());
+    }
+
+    private RefundSummaryView refundSummary(RefundRequest refund) {
+        if (refund == null) {
+            return null;
+        }
+        return new RefundSummaryView(
+                refund.getId(),
+                refund.getRefundNo(),
+                refund.getStatus() == null ? 0 : refund.getStatus(),
+                refund.getAmount(),
+                refund.getReason(),
+                refund.getReviewReason(),
+                refund.getFailReason(),
+                refund.getRefundedAt());
     }
 
     private OrderView buildView(TradeOrder order, long courseId) {

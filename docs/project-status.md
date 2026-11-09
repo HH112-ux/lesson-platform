@@ -31,7 +31,7 @@
 | M0 基建 | 完成（监控栈除外） | Compose、Flyway、网关、统一返回、身份头、CI、本地验收脚本均可运行；`infra/observability` 未建立 | 2026-11-09 |
 | M1 账号与内容（含教师端） | 部分完成 | 注册登录、RBAC 种子、分类/课程/章节课时、教师课程 API、课程审核与审计已通；教师入驻、视频上传、全文搜索、教师前端未做 | 2026-11-09 |
 | M2 交易与学习 | 部分完成 | 购物车 API、下单幂等、0 元课、模拟支付、权益 outbox、播放签名、进度回写已通；真实支付宝未接 | 2026-11-09 |
-| M3 互动与后台 | 部分完成 | 运营审核、用户/订单查询、看板概览已通；UGC、退款审核、对账、举报处置未做 | 2026-11-09 |
+| M3 互动与后台 | 部分完成 | 运营审核、用户/订单查询、退款审核、看板概览已通；UGC、对账、举报处置未做 | 2026-11-09 |
 | M4 AI MVP | 未开始 | `lp-ai-service` 仅有启动类与 `package-info` | 2026-11-09 |
 | M5 Web 加固与上线 | 未开始 | 无压测、安全测试、灰度与部署流水线 | 2026-11-09 |
 | M6 小程序端 | 部分完成 | 4 个页面 + 静默登录 + 购买引导；无评论，未配置 AppID，未提审 | 2026-11-09 |
@@ -39,7 +39,7 @@
 
 ## 2.3 阶段结论
 
-当前处于 **M2 后端链路可演示、M3 刚起步** 的阶段。可演示的闭环是：教师通过 API 建课并提交 → 运营在后台审核定价上架 → 学员在 Web 下单 → 模拟支付回调 → 权益发放 → 播放签名 → 进度回写 → 通过 API 发起退款并回收权益。
+当前处于 **M2 后端链路可演示、M3 刚起步** 的阶段。可演示的闭环是：教师通过 API 建课并提交 → 运营在后台审核定价上架 → 学员在 Web 下单 → 模拟支付回调 → 权益发放 → 播放签名 → 进度回写 → 学员发起退款申请 → 运营后台审核通过 → 模拟渠道退款成功并回收权益。
 
 该闭环成立的前提是**本地模拟支付**（`LP_PAY_MOCK_ENABLED=true`），并且教师建课目前只有后端接口、没有界面。真实支付宝、UGC、AI、教师工作台界面、小程序评论、监控与部署流水线均未完成，详见第 4 章。
 
@@ -59,7 +59,7 @@
 | 课程审核 | 待审队列、通过并定价上架、驳回、审核审计查询 | `lp-admin-service/.../controller/AdminCourseController.java`、`db/migration/course/V4__course_review_audit.sql` | 2026-11-09 |
 | 交易 | 购物车 API、下单幂等、0 元课直接完成、订单列表/详情/取消；优惠券在下单时校验并核销 | `lp-trade-service/.../controller/OrderController.java`、`service/impl/OrderServiceImpl.java` | 2026-11-09 |
 | 支付 | 支付发起、`/api/v1/payments/alipay/notify` 回调入口、金额与渠道校验、重复回调幂等；**真实渠道未配置时统一返回 50205**，本地由 mock 渠道替代 | `payment/MockPaymentGateway.java`、`payment/UnconfiguredPaymentGateway.java`、`controller/PaymentController.java` | 2026-11-09 |
-| 退款 | 全额退款、退款单幂等、同步渠道退款、权益软失效、撤销 outbox；**无 7 天/进度 20% 准入限制，也无运营审核环节** | `service/impl/RefundServiceImpl.java`、`db/migration/trade/V5__refund_request.sql` | 2026-11-09 |
+| 退款 | 准入校验（付款后 7 天内且学习进度 ≤ 20%，超限返回 `62007` 且不落单）、生成待审核单（不自动退款）、运营审核、驳回需原因并可再次申请、审核通过后原渠道退款、权益软失效、撤销 outbox；learn 进度不可用时失败关闭返回 `50201` | `service/impl/RefundServiceImpl.java`、`db/migration/trade/V7__refund_review.sql`、`controller/RefundInternalController.java` | 2026-11-09 |
 | 权益与 outbox | 本地消息表、定时中继、指数退避、死信、运营重放、Prometheus 指标 | `entitlement/EntitlementRelay.java`、`entitlement/OutboxAdminService.java`、`controller/InternalEntitlementOutboxController.java` | 2026-11-09 |
 | 学习交付 | MinIO 预签名播放地址、免费课时试看、我的课程（含已退款标记）、进度上报与查询、90% 完成判定 | `lp-learn-service/.../controller/LessonController.java`、`service/impl/PlayTokenServiceImpl.java`、`service/impl/LearningProgressServiceImpl.java` | 2026-11-09 |
 | 运营查询 | 用户列表、订单列表、菜单树、7 日看板概览 | `lp-admin-service/.../controller/AdminUserController.java`、`AdminOrderController.java`、`AdminMenuController.java`、`AdminMetricsController.java` | 2026-11-09 |
@@ -71,11 +71,11 @@
 |---|---|---|---|
 | 课程首页与列表 | 分类筛选、关键词、分页、空态与错误态 | `apps/web/src/views/CourseListView.vue` | 2026-11-09 |
 | 课程详情与结算 | 详情、目录、立即购买、创建订单、跳转支付参数 `payUrl`；按钮文案写支付宝，但真实渠道未接 | `CourseDetailView.vue`、`CheckoutView.vue` | 2026-11-09 |
-| 订单结果与订单列表 | 支付结果页、订单列表、状态展示；**退款按钮为禁用占位** | `OrderResultView.vue`、`OrdersView.vue` | 2026-11-09 |
-| 我的课程与播放 | 断点续播、进度回写、退款课程标记 | `MyCoursesView.vue`、`PlayerView.vue` | 2026-11-09 |
+| 订单结果与订单列表 | 支付结果页、订单列表、状态展示；已支付订单可发起退款申请，展示待审核/处理中/已退款/已驳回/失败及原因，驳回或失败后可重新申请 | `OrderResultView.vue`、`OrdersView.vue` | 2026-11-09 |
+| 我的课程与播放 | 断点续播、进度回写、退款课程标记，页头提供退款入口跳转我的订单 | `MyCoursesView.vue`、`PlayerView.vue` | 2026-11-09 |
 | 登录注册与续期 | 账号密码登录、注册、token 刷新、回跳 | `LoginView.vue`、`api/auth.ts` | 2026-11-09 |
 | 购买 ticket | 可凭 ticket 兑换会话并进入购买页；**小程序端未签发 ticket，该入口当前无生产者** | `PurchaseView.vue`、`utils/purchase.ts` | 2026-11-09 |
-| 未做 | 购物车页面、优惠券入口、评论、收藏、举报、退款申请、资料维护 | `apps/web/src/router.ts` 路由表 | 2026-11-09 |
+| 未做 | 购物车页面、优惠券入口、评论、收藏、举报、资料维护 | `apps/web/src/router.ts` 路由表 | 2026-11-09 |
 
 ## 3.3 运营后台
 
@@ -85,7 +85,8 @@
 | 看板 | 7 日 GMV、订单数、支付率、新增用户、销量 Top5 | `DashboardView.vue`、`api/admin.ts` | 2026-11-09 |
 | 课程审核 | 待审队列、通过并定价、驳回、审核记录 | `ReviewQueueView.vue`、`api/admin.ts` | 2026-11-09 |
 | 用户与订单 | 关键词/订单号查询、分页列表 | `UsersView.vue`、`OrdersView.vue` | 2026-11-09 |
-| 未做 | 教师入驻审核、课程/课时管理、退款处理、评论与举报处置、角色与菜单管理、教师工作台界面 | `apps/admin/src/router.ts` 仅有 4 个业务页面 | 2026-11-09 |
+| 退款审核 | 按状态筛选的退款队列、通过/驳回（驳回必填原因）、分页与操作错误提示 | `RefundQueueView.vue`、`controller/AdminRefundController.java` | 2026-11-09 |
+| 未做 | 教师入驻审核、课程/课时管理、评论与举报处置、角色与菜单管理、教师工作台界面 | `apps/admin/src/router.ts` 仅有 5 个业务页面 | 2026-11-09 |
 
 ## 3.4 微信小程序
 
@@ -126,8 +127,7 @@
 | 全文搜索与多维筛选 | product-lifecycle F02；engineering-plan 1.3 | 仅 `LIKE` 标题/副标题；无难度、热度、上新排序；`ft_` 索引未被查询使用 | 未排期 | 2026-11-09 |
 | 资料维护与账号注销 | product-lifecycle F01；engineering-plan 15.2 D8 | 只有 `GET /api/v1/auth/me`，无修改资料与注销流程 | 未排期 | 2026-11-09 |
 | 订单超时关闭 | engineering-plan 15.2 D11 | 无 30 分钟自动关单任务，仅支持手动取消 | 未排期 | 2026-11-09 |
-| 退款准入与运营审核 | product-lifecycle F09；engineering-plan 15.2 D6 | 退款接口校验已支付、全额、归属后直接成功；无 7 天窗口、进度 20% 限制与人工审核 | D6 仍标注"暂定，可复议" | 2026-11-09 |
-| 后台退款、评论、举报、教师管理 | product-lifecycle F14 | 后台只有课程审核、用户、订单、看板 | 依赖 UGC 与退款改造 | 2026-11-09 |
+| 后台评论、举报与教师管理 | product-lifecycle F14 | 后台已有课程审核、用户、订单、退款审核与看板 | 依赖 UGC 与教师入驻接口 | 2026-11-09 |
 | 小程序评论 | product-lifecycle 4.3 | 小程序无评论页面 | 依赖 UGC | 2026-11-09 |
 | 小程序购买 ticket 闭环 | engineering-plan 15.2 D2；错误码 62012–62015 | ticket 签发与兑换接口已实现、Web 可兑换；小程序只复制普通链接，不签发 ticket | 前后端未接线 | 2026-11-09 |
 | 监控栈与告警 | engineering-plan 13.6 M0-40/M0-41 | 各服务暴露 `/actuator/prometheus`，trade 有 outbox 指标；无 Prometheus/Grafana 编排与告警规则 | 未排期 | 2026-11-09 |
@@ -148,10 +148,11 @@
 | CI 内端到端冒烟 | `smoke.sh` 依赖本地栈，CI 只跑单测，合并前无法验证跨服务链路 | 中 | 2026-11-09 |
 | 数据库备份与恢复演练脚本 | 目前只有迁移脚本，无备份、恢复与演练步骤 | 中 | 2026-11-09 |
 | 依赖与镜像漏洞扫描 | CI 无依赖审计，镜像也不构建，供应链风险未覆盖 | 小 | 2026-11-09 |
-| 管理操作统一审计 | 只有课程审核有审计表，用户/订单/后续退款操作无留痕 | 中 | 2026-11-09 |
+| 管理操作统一审计 | 只有课程审核有审计表；退款审核仅落 `reviewed_by/reviewed_at`，用户/订单操作无统一留痕 | 中 | 2026-11-09 |
 | MinIO 孤儿对象清理 | 课程/课时删除后对象仍占用存储，长期累积成本 | 小 | 2026-11-09 |
 | 日志聚合与告警通道 | 只有本地容器日志与指标端点，无集中检索与通知 | 中 | 2026-11-09 |
 | 匿名试看 | 文档面向游客承诺免费试看，当前播放签名接口要求登录 | 小 | 2026-11-09 |
+| 金额单位统一（元 vs 分） | 当前订单与退款金额均为 `DECIMAL(10,2)` 元，与文档中"整数分"的表述不一致；本地 mock 渠道可正常工作，但接入真实支付渠道时易在单位换算上出错。**接入真实支付渠道时评估是否统一为整数分** | 中 | 2026-11-09 |
 
 ---
 
@@ -166,7 +167,6 @@
 | 服务器、域名、ICP 备案、HTTPS 证书 | 决定 staging/prod 能否部署 | 未办理 | 2026-11-09 |
 | 短信服务商签名与模板 | 手机号验证码登录未实现，若启用需先办理 | 未办理 | 2026-11-09 |
 | 客户自配模型 API key（BYO） | AI 四项能力无法验收 | 未提供 | 2026-11-09 |
-| 退款政策（7 天窗口、进度 20% 限制、人工审核） | 当前自动退款与文档规则不一致，需确认最终口径 | D6 标注"暂定，M1 前可复议" | 2026-11-09 |
 | MinIO 归档镜像的替代方案 | 本地依赖可用，生产存储选型未定 | D14 标注"M1 收尾前评估" | 2026-11-09 |
 
 ---
@@ -177,7 +177,6 @@
 |---|---|---|---|
 | README "初版不包含退款与对账" | 退款闭环已合并（`1a56af8`、`b4be3b6`），对账确实未做 | 拆分表述：退款已做、对账未做 | 2026-11-09 |
 | engineering-plan 1.2 教师工作台位于 `apps/admin` | 后台仅有运营页面，无教师建课界面 | 标注为"仅 API，界面未做" | 2026-11-09 |
-| engineering-plan 15.2 D6 退款需运营审核、7 天/20% 准入 | 退款接口自动成功，无审核与准入限制 | 先修订文档或补实现，二选一 | 2026-11-09 |
 | engineering-plan 15.2 D11 下单 30 分钟自动关单 | 无定时关单任务 | 标注为未实现 | 2026-11-09 |
 | engineering-plan 1.3 允许 MySQL 全文索引搜索 | 查询使用 `LIKE`，`ft_` 索引未使用 | 标注当前为 `LIKE`，全文检索待做 | 2026-11-09 |
 | product-lifecycle 3.1 游客可试看 | 播放签名接口要求登录（`40101`） | 确认是否允许匿名试看，再改实现或文档 | 2026-11-09 |

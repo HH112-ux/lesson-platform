@@ -11,7 +11,14 @@ import { shallowRef } from 'vue'
 import { readUser, type SessionUser } from './api/client'
 
 /** Screen of the console. */
-export type RouteName = 'overview' | 'review' | 'users' | 'orders' | 'login' | 'not-found'
+export type RouteName =
+  | 'overview'
+  | 'review'
+  | 'refunds'
+  | 'users'
+  | 'orders'
+  | 'login'
+  | 'not-found'
 
 /** Resolved route with its rendered screen and path parameters. */
 export interface Route {
@@ -43,6 +50,9 @@ export function resolveRoute(pathname: string): Route {
   }
   if (segments.length === 1 && segments[0] === 'orders') {
     return { name: 'orders', params: {} }
+  }
+  if (segments.length === 1 && segments[0] === 'refunds') {
+    return { name: 'refunds', params: {} }
   }
   return { name: 'not-found', params: {} }
 }

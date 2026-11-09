@@ -143,16 +143,17 @@ public class OrderController {
     }
 
     /**
-     * Refunds a paid order of the current buyer; a repeated call returns the original refund.
+     * Applies for a refund of a paid order; a repeated call returns the in-progress request.
      *
-     * <p>The first release supports full refunds only. When {@code amount} is present it must equal
-     * the order paid amount, so an attempt to refund more than was paid fails with {@code 62018}.
+     * <p>Applicants must be within seven days of payment and at most twenty percent through the
+     * course, otherwise the call fails with {@code 62007} and creates no refund row. An admitted
+     * request waits for operations; this endpoint never moves money.
      *
      * @param userId gateway injected user id
      * @param orderId order primary key
-     * @param body optional amount and reason
+     * @param body required reason and optional full amount
      * @param request current request, used to resolve the trace id
-     * @return successful refund
+     * @return pending, approved or already refunded request
      * @author Caspian
      * @since 0.1.0
      */
@@ -163,8 +164,7 @@ public class OrderController {
             @RequestBody(required = false) ApplyRefundRequest body,
             HttpServletRequest request) {
         return Result.ok(
-                refundService.refund(requireUser(userId), orderId, body),
-                TraceIds.resolve(request));
+                refundService.apply(requireUser(userId), orderId, body), TraceIds.resolve(request));
     }
 
     private long requireUser(Long userId) {

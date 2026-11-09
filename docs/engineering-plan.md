@@ -706,7 +706,8 @@ erDiagram
 | user_id | BIGINT UNSIGNED | NOT NULL | — |
 | channel | TINYINT | NOT NULL | 1 支付宝/2 微信（由 `payment_id` 决定，不信任前端） |
 | amount | DECIMAL(10,2) | NOT NULL | 首版仅全额退款，固定 = 实付金额（15.2 D6） |
-| reason | VARCHAR(300) | NOT NULL | — |
+| reason | VARCHAR(300) | NOT NULL | 申请原因，1–300 字 |
+| review_reason | VARCHAR(300) | NULL | 审核意见，驳回时必填 |
 | status | TINYINT | NOT NULL DEFAULT 0 | 0 待审核/1 审核通过（调渠道中）/2 已退款/3 驳回/4 退款失败 |
 | channel_refund_no | VARCHAR(64) | NULL | **渠道退款单号**：微信 `out_refund_no` 回执 / 支付宝 `refund_no` |
 | channel_refund_id | VARCHAR(64) | NULL | 渠道退款流水号（微信 `refund_id`） |
@@ -716,7 +717,7 @@ erDiagram
 | fail_reason | VARCHAR(300) | NULL | 渠道失败原因（脱敏后） |
 | 公共字段 | — | — | — |
 
-索引：`idx_order(order_id)`、`idx_status_created(status, created_at)`、`idx_channel_status(channel, status)`；唯一 `uk_channel_refund(channel, channel_refund_no)`（同一渠道退款单号只处理一次）、`uk_order_refund(order_id, status)` 不适用（一单可多次部分退款场景首版不做，改为**业务约束：同一订单仅允许一条未撤销的退款单**，由 `payment_id + status IN (0,1,2)` 条件插入保证）。
+索引：`idx_order(order_id)`、`idx_status_created(status, created_at)`、`idx_channel_status(channel, status)`；唯一 `uk_channel_refund(channel, channel_refund_no)`（同一渠道退款单号只处理一次）、唯一 `uk_active_order(active_order_id)`——`active_order_id` 为 STORED 生成列 `CASE WHEN status IN (0,1,2) THEN order_id ELSE NULL END`，保证同一订单同时只有一条进行中的退款单（0 待审核/1 审核通过/2 已退款），驳回（3）或失败（4）后可重新申请并生成新单。
 
 **payment_reconcile 分渠道对账记录**
 
@@ -918,7 +919,7 @@ erDiagram
 | 下单 | 单库事务：校验课程可售与已购 → 校验券 → 建 trade_order + trade_order_item → 锁券（`user_coupon` 条件更新）；删购物车随购物车接口后续补齐 |
 | 支付回调 | 以 `uk_pay_no` + `uk_channel_trade(channel, channel_trade_no)` 双唯一约束保证幂等；事务内更新 `payment_record` → `trade_order` → 写权益 → 发 MQ（事务消息或本地消息表）；重复回调直接返回渠道要求的成功应答 |
 | 发放权益 | 消费 MQ 幂等：`uk_user_course` 唯一约束 + 重复消费直接忽略 |
-| 退款 | 准入校验（付款后 7 天内且学习进度 ≤ 20%，15.2 D6）→ 审核通过 → 按 `payment_record.channel` 调对应渠道退款（仅全额）→ 成功后置订单 `已退款` + `payment_record.status=3` + 权益失效（优惠券不退回，视为已使用）；渠道失败置 `refund_request.status=4` 并告警人工介入 |
+| 退款 | 准入校验（付款后 7 天内且学习进度 ≤ 20%，15.2 D6）→ 生成 `status=0` 待审核单（**不同步调渠道，不自动退款**；超期或进度超限直接 `62007`，不落单）→ 运营审核通过 → 按 `payment_record.channel` 调对应渠道退款（仅全额）→ 成功后置订单 `已退款` + `payment_record.status=3` + 权益失效（优惠券不退回，视为已使用）；驳回置 `status=3` 并保留原因、恢复可申请；渠道失败置 `status=4` 并告警人工介入 |
 | 分渠道对账 | `job-worker` 每日拉取两渠道账单 → 写 `payment_reconcile`（`uk_channel_date_type` 覆盖更新）→ `diff_count>0` 置 `status=2` 并告警 |
 | 教师数据范围 | 所有 `/api/v1/teacher/**` 在 service 层按 `owner_teacher_id = 当前教师ID` 过滤，不接受前端传教师 ID；看板只读 `course_daily_stat` |
 | 模型配置变更 | 单条事务更新 `ai_model_config` + 写 `audit_log`；提交后清空 `ai-service` 本地缓存（Nacos 配置刷新），失败不改旧配置 |
@@ -1098,9 +1099,13 @@ spec:
 | POST | `/api/v1/payments/{orderNo}/pay` | 发起支付（幂等；渠道由订单与 `X-User-Source` 固定，请求不传 `channel`） | `{}` | `{payNo,channel,payParams}`；未配置渠道密钥时返回 `50205`，不返回伪造的支付参数 | 40001,40401,62001,62002,62005,50205 |
 | POST | `/api/v1/payments/alipay/notify` | 支付宝异步通知（公开，RSA2 验签） | `application/x-www-form-urlencoded` 原文 | 纯文本 `success`/`failure`；验签未配置时返回 `failure` | 50205 |
 | POST | `/api/v1/orders/{orderId}/refund` | 申请全额退款（付款后 7 天内且学习进度 ≤ 20%，15.2 D6） | `{reason}` + `Idempotency-Key` | `{refundId,refundNo,channel,status:0}` | 40301,62001,62004,62007 |
-| GET | `/api/v1/refunds/{refundId}` | 退款进度（用户自查） | — | `{refundNo,channel,amount,status,refundedAt,failReason?}` | 40301,40401 |
+| GET | `/api/v1/refunds/{refundId}` | 退款进度（用户自查） | — | `{refundNo,channel,amount,status,reason,reviewReason?,failReason?,refundedAt}` | 40301,40401 |
 | GET | `/api/v1/reconcile/daily` | 分渠道对账查询（运营/管理员） | query:`channel(1\|2),date,pageNum` | 分页 `{records:[{id,channel,billDate,billType,channelCount,channelAmount,localCount,localAmount,diffCount,diffAmount,status}]}` | 40101,40301 |
 | POST | `/api/v1/reconcile/{reconcileId}/recheck` | 重跑对账（运营/管理员） | `{}` | `{status,diffCount,diffAmount}` | 40301,40401,50204 |
+
+> **退款内部接口（trade-service，不经网关）**：`GET /internal/v1/refunds?status=&pageNum=&pageSize=` 返回 `{records:[{refundId,refundNo,orderId,orderNo,userId,channel,amount,reason,status,reviewReason?,failReason?,reviewedBy,reviewedAt,refundedAt,createdAt}],total,pageNum,pageSize}`；`POST /internal/v1/refunds/{refundId}/review`，请求 `{approved,rejectReason?,reviewerId}`，重复审核返回已存结果，驳回时 `rejectReason` 必填，`reviewerId` 必填。两者校验 `X-Internal-Token`，供 admin-service 后台调用。
+
+> **学习进度内部接口（learn-service，不经网关）**：`GET /internal/v1/learning/progress-summary?userId=&courseId=` 返回 `{completedLessons,lessonCount,progressPercent}`；trade-service 用它判断退款准入，**调用失败按失败关闭处理并返回 `50201`**，不得把不可用当作 0% 进度。
 
 > **购物车规则**：课程类商品数量固定为 1，`cart_item` 不设数量字段；同用户同课程唯一（`uk_user_course`），重复加购与并发加购都幂等；已购课程加购返回 `61002`，已下架课程返回 `62003`，课程不存在返回 `40401`；删除不存在的条目同样返回成功。
 

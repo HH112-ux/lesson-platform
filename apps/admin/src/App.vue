@@ -11,6 +11,7 @@ import { currentRoute, currentUser, navigate, syncRoute } from './router'
 import DashboardView from './views/DashboardView.vue'
 import LoginView from './views/LoginView.vue'
 import OrdersView from './views/OrdersView.vue'
+import RefundQueueView from './views/RefundQueueView.vue'
 import ReviewQueueView from './views/ReviewQueueView.vue'
 import UsersView from './views/UsersView.vue'
 
@@ -56,6 +57,10 @@ onMounted(() => {
           href="/orders"
           :class="{ active: currentRoute.name === 'orders' }"
         >订单管理</a>
+        <a
+          href="/refunds"
+          :class="{ active: currentRoute.name === 'refunds' }"
+        >退款审核</a>
       </nav>
       <div class="account">
         <span>{{ currentUser?.nickname }}</span>
@@ -73,6 +78,7 @@ onMounted(() => {
       <ReviewQueueView v-else-if="currentRoute.name === 'review'" />
       <UsersView v-else-if="currentRoute.name === 'users'" />
       <OrdersView v-else-if="currentRoute.name === 'orders'" />
+      <RefundQueueView v-else-if="currentRoute.name === 'refunds'" />
       <p
         v-else
         class="lp-empty"

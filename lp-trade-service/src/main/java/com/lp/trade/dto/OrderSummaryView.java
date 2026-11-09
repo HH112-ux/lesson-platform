@@ -25,6 +25,8 @@ public class OrderSummaryView {
 
     private final List<OrderItemView> items;
 
+    private final RefundSummaryView refund;
+
     /**
      * Creates an order summary.
      *
@@ -35,6 +37,7 @@ public class OrderSummaryView {
      * @param payAmount payable amount in yuan
      * @param createdAt order creation time
      * @param items order lines
+     * @param refund latest refund state, {@code null} when never applied
      * @author Caspian
      * @since 0.1.0
      */
@@ -45,7 +48,8 @@ public class OrderSummaryView {
             int channel,
             java.math.BigDecimal payAmount,
             LocalDateTime createdAt,
-            List<OrderItemView> items) {
+            List<OrderItemView> items,
+            RefundSummaryView refund) {
         this.orderId = orderId;
         this.orderNo = orderNo;
         this.status = status;
@@ -53,6 +57,7 @@ public class OrderSummaryView {
         this.payAmount = payAmount;
         this.createdAt = createdAt;
         this.items = items;
+        this.refund = refund;
     }
 
     /**
@@ -130,5 +135,16 @@ public class OrderSummaryView {
      */
     public List<OrderItemView> getItems() {
         return items;
+    }
+
+    /**
+     * Returns the latest refund state.
+     *
+     * @return refund state, {@code null} when the buyer never applied
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public RefundSummaryView getRefund() {
+        return refund;
     }
 }

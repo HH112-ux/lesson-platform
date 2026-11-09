@@ -185,3 +185,83 @@ export function listAdminOrders(orderNo: string, pageNum: number, pageSize: numb
 export function loadOverview(): Promise<MetricsOverview> {
   return apiRequest<MetricsOverview>('/api/v1/admin/metrics/overview')
 }
+
+/** One refund waiting for or already holding an operations decision. */
+export interface AdminRefundView {
+  refundId: number
+  refundNo: string
+  orderNo: string
+  userId: number
+  /** 1 Alipay, 2 WeChat. */
+  channel: number
+  /** Refund amount in yuan. */
+  amount: number
+  reason: string
+  /** 0 pending, 1 approved, 2 refunded, 3 rejected, 4 failed. */
+  status: number
+  reviewReason?: string | null
+  failReason?: string | null
+  reviewedBy?: number | null
+  reviewedAt?: string | null
+  refundedAt?: string | null
+  createdAt: string
+}
+
+/** Page of refunds. */
+export interface AdminRefundPage {
+  records: AdminRefundView[]
+  total: number
+  pageNum: number
+  pageSize: number
+}
+
+/** Body of {@code POST /api/v1/admin/refunds/{refundId}/review}. */
+export interface RefundReviewPayload {
+  approved: boolean
+  /** Required when rejecting. */
+  rejectReason?: string
+}
+
+/**
+ * Lists refunds with an optional status filter.
+ *
+ * @param status refund status, {@code undefined} for all statuses
+ * @param pageNum one-based page number
+ * @param pageSize page size
+ * @returns the page of refunds
+ * @author Caspian
+ * @since 0.1.0
+ */
+export function listRefunds(
+  status: number | undefined,
+  pageNum: number,
+  pageSize: number,
+): Promise<AdminRefundPage> {
+  const params = new URLSearchParams({
+    pageNum: String(pageNum),
+    pageSize: String(pageSize),
+  })
+  if (status !== undefined) {
+    params.set('status', String(status))
+  }
+  return apiRequest<AdminRefundPage>(`/api/v1/admin/refunds?${params.toString()}`)
+}
+
+/**
+ * Approves or rejects one pending refund.
+ *
+ * @param refundId refund identifier
+ * @param payload decision, with a required reason when rejecting
+ * @returns the refund state after the decision
+ * @author Caspian
+ * @since 0.1.0
+ */
+export function reviewRefund(
+  refundId: number,
+  payload: RefundReviewPayload,
+): Promise<AdminRefundView> {
+  return apiRequest<AdminRefundView>(`/api/v1/admin/refunds/${refundId}/review`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}

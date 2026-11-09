@@ -36,6 +36,8 @@ public class OrderDetailView {
 
     private final List<OrderItemView> items;
 
+    private final RefundSummaryView refund;
+
     /**
      * Creates an order detail projection.
      *
@@ -51,6 +53,7 @@ public class OrderDetailView {
      * @param createdAt order creation time
      * @param cancelReason cancel reason, may be {@code null}
      * @param items order lines
+     * @param refund latest refund state, {@code null} when never applied
      * @author Caspian
      * @since 0.1.0
      */
@@ -66,7 +69,8 @@ public class OrderDetailView {
             LocalDateTime paidAt,
             LocalDateTime createdAt,
             String cancelReason,
-            List<OrderItemView> items) {
+            List<OrderItemView> items,
+            RefundSummaryView refund) {
         this.orderId = orderId;
         this.orderNo = orderNo;
         this.status = status;
@@ -79,6 +83,7 @@ public class OrderDetailView {
         this.createdAt = createdAt;
         this.cancelReason = cancelReason;
         this.items = items;
+        this.refund = refund;
     }
 
     /**
@@ -211,5 +216,16 @@ public class OrderDetailView {
      */
     public List<OrderItemView> getItems() {
         return items;
+    }
+
+    /**
+     * Returns the latest refund state.
+     *
+     * @return refund state, {@code null} when the buyer never applied
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public RefundSummaryView getRefund() {
+        return refund;
     }
 }
