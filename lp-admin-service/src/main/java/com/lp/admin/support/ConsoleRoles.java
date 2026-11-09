@@ -29,6 +29,9 @@ public final class ConsoleRoles {
     /** Permission code guarding the order list. */
     public static final String ORDER_LIST = "admin:order:list";
 
+    /** Permission code guarding the teacher onboarding queue and its decisions. */
+    public static final String TEACHER_AUDIT = "admin:teacher:audit";
+
     private ConsoleRoles() {}
 
     /**
