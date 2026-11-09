@@ -70,4 +70,20 @@ public interface CouponMapper {
             @Param("userCouponId") long userCouponId,
             @Param("orderId") long orderId,
             @Param("usedAt") LocalDateTime usedAt);
+
+    /**
+     * Returns the coupon occupied by a closed order to the buyer.
+     *
+     * <p>The {@code status = 1} and {@code order_id} predicates keep the update idempotent and stop
+     * it from touching a coupon that was consumed by another order.
+     *
+     * @param orderId closed order id
+     * @return affected rows, {@code 0} when the order holds no coupon
+     * @author Caspian
+     * @since 0.2.0
+     */
+    @Update(
+            "UPDATE user_coupon SET status = 0, order_id = NULL, used_at = NULL "
+                    + "WHERE order_id = #{orderId} AND status = 1")
+    int releaseByOrderId(@Param("orderId") long orderId);
 }
