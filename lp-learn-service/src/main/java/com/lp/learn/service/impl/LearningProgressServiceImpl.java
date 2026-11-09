@@ -21,9 +21,10 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * Default {@link LearningProgressService} implementation.
  *
- * <p>{@code max_position_seconds} never decreases and is only used for resume. Completion is driven
- * by {@code watched_sec}: a lesson counts as complete once the accumulated credible watch time
- * reaches 90% of its duration, so seeking to the end does not complete anything.
+ * <p>{@code max_position_seconds} never decreases, is used for resume, and also drives completion
+ * together with {@code watched_sec}: a lesson counts as complete only when the accumulated credible
+ * watch time and the furthest playback position both reach 90% of its duration, so neither seeking
+ * to the end nor leaving the player muted can complete a lesson on its own.
  *
  * <p>Credible increment: the server uses the gap between the previous stored {@code updated_at} and
  * now (never a client supplied interval, which could be forged) as the real elapsed time. The
@@ -154,7 +155,8 @@ public class LearningProgressServiceImpl implements LearningProgressService {
                 (existing != null
                                 && existing.getCompleted() != null
                                 && existing.getCompleted() == 1)
-                        || reachedThreshold(watchedSeconds, lesson.getDurationSec());
+                        || (reachedThreshold(watchedSeconds, lesson.getDurationSec())
+                                && reachedThreshold(maxPositionSeconds, lesson.getDurationSec()));
 
         LearningProgress progress = new LearningProgress();
         progress.setUserId(userId);
@@ -213,8 +215,7 @@ public class LearningProgressServiceImpl implements LearningProgressService {
         return Math.max(0L, seconds);
     }
 
-    private static boolean reachedThreshold(int watchedSeconds, int durationSec) {
-        return durationSec > 0
-                && watchedSeconds * PERCENT_BASE >= (long) durationSec * COMPLETION_PERCENT;
+    private static boolean reachedThreshold(int seconds, int durationSec) {
+        return durationSec > 0 && seconds * PERCENT_BASE >= (long) durationSec * COMPLETION_PERCENT;
     }
 }

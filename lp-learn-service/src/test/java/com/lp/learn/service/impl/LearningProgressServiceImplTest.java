@@ -174,13 +174,14 @@ class LearningProgressServiceImplTest {
     }
 
     /**
-     * Completion now depends on watch time, not on the furthest position.
+     * Reaching the end of the lesson does not complete it when the credible watch time is short, so
+     * the playback position is a necessary condition but not a sufficient one.
      *
      * @author Caspian
      * @since 0.1.0
      */
     @Test
-    void completionRequiresWatchedThresholdNotPosition() {
+    void positionAtThresholdWithShortWatchIsNotComplete() {
         when(lessonInternalClient.lesson(LESSON_ID)).thenReturn(lesson(false));
         when(learningProgressMapper.selectOne(USER_ID, LESSON_ID))
                 .thenReturn(existing(595, 595, 530, 0, 10));
@@ -192,13 +193,54 @@ class LearningProgressServiceImplTest {
     }
 
     /**
-     * Accumulated watch time reaching 90% of the duration flips completion.
+     * Accumulated watch time alone does not complete a lesson when the furthest position stays
+     * below the threshold, so muting the player cannot mark the lesson as learned.
+     *
+     * @author Caspian
+     * @since 0.3.0
+     */
+    @Test
+    void watchedAtThresholdWithShortPositionIsNotComplete() {
+        when(lessonInternalClient.lesson(LESSON_ID)).thenReturn(lesson(false));
+        when(learningProgressMapper.selectOne(USER_ID, LESSON_ID))
+                .thenReturn(existing(100, 100, 538, 0, 10));
+
+        LessonProgressView view = progressService.report(USER_ID, LESSON_ID, 539);
+
+        assertEquals(553, view.getWatchedSeconds());
+        assertEquals(539, view.getMaxPositionSeconds());
+        assertFalse(view.isCompleted());
+        assertEquals(0, captureMerged().getCompleted());
+    }
+
+    /**
+     * Both thresholds reaching exactly 90% of the duration flip completion.
+     *
+     * @author Caspian
+     * @since 0.3.0
+     */
+    @Test
+    void exactThresholdsTriggerCompletion() {
+        when(lessonInternalClient.lesson(LESSON_ID)).thenReturn(lesson(false));
+        when(learningProgressMapper.selectOne(USER_ID, LESSON_ID))
+                .thenReturn(existing(538, 538, 538, 0, 10));
+
+        LessonProgressView view = progressService.report(USER_ID, LESSON_ID, 540);
+
+        assertEquals(540, view.getWatchedSeconds());
+        assertEquals(540, view.getMaxPositionSeconds());
+        assertTrue(view.isCompleted());
+        assertEquals(1, captureMerged().getCompleted());
+    }
+
+    /**
+     * Both thresholds reaching 90% of the duration flips completion.
      *
      * @author Caspian
      * @since 0.1.0
      */
     @Test
-    void watchedThresholdTriggersCompletion() {
+    void bothThresholdsTriggerCompletion() {
         when(lessonInternalClient.lesson(LESSON_ID)).thenReturn(lesson(false));
         when(learningProgressMapper.selectOne(USER_ID, LESSON_ID))
                 .thenReturn(existing(538, 538, 538, 0, 10));
@@ -206,6 +248,25 @@ class LearningProgressServiceImplTest {
         LessonProgressView view = progressService.report(USER_ID, LESSON_ID, 545);
 
         assertEquals(545, view.getWatchedSeconds());
+        assertTrue(view.isCompleted());
+        assertEquals(1, captureMerged().getCompleted());
+    }
+
+    /**
+     * A lesson already marked complete stays complete even when later reports do not reach the
+     * thresholds again.
+     *
+     * @author Caspian
+     * @since 0.3.0
+     */
+    @Test
+    void completedStateNeverReverts() {
+        when(lessonInternalClient.lesson(LESSON_ID)).thenReturn(lesson(false));
+        when(learningProgressMapper.selectOne(USER_ID, LESSON_ID))
+                .thenReturn(existing(100, 100, 0, 1, 10));
+
+        LessonProgressView view = progressService.report(USER_ID, LESSON_ID, 110);
+
         assertTrue(view.isCompleted());
         assertEquals(1, captureMerged().getCompleted());
     }

@@ -80,7 +80,7 @@ public class PurchaseTicketServiceImpl implements PurchaseTicketService {
     public PurchaseTicketView issue(long userId, long courseId) {
         CourseSnapshot course = courseInternalClient.course(courseId);
         if (course.getStatus() != COURSE_PUBLISHED) {
-            throw new BizException(ErrorCode.COURSE_NOT_ON_SALE);
+            throw new BizException(ErrorCode.TRADE_UNAVAILABLE);
         }
         String ticket = ticketStore.issue(userId, courseId);
         String url = baseUrl() + "/purchase?ticket=" + ticket;
