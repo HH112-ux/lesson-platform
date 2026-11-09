@@ -21,6 +21,7 @@ const REFUND_STATUS: Record<number, string> = {
   2: '已退款',
   3: '已驳回',
   4: '退款失败',
+  5: '结果未知待确认',
 }
 
 const statusFilter = ref<number | undefined>(undefined)
@@ -150,6 +151,9 @@ onMounted(load)
           <option :value="4">
             退款失败
           </option>
+          <option :value="5">
+            结果未知待确认
+          </option>
         </select>
       </label>
     </header>
@@ -215,7 +219,7 @@ onMounted(load)
                 class="detail"
               >驳回原因：{{ refund.reviewReason }}</small>
               <small
-                v-if="refund.status === 4 && refund.failReason"
+                v-if="(refund.status === 4 || refund.status === 5) && refund.failReason"
                 class="detail"
               >失败原因：{{ refund.failReason }}</small>
             </td>
