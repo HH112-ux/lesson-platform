@@ -6,11 +6,11 @@
 |---|---|
 | 编号 | SPEC-LEARN-005 |
 | 标题 | 完课判定（双 90%） |
-| 来源 | D7、2026-11-09 拍板口径 |
-| 状态 | 进行中 |
-| 计划层级 | L1-6 |
+| 来源 | D7、D16、2026-11-09 拍板口径 |
+| 状态 | 已完成 |
+| 计划层级 | — |
 | 最后核对 | 2026-11-09 |
-| AC 完成度 | 3/5 |
+| AC 完成度 | 6/6 |
 
 ## 2. 背景与目标
 
@@ -43,21 +43,23 @@
 
 ## 5. 验收标准
 
-- AC-1：仅当 `watched_sec × 100 ≥ lesson.duration_sec × 90` 时，该课时才可能被判定为完成；不满足时 `completed` 必须为 0。
-- AC-2：仅当 `max_position_seconds × 100 ≥ lesson.duration_sec × 90` 时，该课时才可能被判定为完成；不满足时 `completed` 必须为 0。
-- AC-3：`watched_sec` 与 `max_position_seconds` 同时满足各自 90% 条件时，同一次上报事务内把 `completed` 置为 1。
-- AC-4：`completed` 一旦为 1，后续任何进度上报、位置回退或退款撤销都不再把该字段改回 0。
-- AC-5：进度上报请求只接受 `lessonId` 与 `positionSeconds`，客户端传入 `completed`、`watchedSeconds` 或 `maxPositionSeconds` 都不影响判定结果，完成态始终由服务端按 AC-1 至 AC-3 重算。
+- AC-1：同一次进度上报事务内，仅当 `learning_progress.watched_sec × 100 ≥ lesson.duration_sec × 90` 且 `learning_progress.max_position_seconds × 100 ≥ lesson.duration_sec × 90` 同时成立时，`completed` 才置为 1；任一条件不成立时 `completed` 为 0。位置条件取 `learning_progress.max_position_seconds`（接口字段 `maxPositionSeconds`），观看条件取 `learning_progress.watched_sec`（接口字段 `watchedSeconds`）。
+- AC-2：`max_position_seconds × 100 ≥ lesson.duration_sec × 90` 成立但 `watched_sec × 100 < lesson.duration_sec × 90` 时，`completed` 必须为 0，即拖到片尾不能完成。
+- AC-3：`watched_sec × 100 ≥ lesson.duration_sec × 90` 成立但 `max_position_seconds × 100 < lesson.duration_sec × 90` 时，`completed` 必须为 0，即静音挂机不能完成。
+- AC-4：`watched_sec` 与 `max_position_seconds` 都恰好等于 `lesson.duration_sec × 90%` 时判定为完成，边界值含等于。
+- AC-5：`completed` 一旦为 1，后续任何进度上报、位置回退或退款撤销都不再把该字段改回 0。
+- AC-6：进度上报请求只接受 `lessonId` 与 `positionSeconds`，客户端传入 `completed`、`watchedSeconds` 或 `maxPositionSeconds` 都不影响判定结果，完成态始终由服务端按 AC-1 至 AC-4 重算。
 
 ## 6. 边界与异常
 
 | 编号 | 触发条件 | 系统表现 | 关联 AC |
 |---|---|---|---|
 | E-1 | 课时时长为 0 或缺失 | 该课时不参与完成判定，`completed` 保持 0，并记录数据异常告警 | AC-1 |
-| E-2 | 有效观看达到 90%、位置为 89.99% | `completed=0`，响应含当前 `watchedSeconds` 与 `maxPositionSeconds` 供前端提示 | AC-2 |
+| E-2 | 有效观看达到 90%、位置为 89.99% | `completed=0`，响应含当前 `watchedSeconds` 与 `maxPositionSeconds` 供前端提示 | AC-3 |
 | E-3 | 首次上报（无基线） | 只建立位置基线，`watched_sec` 为 0，不判定完成 | AC-1 |
-| E-4 | 同一次上报的增量被 1.5 倍规则截断 | 按截断后的有效增量累计，响应 `truncated=true`，不因截断回退已完成状态 | AC-4 |
-| E-5 | 并发两次上报 | 使用 `GREATEST` 写入两个位置字段，完成判定在同一事务内重算，不出现完成态丢失 | AC-3 |
+| E-4 | 同一次上报的增量被 1.5 倍规则截断 | 按截断后的有效增量累计，响应 `truncated=true`，不因截断回退已完成状态 | AC-5 |
+| E-5 | 并发两次上报 | 使用 `GREATEST` 写入两个位置字段，完成判定在同一事务内重算，不出现完成态丢失 | AC-1 |
+| E-6 | 位置达到 90%、有效观看为 89.99%（拖到片尾） | `completed=0`，不因位置达标而置位 | AC-2 |
 
 ## 7. 依赖的规格条目
 
@@ -74,6 +76,6 @@
 
 ## 9. 关联
 
-- 上游决策：D7（完课判定由服务端计算）、2026-11-09 双 90% 口径。
+- 上游决策：D7（完课判定由服务端计算）、D16（双 90% 口径，收口 D7）、2026-11-09 拍板口径。
 - 关联条目：SPEC-LEARN-004、SPEC-LEARN-006、SPEC-LEARN-008。
 - 实现索引：`docs/project-status.md` 的规格索引表。
