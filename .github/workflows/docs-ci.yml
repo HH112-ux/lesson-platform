@@ -8,7 +8,10 @@ on:
   push:
     branches:
       - develop
+      - main
   merge_group:
+  # Allows the required checks to be re-run on main without a new commit.
+  workflow_dispatch:
 
 jobs:
   docs-check:
