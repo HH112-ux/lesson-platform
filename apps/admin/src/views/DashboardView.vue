@@ -8,7 +8,7 @@
 import { onMounted, ref } from 'vue'
 import { loadOverview, type MetricsOverview } from '../api/admin'
 import { describeError } from '../utils/errors'
-import { formatPercent } from '../utils/format'
+import { formatFen, formatPercent } from '../utils/format'
 
 const overview = ref<MetricsOverview | null>(null)
 const loading = ref(false)
@@ -59,7 +59,7 @@ onMounted(load)
       <dl class="stats">
         <div class="lp-card">
           <dt>成交金额（元）</dt>
-          <dd>{{ overview.gmv.toFixed(2) }}</dd>
+          <dd>{{ formatFen(overview.gmvFen) }}</dd>
         </div>
         <div class="lp-card">
           <dt>订单数</dt>

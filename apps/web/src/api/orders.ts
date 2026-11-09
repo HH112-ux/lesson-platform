@@ -6,14 +6,14 @@
  */
 import { apiRequest } from './client'
 
-/** Order projection returned by the trade service; amounts are in yuan. */
+/** Order projection returned by the trade service; amounts are in fen. */
 export interface OrderView {
   orderNo: string
   status: number
   channel: number
-  totalAmount: number
-  discountAmount: number
-  payAmount: number
+  totalAmountFen: number
+  discountAmountFen: number
+  payAmountFen: number
   courseId: number
   payExpireAt?: string | null
   paidAt?: string | null
@@ -30,7 +30,7 @@ export interface PayView {
 export interface OrderItemView {
   courseId: number
   title: string
-  price: number
+  priceFen: number
 }
 
 /** Refund state embedded in an order row. */
@@ -39,8 +39,8 @@ export interface RefundSummaryView {
   refundNo: string
   /** 0 pending review, 1 approved, 2 refunded, 3 rejected, 4 failed. */
   status: number
-  /** Refund amount in yuan. */
-  amount: number
+  /** Refund amount in fen. */
+  amountFen: number
   reason: string
   reviewReason?: string | null
   failReason?: string | null
@@ -54,7 +54,7 @@ export interface RefundView {
   orderId: number
   orderNo: string
   channel: number
-  amount: number
+  amountFen: number
   status: number
   reason: string
   reviewReason?: string | null
@@ -68,8 +68,8 @@ export interface OrderSummaryView {
   orderNo: string
   status: number
   channel: number
-  /** Amount in yuan. */
-  payAmount: number
+  /** Amount in fen. */
+  payAmountFen: number
   createdAt: string
   items: OrderItemView[]
   /** Latest refund request, {@code null} when never applied. */
@@ -177,5 +177,5 @@ export function payOrder(orderNo: string): Promise<PayView> {
  * @since 0.2.0
  */
 export function isOrderPaid(order: OrderView): boolean {
-  return order.status === ORDER_STATUS_PAID || order.payAmount <= 0
+  return order.status === ORDER_STATUS_PAID || order.payAmountFen <= 0
 }

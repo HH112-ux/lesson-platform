@@ -8,7 +8,7 @@
 import { onMounted, ref } from 'vue'
 import { listAdminOrders, type AdminOrderView } from '../api/admin'
 import { describeError } from '../utils/errors'
-import { formatTime, formatYuan } from '../utils/format'
+import { formatFen, formatTime } from '../utils/format'
 
 const PAGE_SIZE = 20
 
@@ -125,7 +125,7 @@ onMounted(load)
           >
             <td>{{ order.orderNo }}</td>
             <td>{{ order.userId }}</td>
-            <td>¥{{ formatYuan(order.payAmount) }}</td>
+            <td>¥{{ formatFen(order.payAmountFen) }}</td>
             <td>{{ statusText(order.status) }}</td>
             <td>{{ formatTime(order.createdAt) }}</td>
           </tr>

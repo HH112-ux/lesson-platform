@@ -4,7 +4,7 @@ import PageState from '../components/PageState.vue'
 import { applyRefund, listOrders, type OrderSummaryView } from '../api/orders'
 import { navigate } from '../router'
 import { describeError, isUnauthorized } from '../utils/errors'
-import { formatYuan } from '../utils/format'
+import { formatCents } from '../utils/format'
 import { isSignedIn } from '../utils/session'
 
 const PAGE_SIZE = 10
@@ -246,7 +246,7 @@ void load()
                 >--</span>
               </td>
               <td>
-                <span class="price">¥{{ formatYuan(order.payAmount) }}</span>
+                <span class="price">¥{{ formatCents(order.payAmountFen) }}</span>
               </td>
               <td>
                 <span
@@ -328,7 +328,7 @@ void load()
             申请退款
           </h2>
           <p class="dialog-line">
-            订单 {{ applyingOrder.orderNo }} · 退款金额 ¥{{ formatYuan(applyingOrder.payAmount) }}
+            订单 {{ applyingOrder.orderNo }} · 退款金额 ¥{{ formatCents(applyingOrder.payAmountFen) }}
           </p>
           <p class="dialog-line lp-subtle">
             仅支持全额退款：需在付款后 7 天内且学习进度不超过 20%，提交后由运营审核。
