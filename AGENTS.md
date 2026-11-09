@@ -6,7 +6,7 @@
 > **与项目文档的关系**：`docs/engineering-plan.md` 描述"做什么、怎么设计"；AGENTS.md 规定"怎么做、什么禁止"。该文档第 9 章只写工程流程差异并引用 AGENTS.md，**执行规则以 AGENTS.md 为准**。
 > **开工前要求**：任何写操作（改文件、切分支、commit、push）之前，**必须先完整读完 AGENTS.md**，再执行第二节的开工四查；未读完不得动手。
 > **冲突处理**：AGENTS.md 与用户当轮指令、项目文档、CI 配置冲突时，**立即停止操作**，写明冲突点（规则条款 / 涉及文件 / 两种做法），交负责人裁决；禁止自行取舍，禁止"先做了再说"。
-> **文档边界**：本仓库常驻规则/方案文件为 AGENTS.md 与 `docs/` 下的 `engineering-plan.md`、`product-lifecycle.md`（`local-dev-guide.md` 为 M0 规划产出），不新建同类文档。
+> **文档边界**：本仓库常驻规则/方案文件为 `AGENTS.md`、`README.md` 与 `docs/` 下的 `engineering-plan.md`、`product-lifecycle.md`、`project-status.md`、`local-dev-guide.md`、`purchase-flow.md`、`changelog.md`、`specs/`；不新建同类文档。
 
 ---
 
@@ -70,7 +70,7 @@ git remote -v
 | F7 | `git add -A`、`git add .`、`git add -u` 笼统暂存；把无关改动混进同一 commit | 提交不可审查、不可回滚 |
 | F8 | 删除他人分支、删除已发布的 tag（`v*` / `mp-v*`） | 破坏他人工作与版本可追溯性 |
 | F9 | 未实际运行验证就声称"已验证 / 测试通过" | 误导负责人，引入未验证缺陷 |
-| F10 | Agent 自行合并 PR、自行把 draft 转 ready | 绕过人工评审 |
+| F10 | Agent 未经负责人当轮授权，自行合并 PR、把 draft 转 ready 或打 tag | 绕过人工评审授权 |
 | F11 | 在小程序分支里顺带改后端契约或价格/支付字段（`price`、`channel`） | 契约漂移，小程序版本不可回退 |
 
 **3.2 敏感信息与密钥（F6 的展开）**
@@ -94,8 +94,9 @@ git remote -v
 
 | 操作 | 授权要求 | 授权后命令 |
 |---|---|---|
-| `git push` 到远端 | 每次 push 单独授权，不跨轮次、不跨分支 | `git push -u origin feature/xxx` |
-| 创建 PR | 默认建 draft，创建动作本身仍需确认 | `gh pr create --draft` |
+| `git push` 到远端 | 负责人当轮授权可覆盖本任务内同一分支的连续 push；跨任务、换分支或推共享分支须重新授权 | `git push -u origin feature/xxx` |
+| 创建 PR | 默认建 draft；负责人当轮已批准任务 PR 清单时，可按清单连续创建，仍需 draft 起步 | `gh pr create --draft` |
+| 合并本任务 PR | 负责人当轮授权后，仅限当轮清单内的 PR；禁 `--admin`，禁强推 | `gh pr merge --squash --delete-branch` |
 | 打 tag 并推送 | 必须有负责人签字的发布单 | `git tag -a v1.2.3 -m "..." && git push origin v1.2.3` |
 | 删除分支（本地/远端） | 逐次授权 | `git branch -d feature/xxx` |
 | 改 CI/CD（`.github/workflows/*`） | 说明影响面后授权 | — |
@@ -127,7 +128,7 @@ git remote -v
 **命名规则**：
 
 - 格式：`<type>/<scope>-<短语>`，全小写，短横线分隔，**不得含中文、空格、下划线**。
-- `scope` 必须取自本仓库模块：`gateway`、`auth`、`course`、`trade`、`learn`、`ugc`、`admin`、`ai`、`web`、`admin-web`、`miniapp`、`db`、`ci`。
+- `scope` 必须取自本仓库模块：`gateway`、`auth`、`course`、`trade`、`learn`、`ugc`、`admin`、`ai`、`web`、`admin-web`、`miniapp`、`db`、`ci`、`docs`。
 - 短语 2–4 个英文单词，如 `feature/trade-wxpay-callback`、`fix/miniapp-login-code`、`chore/ci-miniprogram-upload`。
 - 小程序专属改动统一用 `miniapp` scope（如 `feature/miniapp-pay-jsapi`），便于按路径过滤 CI 与评审人。
 - 续做他人/上一轮分支：沿用原分支，禁止重命名；`git fetch origin && git switch feature/xxx && git pull --ff-only`。
@@ -199,7 +200,7 @@ chore(deps): upgrade wechatpay-java to 0.2.12
 
 ### 7.2 分支保护实际口径（GitHub 已启用）
 
-- 适用分支：`main` 与 `develop`。规则：必须经 PR 合入；required status check `docs-check` 必过；`enforce_admins=true`，**管理员同样受约束**；`required_approving_review_count=0`（单人仓库无法自批，合并不等待 approve）；禁止 force push、禁止删除分支；合并后自动删除源分支。
+- 适用分支：`main` 与 `develop`。规则：必须经 PR 合入；5 项必需检查全部必过——`docs-check`、`backend-build`、`backend-test`、`frontend-check`、`miniapp-check`；`enforce_admins=true`，**管理员同样受约束**；`required_approving_review_count=0`（单人仓库无法自批，合并不等待 approve）；禁止 force push、禁止删除分支；合并后自动删除源分支。
 - 合并方式：`gh pr merge --squash`；approve 为 0，不需要也不得使用 `--admin` 绕过评审。若常规合并被拦，说明保护配置与本节不符，**停止并报告负责人**，不得绕过。
 - 已启用：`required_linear_history=true`、`required_conversation_resolution=true`、squash 默认标题取 PR 标题、merge queue（`merge_group` 已在 CI 中触发）；`require_code_owner_reviews=false`（单人仓库例外，见 7.3）。
 - 7.1 的 bootstrap 例外自保护开启起失效；直推 `develop` 须改走 PR 合入。
@@ -227,10 +228,10 @@ chore(deps): upgrade wechatpay-java to 0.2.12
 | 项 | 规则 |
 |---|---|
 | 单 PR 变更量 | ≤ 400 行；超出需拆分并说明拆分理由 |
-| 常规 PR | CI 全绿（`docs-check` 必过）；approve 数量为 0（单人仓库无法自批，合并不等待 approve） |
+| 常规 PR | CI 全绿（5 项必需检查必过）；approve 数量为 0（单人仓库无法自批，合并不等待 approve） |
 | 高风险 PR（支付、鉴权、教师归属、退款、对账） | 单人仓库阶段 approve 为 0；成员加入后升级为 **2 人 approve**（其一为对应模块 owner），PR 需附"越权/验签/金额一致性"用例结果 |
 | 合并方式 | 合入 `develop`：squash；`hotfix/*` 合 `main`：merge commit 保留追溯 |
-| 合并执行者 | **人类**；Agent 不合并、不转 ready |
+| 合并执行者 | 默认**人类**；负责人当轮授权本任务 PR 清单时，Agent 可按清单转 ready 并 squash 合并，禁用 `--admin` |
 | 禁止 | PR 中混入无关重构；限制 CI 覆盖范围来"变绿" |
 
 **发布与 tag 版本对应**：
@@ -284,7 +285,7 @@ chore(deps): upgrade wechatpay-java to 0.2.12
 3. **不得跳过 hooks**；钩子失败必须修根因（含 gitleaks 报出的密钥）。
 4. **不得强推**，不得对他人分支做任何写操作。
 5. **大改必须先说明再动手**（先给方案、影响文件清单、验证计划，等确认）：涉及 ≥ 5 个文件、跨 ≥ 2 个端（后端/Web/小程序）、任何 Flyway 迁移、任何 CI 配置、任何支付/鉴权/教师归属逻辑、任何 `price`/`channel` 字段语义变更。
-6. **不得自行创建 PR、合并 PR、打 tag、提交小程序审核**；这些只能由人类执行。
+6. **默认不得自行创建 PR、合并 PR**；负责人当轮授权本任务 PR 清单后，可按清单创建 draft、转 ready 并 squash 合并；**打 tag 与提交小程序审核始终只能由人类执行**。
 7. 修改既有文档时保持其结构与既有章节编号，不新建额外文档；本仓库只维护一份工程规划文档。新增命名/目录问题时先按第十一节判定。
 8. 交付前必须自检是否违反第三节任一红线，并在报告里明确"未触碰"。
 
@@ -306,7 +307,7 @@ chore(deps): upgrade wechatpay-java to 0.2.12
 ### 11.1 文件与目录
 
 - **必须**：文档命名统一为 `英文短语-kebab-case.md`（无数字前缀），与文档业务主题一致；仅当确实存在有序系列（如数据库迁移脚本、发布步骤）时才使用编号。同一目录内风格统一。本仓库 docs 采用「全英文短名」，文档标题行与正文仍用中文。
-- **必须**：根目录常驻文件只允许 `AGENTS.md`；`docs/` 只放文档；源码与构建配置放各自目录，不得在根目录堆临时文件。
+- **必须**：根目录常驻文件只允许 `AGENTS.md` 与 `README.md`；`docs/` 只放文档。`docs/` 常驻文件为 `engineering-plan.md`、`product-lifecycle.md`、`project-status.md`、`local-dev-guide.md`、`purchase-flow.md`、`changelog.md`，以及 `specs/` 目录；规格详情模板 `_template-spec.md` 允许前导下划线。源码与构建配置放各自目录，不得在根目录堆临时文件。
 - **禁止入库**：`.DS_Store`、`.screenshots/`、`*.tmp`、`*.log`、`node_modules/`、`dist/`、`target/`、`.idea/`、`.vscode/`（`AGENTS.md` 第三节 F6 已列为红线）。
 - **禁止**：新增说明类文档前不检索既有文档；本仓库只维护一份工程规划文档，其余内容并入既有章节。
 
@@ -332,6 +333,7 @@ chore(deps): upgrade wechatpay-java to 0.2.12
 ### 11.4 接口层
 
 - **必须**：路径 `/api/v{版本}/{资源复数}`，kebab-case 全小写；资源用复数名词（`/courses`、`/orders`）；嵌套 ≤ 2 层；动作用子路径（`/publish`、`/refund`）。
+- **必须**：前端页面路由同样使用全小写 kebab-case，如 `/purchase`、`/auth/me`、`/learning/my-courses`；不得使用驼峰、下划线或中文路径。路由与后端接口路径各自独立，不要求同名。
 - **必须**：路径参数用 `{camelCase}`（`{courseId}`）；分页固定 `pageNum / pageSize`（默认 1 / 20，上限 100），排序 `sort`；JSON 字段 camelCase，数据库字段 snake_case，映射集中在 DTO。
 - **必须**：HTTP 方法语义——GET 查询、POST 创建或动作、PUT 全量更新、PATCH 局部更新、DELETE 删除；查询禁止用 POST。
 - **必须**：错误码分段——`4xxxx` 客户端/协议（400 参数、401 凭证、403 权限、404 资源、409 状态、429 限流）、`5xxxx` 服务端与依赖（500 未捕获、502 第三方渠道、503 AI 链路）、`6xxxx` 业务（第 2 位为域：61 课程、62 交易、63 学习、64 互动、65 AI 会话、66 小程序登录）；同一语义不得跨段重复定义。
@@ -362,10 +364,40 @@ chore(deps): upgrade wechatpay-java to 0.2.12
 
 ---
 
+## 十二、规格驱动开发（SDD）
+
+**定位**：产品规则以 `docs/product-lifecycle.md` 为准，技术方案以 `docs/engineering-plan.md` 为准，**可验收的规格条目**以 `docs/specs/` 为准。三者冲突时停止实现，按 1.1 节的优先级交负责人裁决，禁止开发者自行选择一套。
+
+**目录与编号**：
+
+- 域索引固定为 `docs/specs/course.md`、`trade.md`、`learning.md`、`platform.md`；只放条目索引与状态，不写长篇场景。
+- 编号格式 `SPEC-{DOMAIN}-{NNN}`，`DOMAIN` ∈ `COURSE/TRADE/LEARN/PLAT`，`NNN` 三位、按域递增；**编号由域文件分配，不得复用或跳号后回填**。
+- 单个功能的详细规格放 `docs/specs/features/SPEC-XXX-NNN/`；当前只维护模板 `docs/specs/features/_template-spec.md`，不批量回填历史功能。
+- 不引入 `.specify/` 或其他工具目录，不提交任何 CLI 生成产物；规格全部手写维护。
+
+**条目字段（缺一不可）**：编号、标题、来源（D 编号 / 已登记决策 / 文档章节）、状态、层级、最后核对日期、验收标准摘要。状态仅允许 `未开始`、`进行中`、`已完成`、`已废弃`；层级仅允许 `L1`、`L2`、`L3`、`上线后首批`、`真实收款前置`。
+
+**验收标准**：
+
+- 每条规格必须有编号化验收标准 `AC-1`、`AC-2`…；一条一句话，且能判定是/否，不得把多条判断揉成一段。
+- AC 必须来自已冻结决策，**不得从现状文档或现有实现反推**；文档与代码都没定的口径先列为待确认，不得自行补写。
+- 已废弃的错误码或规则不得保留在 AC 中，需在对应条目注明废弃依据。
+
+**详情模板**：`_template-spec.md` 使用中文，不引入英文占位符体系；未决事项统一写 `[待澄清]`，数量不设机械上限。
+
+**维护规则**：
+
+- 代码行为变化导致 AC 状态变化时，在同一 PR 内更新对应域文件；禁止只改代码不改规格。
+- 最后核对日期超过 30 天的条目，开工前必须重新核对代码与页面，不得把过期结论当作事实。
+- `docs/project-status.md` 的规格索引必须同步状态、层级与 AC 完成度（如 `3/5`）。
+- 分支名按第五节规则；提交信息 body 或 footer 用 `Refs: SPEC-XXX-NNN` 回指涉及的规格条目。
+
+---
+
 ## 速查（一页）
 
 **必做**：开工四查 → 从 `origin/develop` 切分支 → 精确 `git add` → 提交前跑验证 → 交付六项报告。
 
-**必问**：push、建 PR、打 tag、删分支、改 CI、改迁移、升依赖、小程序上传/发布、`reset --hard`。
+**必问**：push、建 PR、合并 PR、打 tag、删分支、改 CI、改迁移、升依赖、小程序上传/发布、`reset --hard`。
 
-**禁止**：强推共享分支、在 `main`/`develop` 直接提交、`reset --hard`/`clean -fdx`、`--no-verify`、rebase 已推送提交、提交密钥、`git add -A`、删他人分支/已发布 tag、未验证声称通过、Agent 自行合并 PR。
+**禁止**：强推共享分支、在 `main`/`develop` 直接提交、`reset --hard`/`clean -fdx`、`--no-verify`、rebase 已推送提交、提交密钥、`git add -A`、删他人分支/已发布 tag、未验证声称通过、未授权合并 PR。
