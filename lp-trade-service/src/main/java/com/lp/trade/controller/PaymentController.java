@@ -16,6 +16,7 @@ import com.lp.trade.service.PaymentService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -43,6 +44,10 @@ import org.springframework.web.bind.annotation.RestController;
 public class PaymentController {
 
     private static final Logger LOG = LoggerFactory.getLogger(PaymentController.class);
+
+    /** Explicit UTF-8 media type, so a replay never depends on the global encoding config. */
+    private static final MediaType JSON_UTF8 =
+            new MediaType(MediaType.APPLICATION_JSON, StandardCharsets.UTF_8);
 
     private final PaymentService paymentService;
 
@@ -96,7 +101,7 @@ public class PaymentController {
         if (outcome.replayed()) {
             response.setHeader(IdempotencyHeaders.REPLAYED, "true");
         }
-        return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(outcome.value());
+        return ResponseEntity.ok().contentType(JSON_UTF8).body(outcome.value());
     }
 
     /**
