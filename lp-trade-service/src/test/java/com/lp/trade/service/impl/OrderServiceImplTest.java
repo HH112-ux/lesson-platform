@@ -157,6 +157,53 @@ class OrderServiceImplTest {
     }
 
     /**
+     * Reusing an idempotency key for another course is rejected instead of returning the first
+     * order, so a stale key cannot buy a different course in the buyer's name.
+     *
+     * @author Caspian
+     * @since 0.3.0
+     */
+    @Test
+    void rejectsReplayedKeyForAnotherCourse() {
+        TradeOrder existing = order(42L, "LP20260101000000001", OrderStatus.PENDING);
+        when(tradeOrderMapper.selectByUserAndIdempotencyKey(USER_ID, "key-6")).thenReturn(existing);
+        when(tradeOrderMapper.selectFirstItem(42L)).thenReturn(item());
+        CreateOrderRequest request = request("key-6", null);
+        request.setCourseId(COURSE_ID + 1);
+
+        BizException exception =
+                assertThrows(
+                        BizException.class, () -> orderService.create(USER_ID, "web", request));
+
+        assertEquals(40901, exception.getCode());
+        assertEquals("idempotency key reused with a different request", exception.getMessage());
+        verify(tradeOrderMapper, never()).insertOrder(any(TradeOrder.class));
+        verify(entitlementService, never()).grant(anyLong(), anyLong(), anyLong(), anyString());
+    }
+
+    /**
+     * Reusing an idempotency key with another coupon is rejected instead of returning the first
+     * order.
+     *
+     * @author Caspian
+     * @since 0.3.0
+     */
+    @Test
+    void rejectsReplayedKeyWithAnotherCoupon() {
+        TradeOrder existing = order(42L, "LP20260101000000001", OrderStatus.PENDING);
+        when(tradeOrderMapper.selectByUserAndIdempotencyKey(USER_ID, "key-7")).thenReturn(existing);
+        when(tradeOrderMapper.selectFirstItem(42L)).thenReturn(item());
+
+        BizException exception =
+                assertThrows(
+                        BizException.class,
+                        () -> orderService.create(USER_ID, "web", request("key-7", 55L)));
+
+        assertEquals(40901, exception.getCode());
+        verify(tradeOrderMapper, never()).insertOrder(any(TradeOrder.class));
+    }
+
+    /**
      * A course already bought cannot be ordered again.
      *
      * @author Caspian

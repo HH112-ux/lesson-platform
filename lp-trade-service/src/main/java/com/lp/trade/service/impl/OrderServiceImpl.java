@@ -28,9 +28,13 @@ import com.lp.trade.mapper.TradeOrderMapper;
 import com.lp.trade.service.OrderService;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -136,7 +140,7 @@ public class OrderServiceImpl implements OrderService {
         TradeOrder existing =
                 tradeOrderMapper.selectByUserAndIdempotencyKey(userId, idempotencyKey);
         if (existing != null) {
-            return viewOf(existing);
+            return replay(existing, courseId, request.getCouponId());
         }
 
         try {
@@ -151,7 +155,7 @@ public class OrderServiceImpl implements OrderService {
             TradeOrder winner =
                     tradeOrderMapper.selectByUserAndIdempotencyKey(userId, idempotencyKey);
             if (winner != null) {
-                return viewOf(winner);
+                return replay(winner, courseId, request.getCouponId());
             }
             throw exception;
         }
@@ -325,10 +329,51 @@ public class OrderServiceImpl implements OrderService {
         return discount.min(total);
     }
 
-    private OrderView viewOf(TradeOrder order) {
+    /**
+     * Returns the stored order when the idempotency key is replayed with the same payload.
+     *
+     * <p>A key is bound to the course and coupon of the first request. Reusing it for a different
+     * payload is rejected instead of returning the first order, so a stale or copied key cannot
+     * silently buy another course in the buyer's name.
+     *
+     * @param order stored order owning the key
+     * @param courseId course id from the current request
+     * @param couponId coupon id from the current request, may be {@code null}
+     * @return stored order view
+     * @throws BizException with {@code 40901} when the request payload differs
+     * @author Caspian
+     * @since 0.3.0
+     */
+    private OrderView replay(TradeOrder order, long courseId, Long couponId) {
         TradeOrderItem item = tradeOrderMapper.selectFirstItem(order.getId());
-        long courseId = item == null ? 0L : item.getCourseId();
-        return buildView(order, courseId);
+        long storedCourseId = item == null ? 0L : item.getCourseId();
+        if (!requestDigest(storedCourseId, order.getCouponId())
+                .equals(requestDigest(courseId, couponId))) {
+            throw new BizException(
+                    ErrorCode.STATE_CONFLICT, "idempotency key reused with a different request");
+        }
+        return buildView(order, storedCourseId);
+    }
+
+    /**
+     * Builds the stable payload digest an idempotency key is bound to.
+     *
+     * @param courseId course id
+     * @param couponId coupon id, may be {@code null}
+     * @return lowercase hex SHA-256 digest
+     * @author Caspian
+     * @since 0.3.0
+     */
+    private String requestDigest(long courseId, Long couponId) {
+        String payload = "v1|course=" + courseId + "|coupon=" + (couponId == null ? "-" : couponId);
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            return HexFormat.of()
+                    .formatHex(digest.digest(payload.getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException exception) {
+            // SHA-256 is mandatory in every JCA implementation, so this cannot happen at runtime.
+            throw new IllegalStateException("SHA-256 is not available", exception);
+        }
     }
 
     /**
