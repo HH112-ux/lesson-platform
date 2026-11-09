@@ -101,10 +101,11 @@ class PurchaseTicketServiceImplTest {
     }
 
     /**
-     * An offline course cannot be ticketed.
+     * An offline course cannot be ticketed and reports the shared trade-unavailable code, matching
+     * order creation; {@code 61001} is reserved for a course that cannot be found.
      *
      * @author Caspian
-     * @since 0.1.0
+     * @since 0.3.0
      */
     @Test
     void issueRejectsOfflineCourse() {
@@ -115,7 +116,7 @@ class PurchaseTicketServiceImplTest {
         BizException exception =
                 assertThrows(BizException.class, () -> service.issue(USER_ID, COURSE_ID));
 
-        assertEquals(61001, exception.getCode());
+        assertEquals(62003, exception.getCode());
         verifyNoInteractions(ticketStore);
     }
 

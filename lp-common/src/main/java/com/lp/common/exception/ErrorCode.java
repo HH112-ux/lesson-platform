@@ -61,8 +61,11 @@ public enum ErrorCode {
     /** AI pipeline unavailable or not configured. */
     AI_PIPELINE_UNAVAILABLE(50301, "ai pipeline unavailable"),
 
-    /** Course is missing, offline or otherwise not purchasable. */
-    COURSE_NOT_ON_SALE(61001, "course is not on sale"),
+    /**
+     * The course cannot be found. A course that exists but is offline is reported as {@link
+     * #TRADE_UNAVAILABLE} on every trade entry point.
+     */
+    COURSE_NOT_FOUND(61001, "course not found"),
 
     /** The user already owns the course. */
     COURSE_ALREADY_OWNED(61002, "course already owned"),
