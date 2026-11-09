@@ -4,13 +4,14 @@
 #
 # Proves the whole buyer refund path against the local stack instead of only in unit tests:
 #   1. buy and pay a course, entitlement is granted and the lesson plays;
-#   2. refund the order through the mock channel: the refund row, the order status and the
+#   2. applying only creates a pending row: the order stays paid, no channel refund runs;
+#   3. operations approval calls the mock channel: the refund row, the order status and the
 #      revoke outbox row appear;
-#   3. the relay delivers the revoke: the entitlement is revoked, not deleted, progress stays;
-#   4. my-courses marks the course as refunded and the play token is rejected with 40302;
-#   5. a repeated refund returns the original refund number, adds no row and does not touch
-#      the entitlement again;
-#   6. an amount above the paid amount is rejected with 62018 and nothing is refunded.
+#   4. the relay delivers the revoke: the entitlement is revoked, not deleted, progress stays;
+#   5. my-courses marks the course as refunded and the play token is rejected with 40302;
+#   6. re-applying after the refund is rejected with 62017 and adds no row;
+#   7. applying eight days after payment is rejected with 62007 and creates no row;
+#   8. a rejection requires a reason, keeps the order paid and allows a new application.
 #
 # Usage:
 #   bash scripts/refund-drill.sh
@@ -33,7 +34,8 @@ MYSQL_ROOT_PASSWORD="${LP_MYSQL_ROOT_PASSWORD:-lp_root_dev}"
 
 RUN_ID="$(date +%Y%m%d%H%M%S)"
 COURSE_TITLE="退款闭环演练 $RUN_ID"
-SECOND_COURSE_TITLE="退款超额演练 $RUN_ID"
+SECOND_COURSE_TITLE="退款超期演练 $RUN_ID"
+THIRD_COURSE_TITLE="退款驳回演练 $RUN_ID"
 
 HTTP_STATUS=""
 BODY=""
@@ -204,29 +206,41 @@ req GET "/api/v1/lessons/$LESSON_ID/play-token" "$STUDENT_TOKEN"
 require_code "play token before refund"
 pass "play token issued before refund"
 
-step 4 "request the refund: order, refund row and revoke outbox"
+step 4 "apply for the refund: a pending row only, no channel call"
 req POST "/api/v1/orders/$ORDER_ID/refund" "$STUDENT_TOKEN" \
   '{"reason":"refund drill"}'
-require_code "refund order"
+require_code "apply refund"
+REFUND_ID="$(jq -r '.data.refundId' <<<"$BODY")"
 REFUND_NO="$(jq -r '.data.refundNo' <<<"$BODY")"
 REFUND_STATUS="$(jq -r '.data.status' <<<"$BODY")"
-[ "$REFUND_STATUS" = "1" ] || die "refund did not succeed (status=$REFUND_STATUS)"
+[ "$REFUND_STATUS" = "0" ] || die "refund is not pending review (status=$REFUND_STATUS)"
 [ "$REFUND_NO" = "RF$ORDER_NO" ] || die "unexpected refund number $REFUND_NO"
-pass "refundNo=$REFUND_NO status=$REFUND_STATUS amount=$(jq -r '.data.amount' <<<"$BODY")"
+[ -n "$REFUND_ID" ] && [ "$REFUND_ID" != "null" ] || die "response has no refundId"
+[ "$(sql "SELECT status FROM lp_oms.trade_order WHERE id=$ORDER_ID")" = "1" ] \
+  || die "application changed the order status before review"
+[ "$(sql "SELECT COUNT(*) FROM lp_oms.entitlement_outbox WHERE order_id=$ORDER_ID AND action=1")" = "0" ] \
+  || die "application revoked the entitlement before review"
+pass "refundId=$REFUND_ID refundNo=$REFUND_NO status=0, order still paid, entitlement kept"
+
+step 5 "operations approval: channel refund, order refunded, revoke outbox"
+req POST "/api/v1/admin/refunds/$REFUND_ID/review" "$OPS_TOKEN" '{"approved":true}'
+require_code "approve refund"
+APPROVED_STATUS="$(jq -r '.data.status' <<<"$BODY")"
+[ "$APPROVED_STATUS" = "2" ] || die "approval did not refund (status=$APPROVED_STATUS)"
 
 [ "$(sql "SELECT status FROM lp_oms.trade_order WHERE id=$ORDER_ID")" = "5" ] \
   || die "order $ORDER_NO is not refunded"
 pass "order status=5 (refunded)"
 
-REFUND_ROW="$(sql "SELECT CONCAT_WS('|',status,amount,IFNULL(channel_refund_no,'')) FROM lp_oms.refund_request WHERE order_id=$ORDER_ID")"
-[ -n "$REFUND_ROW" ] || die "no refund row for order $ORDER_ID"
+REFUND_ROW="$(sql "SELECT CONCAT_WS('|',status,amount,IFNULL(channel_refund_no,'')) FROM lp_oms.refund_request WHERE id=$REFUND_ID")"
+[ "${REFUND_ROW%%|*}" = "2" ] || die "refund row is not refunded ($REFUND_ROW)"
 pass "refund_request status|amount|channel_refund_no = $REFUND_ROW"
 
 REVOKE_STATUS="$(wait_sql "SELECT status FROM lp_oms.entitlement_outbox WHERE order_id=$ORDER_ID AND action=1" 1 60)"
 [ "$REVOKE_STATUS" = "1" ] || die "revoke outbox row was not delivered (status=$REVOKE_STATUS)"
 pass "revoke outbox row delivered"
 
-step 5 "after the revoke: entitlement revoked, course marked, playback denied"
+step 6 "after the revoke: entitlement revoked, course marked, playback denied"
 ENTITLEMENT_ROW="$(sql "SELECT CONCAT_WS('|',status,user_id,course_id,IFNULL(order_id,''),IFNULL(revoked_at,'')) FROM lp_lms.user_entitlement WHERE user_id=$BUYER_ID AND course_id=$COURSE_ID")"
 [ -n "$ENTITLEMENT_ROW" ] || die "entitlement row was deleted instead of revoked"
 [ "${ENTITLEMENT_ROW%%|*}" = "1" ] || die "entitlement is not revoked ($ENTITLEMENT_ROW)"
@@ -246,38 +260,69 @@ PLAY_CODE="$(jq -r '.code // empty' <<<"$BODY")"
 [ "$PLAY_CODE" = "40302" ] || die "play token after refund returned code=$PLAY_CODE instead of 40302"
 pass "play token rejected with 40302"
 
-step 6 "idempotency: a repeated refund replays the original"
+step 7 "re-applying after the refund is rejected and adds no row"
 req POST "/api/v1/orders/$ORDER_ID/refund" "$STUDENT_TOKEN" \
   '{"reason":"refund drill again"}'
-require_code "repeated refund"
-REPLAY_NO="$(jq -r '.data.refundNo' <<<"$BODY")"
-[ "$REPLAY_NO" = "$REFUND_NO" ] || die "repeated refund returned $REPLAY_NO instead of $REFUND_NO"
+REPLAY_CODE="$(jq -r '.code // empty' <<<"$BODY")"
+[ "$REPLAY_CODE" = "62017" ] || die "re-apply returned code=$REPLAY_CODE instead of 62017"
 REFUND_ROWS="$(sql "SELECT COUNT(*) FROM lp_oms.refund_request WHERE order_id=$ORDER_ID")"
-[ "$REFUND_ROWS" = "1" ] || die "repeat created $REFUND_ROWS refund rows"
+[ "$REFUND_ROWS" = "1" ] || die "re-apply created $REFUND_ROWS refund rows"
 REVOKED_AT="$(sql "SELECT IFNULL(revoked_at,'') FROM lp_lms.user_entitlement WHERE user_id=$BUYER_ID AND course_id=$COURSE_ID")"
-[ "$REVOKED_AT" = "$FIRST_REVOKED_AT" ] || die "repeat changed revoked_at from $FIRST_REVOKED_AT to $REVOKED_AT"
+[ "$REVOKED_AT" = "$FIRST_REVOKED_AT" ] || die "re-apply changed revoked_at from $FIRST_REVOKED_AT to $REVOKED_AT"
 REVOKE_ROWS="$(sql "SELECT COUNT(*) FROM lp_oms.entitlement_outbox WHERE order_id=$ORDER_ID AND action=1")"
-[ "$REVOKE_ROWS" = "1" ] || die "repeat created $REVOKE_ROWS revoke outbox rows"
-pass "same refundNo, refund rows=1, revoke rows=1, revoked_at unchanged"
+[ "$REVOKE_ROWS" = "1" ] || die "re-apply created $REVOKE_ROWS revoke outbox rows"
+pass "re-apply rejected with 62017, refund rows=1, revoke rows=1, revoked_at unchanged"
 
-step 7 "over refund: an amount above the paid amount is rejected"
+step 8 "over seven days: admission is rejected and no row is created"
 SECOND_PAIR="$(publish_course "$SECOND_COURSE_TITLE" 29.90)"
 SECOND_COURSE_ID="${SECOND_PAIR%%|*}"
-SECOND_ORDER_NO="$(buy_course "$SECOND_COURSE_ID" "refund-drill-over-$RUN_ID")"
+SECOND_ORDER_NO="$(buy_course "$SECOND_COURSE_ID" "refund-drill-late-$RUN_ID")"
 SECOND_ORDER_ID="$(sql "SELECT id FROM lp_oms.trade_order WHERE order_no='$SECOND_ORDER_NO'")"
 SECOND_PAID="$(sql "SELECT pay_amount FROM lp_oms.trade_order WHERE id=$SECOND_ORDER_ID")"
-OVER_AMOUNT="$(awk -v amount="$SECOND_PAID" 'BEGIN { printf "%.2f", amount + 1 }')"
+sql "UPDATE lp_oms.trade_order SET paid_at = DATE_SUB(NOW(), INTERVAL 8 DAY) WHERE id=$SECOND_ORDER_ID" >/dev/null
 req POST "/api/v1/orders/$SECOND_ORDER_ID/refund" "$STUDENT_TOKEN" \
-  "$(jq -nc --arg amount "$OVER_AMOUNT" '{amount:$amount,reason:"over refund"}')"
-OVER_CODE="$(jq -r '.code // empty' <<<"$BODY")"
-[ "$OVER_CODE" = "62018" ] || die "over refund returned code=$OVER_CODE instead of 62018"
+  '{"reason":"late refund"}'
+LATE_CODE="$(jq -r '.code // empty' <<<"$BODY")"
+[ "$LATE_CODE" = "62007" ] || die "late refund returned code=$LATE_CODE instead of 62007"
 SECOND_REFUNDS="$(sql "SELECT COUNT(*) FROM lp_oms.refund_request WHERE order_id=$SECOND_ORDER_ID")"
-[ "$SECOND_REFUNDS" = "0" ] || die "over refund created $SECOND_REFUNDS rows"
+[ "$SECOND_REFUNDS" = "0" ] || die "late refund created $SECOND_REFUNDS rows"
 [ "$(sql "SELECT status FROM lp_oms.trade_order WHERE id=$SECOND_ORDER_ID")" = "1" ] \
-  || die "over refund changed the order status"
-pass "amount=$OVER_AMOUNT over paid=$SECOND_PAID rejected with 62018, nothing refunded"
+  || die "late refund changed the order status"
+pass "paid=$SECOND_PAID paid_at 8 days ago rejected with 62007, nothing created"
 
-printf '\nREFUND OK: paid order refunded once, entitlement revoked without deleting rows, playback denied, repeat replayed, over refund rejected.\n'
-printf 'Artifacts kept for inspection: order=%s course=%s lesson=%s secondOrder=%s\n' \
-  "$ORDER_NO" "$COURSE_ID" "$LESSON_ID" "$SECOND_ORDER_NO"
+step 9 "rejection: reason required, order stays paid, a new application is admitted"
+THIRD_PAIR="$(publish_course "$THIRD_COURSE_TITLE" 39.90)"
+THIRD_COURSE_ID="${THIRD_PAIR%%|*}"
+THIRD_ORDER_NO="$(buy_course "$THIRD_COURSE_ID" "refund-drill-reject-$RUN_ID")"
+THIRD_ORDER_ID="$(sql "SELECT id FROM lp_oms.trade_order WHERE order_no='$THIRD_ORDER_NO'")"
+req POST "/api/v1/orders/$THIRD_ORDER_ID/refund" "$STUDENT_TOKEN" \
+  '{"reason":"rejection drill"}'
+require_code "apply before rejection"
+THIRD_REFUND_ID="$(jq -r '.data.refundId' <<<"$BODY")"
+
+req POST "/api/v1/admin/refunds/$THIRD_REFUND_ID/review" "$OPS_TOKEN" '{"approved":false}'
+NO_REASON_CODE="$(jq -r '.code // empty' <<<"$BODY")"
+[ "$NO_REASON_CODE" = "40001" ] || die "rejection without reason returned code=$NO_REASON_CODE instead of 40001"
+
+req POST "/api/v1/admin/refunds/$THIRD_REFUND_ID/review" "$OPS_TOKEN" \
+  '{"approved":false,"rejectReason":"不符合退款条件"}'
+require_code "reject refund"
+REJECTED_STATUS="$(jq -r '.data.status' <<<"$BODY")"
+[ "$REJECTED_STATUS" = "3" ] || die "rejection status=$REJECTED_STATUS instead of 3"
+[ "$(sql "SELECT status FROM lp_oms.trade_order WHERE id=$THIRD_ORDER_ID")" = "1" ] \
+  || die "rejection changed the order status"
+[ "$(sql "SELECT status FROM lp_lms.user_entitlement WHERE user_id=$BUYER_ID AND course_id=$THIRD_COURSE_ID")" = "0" ] \
+  || die "rejection revoked the entitlement"
+pass "rejection requires a reason, keeps the order paid and the entitlement active"
+
+req POST "/api/v1/orders/$THIRD_ORDER_ID/refund" "$STUDENT_TOKEN" \
+  '{"reason":"reapply after rejection"}'
+require_code "re-apply after rejection"
+SECOND_REFUND_NO="$(jq -r '.data.refundNo' <<<"$BODY")"
+[ "$SECOND_REFUND_NO" = "RF$THIRD_ORDER_NO-2" ] || die "re-apply refund number is $SECOND_REFUND_NO"
+pass "re-apply admitted with refundNo=$SECOND_REFUND_NO"
+
+printf '\nREFUND OK: application only queues, approval refunds, entitlement revoked without deleting rows, playback denied, late and post-refund applications rejected, rejection allows re-apply.\n'
+printf 'Artifacts kept for inspection: order=%s course=%s lesson=%s lateOrder=%s rejectedOrder=%s\n' \
+  "$ORDER_NO" "$COURSE_ID" "$LESSON_ID" "$SECOND_ORDER_NO" "$THIRD_ORDER_NO"
 exit 0
