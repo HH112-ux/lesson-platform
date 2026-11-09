@@ -1,0 +1,201 @@
+# 1. 文档说明
+
+## 1.1 用途与权威性
+
+本文件是仓库的项目进度档案，供负责人在开工前判断"现在做到哪、下一步做什么"。结论以**代码与已合并提交**为准，不以文档标题或任务清单的打勾状态推断。产品范围以 [product-lifecycle](./product-lifecycle.md) 为准，工程方案以 [engineering-plan](./engineering-plan.md) 为准；本文件只记录实际进度与差距，不重复方案正文。
+
+本文件与 `AGENTS.md` 第二节配套：开工前除四条 git 检查外，必须读本文件确认当前阶段与未完成项。
+
+## 1.2 维护规则
+
+- 每合并一个影响进度的 PR，更新对应行的"最后核对日期"与完成程度；不允许只改日期不改结论。
+- 任一行的"最后核对日期"超过 30 天即视为过期，开工前必须重新核对代码，不得直接把旧结论当作事实。
+- 只记录可验证的事实、差距与建议；"建议"不等于已排期任务。
+
+---
+
+# 2. 当前阶段
+
+## 2.1 最新合并状态
+
+| 分支 / 标签 | commit | 日期 | 说明 |
+|---|---|---|---|
+| `develop` | `37c7648` | 2026-11-09 | PR #96，CI 补齐 `main` 上的必需检查触发 |
+| `main` | `7364af7` | 2026-11-09 | PR #97，与 #96 内容等价（补充 `workflow_dispatch`），下次发布合并时与 `develop` 对齐 |
+| `v0.1.0` | 2026-11-06 | — | 首个可演示版本标签，指向退款闭环完成后的提交 |
+
+## 2.2 里程碑状态
+
+| 里程碑 | 状态 | 判定依据 | 最后核对日期 |
+|---|---|---|---|
+| M0 基建 | 完成（监控栈除外） | Compose、Flyway、网关、统一返回、身份头、CI、本地验收脚本均可运行；`infra/observability` 未建立 | 2026-11-09 |
+| M1 账号与内容（含教师端） | 部分完成 | 注册登录、RBAC 种子、分类/课程/章节课时、教师课程 API、课程审核与审计已通；教师入驻、视频上传、全文搜索、教师前端未做 | 2026-11-09 |
+| M2 交易与学习 | 部分完成 | 购物车 API、下单幂等、0 元课、模拟支付、权益 outbox、播放签名、进度回写已通；真实支付宝未接 | 2026-11-09 |
+| M3 互动与后台 | 部分完成 | 运营审核、用户/订单查询、看板概览已通；UGC、退款审核、对账、举报处置未做 | 2026-11-09 |
+| M4 AI MVP | 未开始 | `lp-ai-service` 仅有启动类与 `package-info` | 2026-11-09 |
+| M5 Web 加固与上线 | 未开始 | 无压测、安全测试、灰度与部署流水线 | 2026-11-09 |
+| M6 小程序端 | 部分完成 | 4 个页面 + 静默登录 + 购买引导；无评论，未配置 AppID，未提审 | 2026-11-09 |
+| M7 小程序审核与灰度 | 未开始 | 无提审与发布记录 | 2026-11-09 |
+
+## 2.3 阶段结论
+
+当前处于 **M2 后端链路可演示、M3 刚起步** 的阶段。可演示的闭环是：教师通过 API 建课并提交 → 运营在后台审核定价上架 → 学员在 Web 下单 → 模拟支付回调 → 权益发放 → 播放签名 → 进度回写 → 通过 API 发起退款并回收权益。
+
+该闭环成立的前提是**本地模拟支付**（`LP_PAY_MOCK_ENABLED=true`），并且教师建课目前只有后端接口、没有界面。真实支付宝、UGC、AI、教师工作台界面、小程序评论、监控与部署流水线均未完成，详见第 4 章。
+
+---
+
+# 3. 已做
+
+## 3.1 后端与网关
+
+| 能力 | 完成程度与限制 | 证据 | 最后核对日期 |
+|---|---|---|---|
+| 账号与 JWT | 注册、密码登录、刷新、登出、`/me` 可用；密码 BCrypt 存储；无资料修改与注销 | `lp-auth-service/.../controller/AuthController.java`、`db/migration/auth/V2__user_auth.sql` | 2026-11-09 |
+| 小程序 code 登录 | 接口与真实 `jscode2session` 客户端均已实现，默认关闭；本地可用 mock 客户端 | `AuthController.java`、`security/HttpWechatMiniappClient.java`、`config/MiniappProperties.java` | 2026-11-09 |
+| 网关 | 7 条服务路由、身份头剥离与注入、JWT 三态校验，默认 `hard`；未实现限流 | `lp-gateway/src/main/resources/application.yml`、`filter/HeaderSanitizeFilter.java`、`filter/JwtAuthFilter.java` | 2026-11-09 |
+| 课程浏览 | 已上架课程分页、分类、关键词（`LIKE` 标题/副标题）、详情、目录；下架课程对非持有者按 404 处理 | `lp-course-service/.../controller/CoursePublicController.java`、`mapper/CourseMapper.java` | 2026-11-09 |
+| 教师课程 API | 建课、改课、提交审核、章节课时增删改、状态计数；按 `owner_teacher_id` 做归属校验 | `controller/TeacherCourseController.java`、`service/impl/TeacherCourseServiceImpl.java` | 2026-11-09 |
+| 课程审核 | 待审队列、通过并定价上架、驳回、审核审计查询 | `lp-admin-service/.../controller/AdminCourseController.java`、`db/migration/course/V4__course_review_audit.sql` | 2026-11-09 |
+| 交易 | 购物车 API、下单幂等、0 元课直接完成、订单列表/详情/取消；优惠券在下单时校验并核销 | `lp-trade-service/.../controller/OrderController.java`、`service/impl/OrderServiceImpl.java` | 2026-11-09 |
+| 支付 | 支付发起、`/api/v1/payments/alipay/notify` 回调入口、金额与渠道校验、重复回调幂等；**真实渠道未配置时统一返回 50205**，本地由 mock 渠道替代 | `payment/MockPaymentGateway.java`、`payment/UnconfiguredPaymentGateway.java`、`controller/PaymentController.java` | 2026-11-09 |
+| 退款 | 全额退款、退款单幂等、同步渠道退款、权益软失效、撤销 outbox；**无 7 天/进度 20% 准入限制，也无运营审核环节** | `service/impl/RefundServiceImpl.java`、`db/migration/trade/V5__refund_request.sql` | 2026-11-09 |
+| 权益与 outbox | 本地消息表、定时中继、指数退避、死信、运营重放、Prometheus 指标 | `entitlement/EntitlementRelay.java`、`entitlement/OutboxAdminService.java`、`controller/InternalEntitlementOutboxController.java` | 2026-11-09 |
+| 学习交付 | MinIO 预签名播放地址、免费课时试看、我的课程（含已退款标记）、进度上报与查询、90% 完成判定 | `lp-learn-service/.../controller/LessonController.java`、`service/impl/PlayTokenServiceImpl.java`、`service/impl/LearningProgressServiceImpl.java` | 2026-11-09 |
+| 运营查询 | 用户列表、订单列表、菜单树、7 日看板概览 | `lp-admin-service/.../controller/AdminUserController.java`、`AdminOrderController.java`、`AdminMenuController.java`、`AdminMetricsController.java` | 2026-11-09 |
+| 数据迁移 | 七个库的 Flyway 目录；auth/course/trade/learn 有业务表；ugc/ai/ops 仅有 V1 基线 | `db/migration/**` | 2026-11-09 |
+
+## 3.2 Web 学员端
+
+| 能力 | 完成程度与限制 | 证据 | 最后核对日期 |
+|---|---|---|---|
+| 课程首页与列表 | 分类筛选、关键词、分页、空态与错误态 | `apps/web/src/views/CourseListView.vue` | 2026-11-09 |
+| 课程详情与结算 | 详情、目录、立即购买、创建订单、跳转支付参数 `payUrl`；按钮文案写支付宝，但真实渠道未接 | `CourseDetailView.vue`、`CheckoutView.vue` | 2026-11-09 |
+| 订单结果与订单列表 | 支付结果页、订单列表、状态展示；**退款按钮为禁用占位** | `OrderResultView.vue`、`OrdersView.vue` | 2026-11-09 |
+| 我的课程与播放 | 断点续播、进度回写、退款课程标记 | `MyCoursesView.vue`、`PlayerView.vue` | 2026-11-09 |
+| 登录注册与续期 | 账号密码登录、注册、token 刷新、回跳 | `LoginView.vue`、`api/auth.ts` | 2026-11-09 |
+| 购买 ticket | 可凭 ticket 兑换会话并进入购买页；**小程序端未签发 ticket，该入口当前无生产者** | `PurchaseView.vue`、`utils/purchase.ts` | 2026-11-09 |
+| 未做 | 购物车页面、优惠券入口、评论、收藏、举报、退款申请、资料维护 | `apps/web/src/router.ts` 路由表 | 2026-11-09 |
+
+## 3.3 运营后台
+
+| 能力 | 完成程度与限制 | 证据 | 最后核对日期 |
+|---|---|---|---|
+| 运营登录 | OPS/ADMIN 登录与角色校验 | `apps/admin/src/views/LoginView.vue` | 2026-11-09 |
+| 看板 | 7 日 GMV、订单数、支付率、新增用户、销量 Top5 | `DashboardView.vue`、`api/admin.ts` | 2026-11-09 |
+| 课程审核 | 待审队列、通过并定价、驳回、审核记录 | `ReviewQueueView.vue`、`api/admin.ts` | 2026-11-09 |
+| 用户与订单 | 关键词/订单号查询、分页列表 | `UsersView.vue`、`OrdersView.vue` | 2026-11-09 |
+| 未做 | 教师入驻审核、课程/课时管理、退款处理、评论与举报处置、角色与菜单管理、教师工作台界面 | `apps/admin/src/router.ts` 仅有 4 个业务页面 | 2026-11-09 |
+
+## 3.4 微信小程序
+
+| 能力 | 完成程度与限制 | 证据 | 最后核对日期 |
+|---|---|---|---|
+| 页面 | 首页、课程详情、我的课程、播放页 | `apps/miniapp/app.json` | 2026-11-09 |
+| 登录 | `wx.login` 静默换取 token，失败时展示后端错误 | `apps/miniapp/utils/auth.js` | 2026-11-09 |
+| 购买引导 | 课程页复制 Web 购买链接，提示到浏览器购买；**未调用购买 ticket 接口** | `apps/miniapp/pages/course/course.js` | 2026-11-09 |
+| 未做 | 评论、正式 AppID 配置、真机验收、提审与发布、`miniprogram-ci` 上传 | `apps/miniapp/project.config.json`、`.github/workflows/frontend-ci.yml` | 2026-11-09 |
+
+## 3.5 基础设施、脚本与 CI
+
+| 能力 | 完成程度与限制 | 证据 | 最后核对日期 |
+|---|---|---|---|
+| 本地一键起停 | Compose 拉起 MySQL/Redis/RocketMQ/MinIO/Nacos、7 个后端服务、Web 与后台；构建 jar 与前端、执行迁移、导入种子 | `infra/docker-compose.yml`、`scripts/dev-up.sh`、`scripts/dev-down.sh` | 2026-11-09 |
+| 演示数据 | 教师/运营/学员/管理员账号、多状态课程与一笔已支付订单 | `db/seed/demo-seed.sql`、`scripts/seed/seed-demo.sh` | 2026-11-09 |
+| 验收与演练 | 冒烟、outbox 故障演练、退款闭环演练、一条命令验收 | `scripts/smoke.sh`、`scripts/outbox-fault-drill.sh`、`scripts/refund-drill.sh`、`scripts/verify-all.sh` | 2026-11-09 |
+| CI | `backend-build`/`backend-test`、`frontend-check`、`miniapp-check`、`docs-check` | `.github/workflows/backend-ci.yml`、`frontend-ci.yml`、`docs-ci.yml` | 2026-11-09 |
+| 本地钩子 | `pre-commit` 跑文档校验与 Spotless，`commit-msg` 跑提交信息校验 | `.githooks/pre-commit`、`.githooks/commit-msg`、`scripts/install-hooks.sh` | 2026-11-09 |
+| 测试 | 47 个后端测试类、6 个前端 spec；无端到端测试进入 CI | `lp-*/src/test/**`、`apps/*/src/**/*.spec.ts` | 2026-11-09 |
+| 未做 | 镜像构建与推送、staging/prod 部署、监控栈编排、告警规则、备份演练、限流 | `.github/workflows/**`、`infra/**` | 2026-11-09 |
+
+---
+
+# 4. 计划了但未做
+
+| 功能 | 文档出处 | 现状 | 卡点 | 最后核对日期 |
+|---|---|---|---|---|
+| 评论、两级回复、收藏、举报与内容审核 | product-lifecycle F11/F12、4.3；engineering-plan 13.2 M3 | `lp-ugc-service` 仅有启动类与 `package-info`，`lp_ugc` 仅有 V1 基线 | 未排期；依赖 UGC 表设计与审核链路 | 2026-11-09 |
+| AI 课程画像、审核、文案、学伴、BYO 模型配置 | product-lifecycle F15–F18；engineering-plan 第 7 章、13.2 M4 | `lp-ai-service` 仅有启动类与 `package-info`，`lp_ai` 仅有 V1 基线 | 未排期；缺客户模型 key 与配置界面 | 2026-11-09 |
+| 真实支付宝支付 | engineering-plan 1.2、5.5、13.2 M2；15.2 D2 | 只有 `MockPaymentGateway` 与未配置即报 50205 的占位实现，无支付宝 SDK 适配器 | 缺商户号、应用私钥、公钥证书、回调域名 | 2026-11-09 |
+| 支付宝对账 | engineering-plan 1.2、13.2 M3、15.1 R11 | 无 `payment_reconcile` 表、无拉账任务、无差异告警 | 依赖商户号与账单权限 | 2026-11-09 |
+| 购物车页面 | product-lifecycle F07、4.3 | 后端 `/api/v1/cart` 可用，Web 无购物车页面 | 未排期 | 2026-11-09 |
+| 优惠券发券与领券 | product-lifecycle F07 | 只有 `coupon`/`user_coupon` 表与下单核销逻辑，无发券、领券、券列表接口 | 未排期；无运营配置入口 | 2026-11-09 |
+| 教师入驻审核 | product-lifecycle F04；engineering-plan 13.2 M1 | `teacher_profile` 仅由种子数据写入，无申请、审核、角色开通接口 | 未排期 | 2026-11-09 |
+| 教师工作台界面与数据看板 | engineering-plan 1.2、2.1；product-lifecycle F13 | 仅有课程 CRUD 接口；后台无教师页面，无销售/学习/评论统计接口 | 未排期；缺 `course_daily_stat` 等汇总表 | 2026-11-09 |
+| 视频上传与 ffprobe 校验 | product-lifecycle F06；engineering-plan 15.2 D5 | 无上传接口；播放仅对已存在对象签名 | 未排期；存储与校验方案未落地 | 2026-11-09 |
+| 全文搜索与多维筛选 | product-lifecycle F02；engineering-plan 1.3 | 仅 `LIKE` 标题/副标题；无难度、热度、上新排序；`ft_` 索引未被查询使用 | 未排期 | 2026-11-09 |
+| 资料维护与账号注销 | product-lifecycle F01；engineering-plan 15.2 D8 | 只有 `GET /api/v1/auth/me`，无修改资料与注销流程 | 未排期 | 2026-11-09 |
+| 订单超时关闭 | engineering-plan 15.2 D11 | 无 30 分钟自动关单任务，仅支持手动取消 | 未排期 | 2026-11-09 |
+| 退款准入与运营审核 | product-lifecycle F09；engineering-plan 15.2 D6 | 退款接口校验已支付、全额、归属后直接成功；无 7 天窗口、进度 20% 限制与人工审核 | D6 仍标注"暂定，可复议" | 2026-11-09 |
+| 后台退款、评论、举报、教师管理 | product-lifecycle F14 | 后台只有课程审核、用户、订单、看板 | 依赖 UGC 与退款改造 | 2026-11-09 |
+| 小程序评论 | product-lifecycle 4.3 | 小程序无评论页面 | 依赖 UGC | 2026-11-09 |
+| 小程序购买 ticket 闭环 | engineering-plan 15.2 D2；错误码 62012–62015 | ticket 签发与兑换接口已实现、Web 可兑换；小程序只复制普通链接，不签发 ticket | 前后端未接线 | 2026-11-09 |
+| 监控栈与告警 | engineering-plan 13.6 M0-40/M0-41 | 各服务暴露 `/actuator/prometheus`，trade 有 outbox 指标；无 Prometheus/Grafana 编排与告警规则 | 未排期 | 2026-11-09 |
+| 小程序 CI 上传 | engineering-plan 13.6 M0-49 | CI 仅做静态检查，无 `miniprogram-ci` 上传 | 缺 AppID 与上传私钥 | 2026-11-09 |
+| staging/prod 部署 | engineering-plan 3.3、3.4、13.2 M5 | 无镜像构建、K8s 清单或部署 workflow | 缺服务器、域名、备案与凭据 | 2026-11-09 |
+| 网关限流 | engineering-plan 5.2（42901） | 网关无请求限流实现 | 未排期 | 2026-11-09 |
+
+---
+
+# 5. 未列入计划但建议做
+
+以下均为**建议**，不是既定计划；工作量级别为小/中/大。
+
+| 建议 | 理由 | 工作量 | 最后核对日期 |
+|---|---|---|---|
+| 统一分页参数 | 课程列表用 `page/size`，订单与后台用 `pageNum/pageSize`，前端需分别适配，易出错 | 小 | 2026-11-09 |
+| 接口契约文档或 OpenAPI | 前后端 TypeScript 类型手工维护，字段漂移只能靠评审发现 | 中 | 2026-11-09 |
+| CI 内端到端冒烟 | `smoke.sh` 依赖本地栈，CI 只跑单测，合并前无法验证跨服务链路 | 中 | 2026-11-09 |
+| 数据库备份与恢复演练脚本 | 目前只有迁移脚本，无备份、恢复与演练步骤 | 中 | 2026-11-09 |
+| 依赖与镜像漏洞扫描 | CI 无依赖审计，镜像也不构建，供应链风险未覆盖 | 小 | 2026-11-09 |
+| 管理操作统一审计 | 只有课程审核有审计表，用户/订单/后续退款操作无留痕 | 中 | 2026-11-09 |
+| MinIO 孤儿对象清理 | 课程/课时删除后对象仍占用存储，长期累积成本 | 小 | 2026-11-09 |
+| 日志聚合与告警通道 | 只有本地容器日志与指标端点，无集中检索与通知 | 中 | 2026-11-09 |
+| 匿名试看 | 文档面向游客承诺免费试看，当前播放签名接口要求登录 | 小 | 2026-11-09 |
+
+---
+
+# 6. 待决策与外部阻塞
+
+| 事项 | 影响 | 当前状态 | 最后核对日期 |
+|---|---|---|---|
+| 支付宝商户号、应用私钥、公钥证书、回调域名 | 真实支付、退款、对账全部无法联调 | 未申请 | 2026-11-09 |
+| 支付宝沙箱应用 | 可先于正式商户号完成支付联调 | 未申请 | 2026-11-09 |
+| 微信小程序 AppID/AppSecret | code 登录、真机预览、提审与上传均无法进行 | 未申请 | 2026-11-09 |
+| 小程序主体认证与教育/知识付费类目资质 | 决定 M6/M7 能否提审，审核可能驳回重提 | 未办理 | 2026-11-09 |
+| 服务器、域名、ICP 备案、HTTPS 证书 | 决定 staging/prod 能否部署 | 未办理 | 2026-11-09 |
+| 短信服务商签名与模板 | 手机号验证码登录未实现，若启用需先办理 | 未办理 | 2026-11-09 |
+| 客户自配模型 API key（BYO） | AI 四项能力无法验收 | 未提供 | 2026-11-09 |
+| 退款政策（7 天窗口、进度 20% 限制、人工审核） | 当前自动退款与文档规则不一致，需确认最终口径 | D6 标注"暂定，M1 前可复议" | 2026-11-09 |
+| MinIO 归档镜像的替代方案 | 本地依赖可用，生产存储选型未定 | D14 标注"M1 收尾前评估" | 2026-11-09 |
+
+---
+
+# 7. 与现有文档不一致之处
+
+| 文档表述 | 实际实现 | 处理建议 | 最后核对日期 |
+|---|---|---|---|
+| README "初版不包含退款与对账" | 退款闭环已合并（`1a56af8`、`b4be3b6`），对账确实未做 | 拆分表述：退款已做、对账未做 | 2026-11-09 |
+| engineering-plan 1.2 教师工作台位于 `apps/admin` | 后台仅有运营页面，无教师建课界面 | 标注为"仅 API，界面未做" | 2026-11-09 |
+| engineering-plan 15.2 D6 退款需运营审核、7 天/20% 准入 | 退款接口自动成功，无审核与准入限制 | 先修订文档或补实现，二选一 | 2026-11-09 |
+| engineering-plan 15.2 D11 下单 30 分钟自动关单 | 无定时关单任务 | 标注为未实现 | 2026-11-09 |
+| engineering-plan 1.3 允许 MySQL 全文索引搜索 | 查询使用 `LIKE`，`ft_` 索引未使用 | 标注当前为 `LIKE`，全文检索待做 | 2026-11-09 |
+| product-lifecycle 3.1 游客可试看 | 播放签名接口要求登录（`40101`） | 确认是否允许匿名试看，再改实现或文档 | 2026-11-09 |
+| engineering-plan 13.6 M0-34 支付适配接口位于 `lp-common` | 支付抽象 `PaymentGateway` 在 `lp-trade-service`，`lp-common` 无 `pay` 包 | 修订文档指向实际位置 | 2026-11-09 |
+| engineering-plan 3.4/13.6 Nacos dataId 配置下发 | 服务读取本地 `application.yml`，仓库无 Nacos 配置模板与初始化脚本 | 标注 Nacos 仅为本地 Compose 依赖，配置仍走本地文件 | 2026-11-09 |
+| 附录 B 将 `teacher_profile` 归入 `lp_ums` | 建表脚本在 `db/migration/course/V3__catalog.sql`（`lp_cms`） | 统一归属描述 | 2026-11-09 |
+| 附录 B 列出 `audit_log` | 迁移中无该表，仅 `course_review_audit` | 标注为未建 | 2026-11-09 |
+| engineering-plan 13.6 M0-41 监控栈本地编排 | `infra/` 下无 observability 编排 | 标注为未实现 | 2026-11-09 |
+
+---
+
+# 8. 核对记录与未核实项
+
+- 核对日期：2026-11-09；基线提交：`37c7648`（`develop`）。
+- 核对方式：阅读 `docs/engineering-plan.md`、`docs/product-lifecycle.md`、控制器与服务的实际代码、`db/migration/**`、`apps/**` 页面与路由、`scripts/**`、`.github/workflows/**`，并对照 `git log` 中已合并 PR。
+- 未核实（依赖运行态或外部凭据，本次未实测）：
+  - 真实支付宝下单、回调验签、退款与对账（无商户凭据）。
+  - 微信 `jscode2session` 真实链路（默认关闭，需 AppID/AppSecret）。
+  - 小程序真机预览、提审与发布（无 AppID 与类目资质）。
+  - Nacos 配置下发与动态刷新（仓库无配置模板，需运行时验证）。
+  - 本地运行中的接口返回：本次核对期间另一会话正在占用本地栈，按约定未停止、未重启、未调用其服务，以上结论均来自代码与脚本静态核对。
