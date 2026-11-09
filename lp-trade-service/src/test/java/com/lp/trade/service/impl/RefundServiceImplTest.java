@@ -345,16 +345,16 @@ class RefundServiceImplTest {
     }
 
     /**
-     * A channel failure stores the reason, returns the order to paid and keeps access.
+     * An explicit channel rejection stores the reason, returns the order to paid and keeps access.
      *
      * @author Caspian
      * @since 0.1.0
      */
     @Test
-    void channelFailureKeepsOrderPaidAndEntitlementActive() {
+    void channelRejectionReturnsOrderToPaid() {
         RefundRequest pending = pendingRefund();
         RefundRequest failed = failedRefund();
-        failed.setFailReason("BizException: channel down");
+        failed.setFailReason("channel rejected: BizException: channel down");
         when(refundRequestMapper.selectById(REFUND_ID)).thenReturn(pending, pending, failed);
         when(tradeOrderMapper.selectById(ORDER_ID)).thenReturn(paidOrder(LocalDateTime.now()));
         when(paymentMapper.selectLatestByOrderId(ORDER_ID)).thenReturn(payment());
@@ -369,23 +369,25 @@ class RefundServiceImplTest {
         RefundView view = refundService.review(REFUND_ID, true, null, REVIEWER_ID);
 
         assertEquals(RefundStatus.FAILED, view.getStatus());
-        assertEquals("BizException: channel down", view.getFailReason());
+        assertEquals("channel rejected: BizException: channel down", view.getFailReason());
         verify(tradeOrderMapper).markPaidAfterRefundFailure(ORDER_ID);
+        verify(refundRequestMapper, never()).markUnknown(anyLong(), anyString());
         verify(entitlementService, never()).revoke(anyLong(), anyLong(), anyLong(), anyString());
     }
 
     /**
-     * A channel timeout is recorded as failed with its exception type instead of rolling back.
+     * A timeout leaves the channel outcome unknown, so the order stays refunding and cannot be
+     * applied for again.
      *
      * @author Caspian
      * @since 0.2.0
      */
     @Test
-    void channelTimeoutIsRecordedAsFailedWithType() {
+    void channelTimeoutKeepsOrderRefundingAndMarksResultUnknown() {
         RefundRequest pending = pendingRefund();
-        RefundRequest failed = failedRefund();
-        failed.setFailReason("RuntimeException: Read timed out");
-        when(refundRequestMapper.selectById(REFUND_ID)).thenReturn(pending, pending, failed);
+        RefundRequest unknown = refund(RefundStatus.UNKNOWN);
+        unknown.setFailReason("result unknown: RuntimeException: Read timed out");
+        when(refundRequestMapper.selectById(REFUND_ID)).thenReturn(pending, pending, unknown);
         when(tradeOrderMapper.selectById(ORDER_ID)).thenReturn(paidOrder(LocalDateTime.now()));
         when(paymentMapper.selectLatestByOrderId(ORDER_ID)).thenReturn(payment());
         when(tradeOrderMapper.selectFirstItem(ORDER_ID)).thenReturn(item());
@@ -393,15 +395,16 @@ class RefundServiceImplTest {
         when(tradeOrderMapper.markRefunding(ORDER_ID)).thenReturn(1);
         when(paymentGateway.refund(any(PaymentRecord.class), eq(REFUND_NO), eq(PAY_AMOUNT)))
                 .thenThrow(new RuntimeException("Read timed out"));
-        when(refundRequestMapper.markFailed(eq(REFUND_ID), anyString())).thenReturn(1);
-        when(tradeOrderMapper.markPaidAfterRefundFailure(ORDER_ID)).thenReturn(1);
+        when(refundRequestMapper.markUnknown(eq(REFUND_ID), anyString())).thenReturn(1);
 
         RefundView view = refundService.review(REFUND_ID, true, null, REVIEWER_ID);
 
-        assertEquals(RefundStatus.FAILED, view.getStatus());
-        assertEquals("RuntimeException: Read timed out", view.getFailReason());
-        verify(refundRequestMapper).markFailed(REFUND_ID, "RuntimeException: Read timed out");
-        verify(tradeOrderMapper).markPaidAfterRefundFailure(ORDER_ID);
+        assertEquals(RefundStatus.UNKNOWN, view.getStatus());
+        assertEquals("result unknown: RuntimeException: Read timed out", view.getFailReason());
+        verify(refundRequestMapper)
+                .markUnknown(REFUND_ID, "result unknown: RuntimeException: Read timed out");
+        verify(refundRequestMapper, never()).markFailed(anyLong(), anyString());
+        verify(tradeOrderMapper, never()).markPaidAfterRefundFailure(anyLong());
         verify(entitlementService, never()).revoke(anyLong(), anyLong(), anyLong(), anyString());
     }
 

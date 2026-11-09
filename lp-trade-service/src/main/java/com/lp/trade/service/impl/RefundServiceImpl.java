@@ -42,6 +42,11 @@ import org.springframework.transaction.support.TransactionTemplate;
  * channel. The order stays paid while the request is pending, moves to refunding during the channel
  * call and becomes refunded only after the channel confirms.
  *
+ * <p>A channel rejection is deterministic: the request is stored as failed, the order returns to
+ * paid and the buyer may apply again. A timeout, reset connection or unreadable response leaves the
+ * channel outcome unknown; the request is parked as unknown and the order stays refunding, so the
+ * buyer cannot apply again before operations reconcile the channel bill.
+ *
  * <p>All state transitions use conditional updates, so a duplicated application, review or channel
  * callback returns the stored result instead of moving money twice. The generated unique key on
  * {@code refund_request.active_order_id} is the final guard for one in-progress refund per order.
@@ -63,6 +68,10 @@ public class RefundServiceImpl implements RefundService {
     private static final int REASON_MAX_LENGTH = 300;
 
     private static final int MAX_PAGE_SIZE = 100;
+
+    private static final String REJECTED_PREFIX = "channel rejected: ";
+
+    private static final String UNKNOWN_PREFIX = "result unknown: ";
 
     private final TradeOrderMapper tradeOrderMapper;
 
@@ -196,9 +205,9 @@ public class RefundServiceImpl implements RefundService {
      *
      * <p>The pending request is claimed with {@code WHERE status = 0} inside its own committed
      * transaction, so the in-progress status is visible to later queries before the channel is
-     * contacted. A rejection requires a reason and leaves the order paid. Any channel failure,
-     * including a timeout or network error, is stored as failed with its reason and returns the
-     * order to paid, so the decision is never rolled back to a blank state.
+     * contacted. A rejection requires a reason and leaves the order paid. An explicit channel
+     * rejection is stored as failed and returns the order to paid; an unknown outcome, such as a
+     * timeout or an unreadable response, is stored as unknown and keeps the order refunding.
      *
      * @param refundId refund primary key
      * @param approved {@code true} to approve, {@code false} to reject
@@ -244,15 +253,15 @@ public class RefundServiceImpl implements RefundService {
      * @param pageNum one based page number
      * @param pageSize page size capped at 100
      * @return refund page
-     * @throws BizException when the status filter is outside {@code 0..4}
+     * @throws BizException when the status filter is outside {@code 0..5}
      * @author Caspian
      * @since 0.1.0
      */
     @Override
     public RefundAdminPageView list(Integer status, int pageNum, int pageSize) {
         if (status != null
-                && (status < RefundStatus.PENDING_REVIEW || status > RefundStatus.FAILED)) {
-            throw new BizException(ErrorCode.PARAM_INVALID, "status must be between 0 and 4");
+                && (status < RefundStatus.PENDING_REVIEW || status > RefundStatus.UNKNOWN)) {
+            throw new BizException(ErrorCode.PARAM_INVALID, "status must be between 0 and 5");
         }
         int safePageNum = Math.max(pageNum, 1);
         int safePageSize = Math.min(Math.max(pageSize, 1), MAX_PAGE_SIZE);
@@ -289,17 +298,29 @@ public class RefundServiceImpl implements RefundService {
         try {
             channelRefundNo =
                     paymentGateway.refund(payment, refund.getRefundNo(), refund.getAmount());
-        } catch (RuntimeException exception) {
-            // A timeout or network error means the channel outcome is unknown; never roll the
-            // decision back to a blank state, record it as failed with its type and reason.
-            String reason = failureReason(exception);
+        } catch (BizException exception) {
+            // The channel answered with a rejection, so the money did not move. Fail the request
+            // and return the order to paid, which lets the buyer apply again.
+            String reason = failureReason(REJECTED_PREFIX, exception);
             transactionTemplate.executeWithoutResult(
                     status -> {
                         refundRequestMapper.markFailed(refundId, reason);
                         tradeOrderMapper.markPaidAfterRefundFailure(order.getId());
                     });
             LOG.warn(
-                    "refund channel failed: order={}, refund={}, reason={}",
+                    "refund rejected by channel: order={}, refund={}, reason={}",
+                    order.getOrderNo(),
+                    refund.getRefundNo(),
+                    reason);
+            return view(order, refundRequestMapper.selectById(refundId));
+        } catch (RuntimeException exception) {
+            // Timeout, reset connection or unreadable response: the channel may already have moved
+            // the money, so keep the order refunding and park the request for reconciliation.
+            String reason = failureReason(UNKNOWN_PREFIX, exception);
+            transactionTemplate.executeWithoutResult(
+                    status -> refundRequestMapper.markUnknown(refundId, reason));
+            LOG.warn(
+                    "refund channel outcome unknown: order={}, refund={}, reason={}",
                     order.getOrderNo(),
                     refund.getRefundNo(),
                     reason);
@@ -395,16 +416,17 @@ public class RefundServiceImpl implements RefundService {
         return refund;
     }
 
-    private static String failureReason(RuntimeException exception) {
+    private static String failureReason(String prefix, RuntimeException exception) {
         String message = exception.getMessage();
         String detail =
                 message == null || message.isBlank()
                         ? exception.getClass().getSimpleName()
                         : exception.getClass().getSimpleName() + ": " + message;
-        if (detail.length() <= REASON_MAX_LENGTH) {
-            return detail;
+        String reason = prefix + detail;
+        if (reason.length() <= REASON_MAX_LENGTH) {
+            return reason;
         }
-        return detail.substring(0, REASON_MAX_LENGTH);
+        return reason.substring(0, REASON_MAX_LENGTH);
     }
 
     private static RefundView view(TradeOrder order, RefundRequest refund) {
