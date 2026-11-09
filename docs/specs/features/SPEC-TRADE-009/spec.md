@@ -7,10 +7,10 @@
 | 编号 | SPEC-TRADE-009 |
 | 标题 | 退款审核与状态机 |
 | 来源 | D6、engineering-plan 2.3 与 4.4、审查结论 A6 |
-| 状态 | 进行中 |
-| 计划层级 | L1-1 |
+| 状态 | 已完成 |
+| 计划层级 | — |
 | 最后核对 | 2026-11-09 |
-| AC 完成度 | 5/6 |
+| AC 完成度 | 6/6 |
 
 ## 2. 背景与目标
 
@@ -58,9 +58,27 @@
 | E-1 | 退款单不存在 | 返回 `40401`，不写审计 | AC-1 |
 | E-2 | 调用方角色不含 `ADMIN` 或 `OPS` | 返回 `40301`，退款单状态不变 | AC-1 |
 | E-3 | 订单当前不是已支付或退款中状态 | 返回 `62001`，退款单状态不变 | AC-2 |
-| E-4 | 渠道调用超时或返回失败 | 退款单置为 4，`fail_reason` 脱敏落库，订单保持退款中，触发告警（见 SPEC-TRADE-010） | AC-2 |
+| E-4 | 渠道调用超时或返回失败 | 退款单置为 4，`fail_reason` 落异常类型与原因，订单回到已支付以便重新申请（见 SPEC-TRADE-010） | AC-2 |
 | E-5 | 渠道成功但本地回写事务失败 | 以渠道退款单号 `uk_channel_refund` 唯一约束承接重放，重试时补写 2 而不是再次发起退款 | AC-3 |
 | E-6 | 审核人与申请人相同 | 不拦截，仅记录 `reviewed_by`，审计可追溯 | AC-5 |
+| E-7 | 进程在「状态 1 已提交、渠道尚未调用」之间崩溃 | 无自动重入：该单停留在状态 1，由人工按 6.1 的 SQL 识别并处置 | AC-2 |
+
+### 6.1 状态 1 超时人工处置
+
+状态 1 表示「已提交审核决定、正在调用渠道」。若进程在提交状态 1 后、渠道调用返回前崩溃，退款单会停留在 1，订单停留在 4（退款中），既不会自动完成也不会自动失败。当前版本不引入自动补偿任务，按以下 SQL 识别并人工处置（建议阈值 10 分钟）：
+
+```sql
+SELECT r.id AS refund_id, r.refund_no, r.order_id, o.order_no,
+       r.amount, r.reviewed_by, r.reviewed_at
+FROM refund_request r
+INNER JOIN trade_order o ON o.id = r.order_id
+WHERE r.status = 1
+  AND r.reviewed_at < NOW() - INTERVAL 10 MINUTE
+  AND r.deleted = 0
+ORDER BY r.reviewed_at;
+```
+
+处置口径：先按 `refund_no` 到渠道查询是否存在退款成功的流水。渠道已退款则把退款单置 2、订单置 5、支付单置 3；渠道未退款则把退款单置 4 并写 `fail_reason = 'manual: timeout in status 1'`、订单回到 1。两条路径均需在人工操作记录中留痕。
 
 ## 7. 依赖的规格条目
 
