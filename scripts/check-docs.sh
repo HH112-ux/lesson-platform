@@ -60,6 +60,11 @@ check_residual '课程平台工程规划与上线方案\.md' '旧文档文件名
 check_residual 'create_time|gmt_create' '时间字段旧命名'
 check_residual '其它' '错字'
 
+# 5. 规格体系校验（编号、状态、AC 连续性、索引一致、PR 正文引用）
+if ! bash scripts/check-specs.sh; then
+  fail_msg "规格体系校验未通过"
+fi
+
 if [ "$fail" -ne 0 ]; then
   printf '\n文档校验失败，请按上述提示修复。\n'
   exit 1
