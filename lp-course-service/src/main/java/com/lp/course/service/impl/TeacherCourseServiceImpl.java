@@ -23,7 +23,12 @@ import com.lp.course.entity.TeacherCourseStatusRow;
 import com.lp.course.mapper.LessonUploadMapper;
 import com.lp.course.mapper.TeacherCourseMapper;
 import com.lp.course.service.TeacherCourseService;
+import com.lp.course.upload.LessonUploadObjectReader;
+import com.lp.course.upload.LessonUploadObjectReader.DownloadedVideo;
 import com.lp.course.upload.LessonUploadUrlSigner;
+import com.lp.course.upload.LessonVideoMetadata;
+import com.lp.course.upload.LessonVideoProbe;
+import com.lp.course.upload.LessonVideoValidator;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -79,28 +84,40 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
 
     private final TeacherCourseMapper teacherCourseMapper;
     private final LessonUploadMapper lessonUploadMapper;
-    private final LessonUploadUrlSigner uploadUrlSigner;
+    private final LessonUploadUrlSigner uploadSigner;
+    private final LessonUploadObjectReader uploadReader;
     private final CourseUploadProperties uploadProperties;
+    private final LessonVideoProbe videoProbe;
+    private final LessonVideoValidator videoValidator;
 
     /**
-     * Creates the service with its mapper, upload session and signing dependencies.
+     * Creates the service with its mapper, storage, probe and rule dependencies.
      *
      * @param teacherCourseMapper teacher scoped course statements
      * @param lessonUploadMapper upload session statements
-     * @param uploadUrlSigner presigned PUT signer
+     * @param uploadSigner issues presigned PUT credentials
+     * @param uploadReader stats, downloads and cleans stored objects
      * @param uploadProperties upload limits and credential lifetime
+     * @param videoProbe reads video metadata with {@code ffprobe}
+     * @param videoValidator applies the frozen video acceptance rules
      * @author Caspian
      * @since 0.1.0
      */
     public TeacherCourseServiceImpl(
             TeacherCourseMapper teacherCourseMapper,
             LessonUploadMapper lessonUploadMapper,
-            LessonUploadUrlSigner uploadUrlSigner,
-            CourseUploadProperties uploadProperties) {
+            LessonUploadUrlSigner uploadSigner,
+            LessonUploadObjectReader uploadReader,
+            CourseUploadProperties uploadProperties,
+            LessonVideoProbe videoProbe,
+            LessonVideoValidator videoValidator) {
         this.teacherCourseMapper = teacherCourseMapper;
         this.lessonUploadMapper = lessonUploadMapper;
-        this.uploadUrlSigner = uploadUrlSigner;
+        this.uploadSigner = uploadSigner;
+        this.uploadReader = uploadReader;
         this.uploadProperties = uploadProperties;
+        this.videoProbe = videoProbe;
+        this.videoValidator = videoValidator;
     }
 
     /**
@@ -501,7 +518,9 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
      * Creates or reuses the pending upload session of a lesson and signs a PUT credential.
      *
      * <p>A pending session already holding {@code uk_lesson_pending} is returned instead of
-     * failing; an expired one is released and the insert retried once.
+     * failing, and it keeps the size persisted on creation so the response never advertises a
+     * declaration that confirmation would reject; an expired one is released and the insert retried
+     * once.
      *
      * @param userId authenticated user id
      * @param roles comma separated gateway roles
@@ -557,9 +576,101 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
                 session.getId(),
                 lessonId,
                 session.getObjectKey(),
-                uploadUrlSigner.presignPut(session.getObjectKey(), ttl),
+                uploadSigner.presignPut(session.getObjectKey(), ttl),
                 session.getSessionExpiresAt(),
                 session.getExpectedSizeBytes());
+    }
+
+    /**
+     * Confirms an uploaded lesson video and writes the video facts to the lesson.
+     *
+     * @param userId authenticated user id
+     * @param roles comma separated gateway roles
+     * @param courseId course primary key
+     * @param chapterId chapter primary key
+     * @param lessonId lesson primary key
+     * @param uploadId upload session primary key
+     * @return the confirmed lesson, also returned when the confirmation is repeated
+     * @author Caspian
+     * @since 0.8.0
+     */
+    @Override
+    public TeacherLessonView confirmUpload(
+            long userId,
+            String roles,
+            long courseId,
+            long chapterId,
+            long lessonId,
+            long uploadId) {
+        Course course = requireAccessible(resolveActor(userId, roles), courseId);
+        if (course.getStatus() != STATUS_DRAFT && course.getStatus() != STATUS_OFFLINE) {
+            throw new BizException(ErrorCode.LESSON_UPLOAD_STATE_INVALID);
+        }
+        LessonUpload session = lessonUploadMapper.selectById(uploadId);
+        if (session == null
+                || session.getCourseId() != courseId
+                || session.getChapterId() != chapterId
+                || session.getLessonId() != lessonId) {
+            throw new BizException(ErrorCode.LESSON_UPLOAD_NOT_FOUND);
+        }
+        if (session.getStatus() != LessonUploadStatus.CONFIRMED) {
+            confirmVideo(session);
+        }
+        CourseLesson lesson = teacherCourseMapper.selectLesson(courseId, chapterId, lessonId);
+        if (lesson == null) {
+            throw new BizException(ErrorCode.LESSON_UPLOAD_NOT_FOUND);
+        }
+        return toView(lesson);
+    }
+
+    /**
+     * Checks the stored object and claims the session for the caller.
+     *
+     * <p>The size is compared against the declaration and the configured ceiling; the probe and the
+     * acceptance rules run on the downloaded copy. The claim and the lesson columns are written by
+     * one statement, so a concurrent caller matches no row and reads the winner state instead.
+     *
+     * @param session pending session whose object was uploaded
+     * @author Caspian
+     * @since 0.8.0
+     */
+    private void confirmVideo(LessonUpload session) {
+        if (session.getStatus() != LessonUploadStatus.PENDING
+                || !session.getSessionExpiresAt().isAfter(LocalDateTime.now())) {
+            throw new BizException(ErrorCode.LESSON_UPLOAD_NOT_FOUND);
+        }
+        long size = uploadReader.statSize(session.getObjectKey());
+        if (size != session.getExpectedSizeBytes() || size > uploadProperties.maxSizeBytes()) {
+            throw new BizException(
+                    ErrorCode.LESSON_UPLOAD_VIDEO_INVALID,
+                    "stored size does not match the declared size");
+        }
+        DownloadedVideo video = uploadReader.download(session.getObjectKey());
+        try {
+            LessonVideoMetadata metadata = videoProbe.probe(video.file());
+            videoValidator.validate(metadata);
+            int claimed =
+                    lessonUploadMapper.confirm(
+                            session.getId(),
+                            LocalDateTime.now(),
+                            session.getObjectKey(),
+                            (int) Math.round(metadata.durationSeconds()),
+                            metadata.videoCodec(),
+                            metadata.width(),
+                            metadata.height(),
+                            size,
+                            video.sha256());
+            if (claimed == 0) {
+                LessonUpload current = lessonUploadMapper.selectById(session.getId());
+                if (current == null || current.getStatus() != LessonUploadStatus.CONFIRMED) {
+                    throw new BizException(
+                            ErrorCode.LESSON_UPLOAD_STATE_INVALID,
+                            "confirmation is in progress, retry");
+                }
+            }
+        } finally {
+            uploadReader.delete(video);
+        }
     }
 
     private long requireUploadSize(Long size) {
@@ -585,6 +696,7 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
                 session.setId(existing.getId());
                 session.setObjectKey(existing.getObjectKey());
                 session.setSessionExpiresAt(existing.getSessionExpiresAt());
+                session.setExpectedSizeBytes(existing.getExpectedSizeBytes());
                 return false;
             }
             lessonUploadMapper.markExpired(existing.getId());
