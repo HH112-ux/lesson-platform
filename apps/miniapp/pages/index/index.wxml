@@ -2,6 +2,7 @@
   <view class="head">
     <text class="title">全部课程</text>
     <text class="entry" bindtap="goMyCourses">我的课程</text>
+    <text class="entry" bindtap="goAccount">账号</text>
   </view>
 
   <scroll-view

@@ -21,6 +21,7 @@ function logout(): void {
         <a href="/">课程</a>
         <a href="/learning/my-courses">我的课程</a>
         <a href="/orders">订单</a>
+        <a href="/account">账号</a>
       </nav>
 
       <div class="account">
