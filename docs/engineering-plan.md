@@ -760,6 +760,26 @@ erDiagram
 
 唯一 `uk_channel_date_type(channel, bill_date, bill_type)`（同一渠道同一天同一账单类型只允许一条，重跑对账为覆盖更新）；索引 `idx_status_date(status, bill_date)`。
 
+**payment_settle_batch 日结批次**
+
+| 字段 | 类型 | 约束 | 说明 |
+|---|---|---|---|
+| id | BIGINT UNSIGNED | PK | — |
+| channel | TINYINT | NOT NULL | 1 支付宝（首版唯一启用） |
+| bill_date | DATE | NOT NULL | 账单日 |
+| channel_pay_count / channel_pay_amount | INT / DECIMAL(12,2) | NOT NULL DEFAULT 0 | 渠道支付账单笔数与金额 |
+| channel_refund_count / channel_refund_amount | INT / DECIMAL(12,2) | NOT NULL DEFAULT 0 | 渠道退款账单笔数与金额 |
+| local_pay_count / local_pay_amount | INT / DECIMAL(12,2) | NOT NULL DEFAULT 0 | 本地 `payment_record` 笔数与金额 |
+| local_refund_count / local_refund_amount | INT / DECIMAL(12,2) | NOT NULL DEFAULT 0 | 本地 `refund_request` 笔数与金额 |
+| net_channel_amount / net_local_amount | DECIMAL(12,2) | NOT NULL DEFAULT 0 | 支付减退款的净额（渠道/本地） |
+| diff_count / diff_amount | INT / DECIMAL(12,2) | NOT NULL DEFAULT 0 | 两份账单差异笔数与金额合计 |
+| status | TINYINT | NOT NULL DEFAULT 1 | 1 已日结/2 已作废 |
+| closed_by / closed_at | BIGINT UNSIGNED / DATETIME(3) | NOT NULL | 日结操作人与时间 |
+| void_by / void_at | BIGINT UNSIGNED / DATETIME(3) | NULL | 作废操作人与时间 |
+| 公共字段 | — | — | — |
+
+唯一 `uk_channel_date(channel, bill_date)`（同一渠道账单日只允许一条批次，重复日结为覆盖更新）；索引 `idx_status_date(status, bill_date)`。日结只封账与汇总净额，不含手续费、分账、教师结算与任何资金动作。
+
 ### 4.3.4 学习（`lp_lms`）
 
 **user_entitlement 课程权益**
@@ -998,7 +1018,7 @@ erDiagram
 | 50201 | 下游服务失败 | Feign 超时/错误 |
 | 50202 | 支付宝渠道失败 | 支付宝下单/退款返回失败 |
 | 50203 | 已移除（原微信支付渠道失败） | 微信支付已下线，保留编码不复用 |
-| 50204 | 对账存在未处理差异 | 重跑对账后仍为 `status=2` 时返回；结算前置校验沿用该码（日结接口尚未实现，见 SPEC-TRADE-014） |
+| 50204 | 对账存在未处理差异 | 重跑对账后仍为 `status=2` 时返回；日结前置校验沿用该码，差异未处置时不写 `payment_settle_batch`（SPEC-TRADE-014 AC-3） |
 | 50205 | 支付渠道或验签未配置 | 未配置密钥时发起支付与回调，禁止伪造成功 |
 | 50206 | 对象存储未配置或签名失败 | 播放签名缺少 MinIO 凭据时显式失败，禁止伪造 URL |
 | 50301 | AI 服务暂不可用 | 熔断/内部错误，AI 入口整体不可用 |
@@ -1024,6 +1044,7 @@ erDiagram
 | 62009 | 支付金额不一致 | 回调金额与订单应付金额不一致，拒绝并保留待人工核对 |
 | 62010 | 回调渠道不匹配 | 回调渠道与订单固定渠道不一致 |
 | 62011 | 支付方式已下线 | 小程序（微信支付）下单或发起支付；客户端应引导到网页用支付宝购买 |
+| 62019 | 日结前置账单不完整 | 支付与退款账单未全部导入时触发日结（SPEC-TRADE-014 AC-3） |
 | 63001 | 学习进度越界 | 超出视频时长 |
 | 64001 | 内容含违规信息 | 本地关键词兜底 |
 | 64002 | 举报目标不存在 | — |
@@ -1133,8 +1154,12 @@ spec:
 | POST | `/api/v1/reconcile/import` | 导入一个账单日账单（运营/管理员；权限码 `admin:reconcile:handle`） | `multipart/form-data`：`channel(默认 1)`、`billDate`、`billType(1 支付/2 退款)`、`file`（UTF-8 CSV） | `{id,channel,billDate,billType,channelCount,channelAmount,localCount,localAmount,diffCount,diffAmount,status}` | 40001,40101,40301 |
 | POST | `/api/v1/reconcile/{reconcileId}/recheck` | 重跑对账（运营/管理员；权限码 `admin:reconcile:recheck`） | `{}` | `{status,diffCount,diffAmount}`；重算结果先落库再返回 | 40101,40301,40401,50204 |
 | POST | `/api/v1/reconcile/{reconcileId}/handle` | 人工标记差异已处理（运营/管理员；权限码 `admin:reconcile:handle`；操作人取网关注入的 `X-User-Id`） | `{}` | `{status:3,handledBy,handledAt}` | 40001,40101,40301,40401,40901 |
+| POST | `/api/v1/reconcile/settlements` | 日结一个账单日（仅管理员；权限码 `admin:reconcile:close`；操作人取 `X-User-Id`） | `{channel(默认 1),billDate}` | `{id,channel,billDate,channelPayCount,channelPayAmountFen,...,netChannelAmountFen,netLocalAmountFen,diffCount,diffAmountFen,status,closedBy,closedAt,voidBy,voidAt}`，金额以分返回 | 40001,40101,40301,50204,62019 |
+| POST | `/api/v1/reconcile/settlements/{batchId}/void` | 作废日结批次并解锁账单日（仅管理员；权限码 `admin:reconcile:close`） | — | 同上，`status=2` 并带 `voidBy`/`voidAt` | 40101,40301,40401,40901 |
+| GET | `/api/v1/reconcile/settlements/{batchId}` | 日结批次详情（运营/管理员；权限码 `admin:reconcile:view`） | — | 单个批次，金额以分返回 | 40101,40301,40401 |
+| GET | `/api/v1/reconcile/settlements` | 日结批次分页（运营/管理员；权限码 `admin:reconcile:view`） | query:`channel(默认 1),billDate,status,pageNum,pageSize` | 分页 `{records:[批次],total,pageNum,pageSize}`，按账单日倒序 | 40001,40101,40301 |
 
-> **对账口径（SPEC-TRADE-014）**：账单来源**仅 CSV 上传**，UTF-8，表头 `tradeNo,merchantOrderNo,amount,occurredAt`，金额为元、两位小数、恒为正，账单日按 Asia/Shanghai 切分。**支付宝账单接口尚未接入**（需商户号与账单权限），自动拉取登记为待办，不得在文档或页面宣称已直连渠道。导入按 `uk_channel_date_type` 幂等覆盖，重复导入不产生重复差异。匹配规则：支付按 `payment_record.channel_trade_no` + 金额，退款按 `refund_request.channel_refund_no` + 金额；渠道多收为正差。差异只落 `payment_reconcile.diff_detail` 并告警，处置手段只有人工标记已处理，**不做任何自动冲正或资金操作**。日结与结算接口未实现，`50204` 为该场景保留。
+> **对账口径（SPEC-TRADE-014）**：账单来源**仅 CSV 上传**，UTF-8，表头 `tradeNo,merchantOrderNo,amount,occurredAt`，金额为元、两位小数、恒为正，账单日按 Asia/Shanghai 切分。**支付宝账单接口尚未接入**（需商户号与账单权限），自动拉取登记为待办，不得在文档或页面宣称已直连渠道。导入按 `uk_channel_date_type` 幂等覆盖，重复导入不产生重复差异。匹配规则：支付按 `payment_record.channel_trade_no` + 金额，退款按 `refund_request.channel_refund_no` + 金额；渠道多收为正差。差异只落 `payment_reconcile.diff_detail` 并告警，处置手段只有人工标记已处理，**不做任何自动冲正或资金操作**。日结按 2026-11-10 冻结口径实现（SPEC-TRADE-014 Q-2）：支付与退款账单都已导入方可日结（缺任一 `62019`），存在 `status=2` 差异返回 `50204` 且不写批次；日结成功后写入 `payment_settle_batch` 并锁定账单日，重复日结返回同一批次，日结后导入与重跑返回 `40901`；作废仅 `ADMIN`（`admin:reconcile:close`），作废后解锁。日结只封账与汇总净额，不含手续费、分账、教师结算与任何资金动作，**导出本期不做**。
 
 > **金额单位**：本表与 5.9、5.10 的交易、支付、退款金额字段（`totalAmount`、`discountAmount`、`payAmount`、`amount` 等）对外一律以**分**表示；库内 `DECIMAL(10,2)` 存元，换算在服务边界完成（SPEC-TRADE-013）。
 
