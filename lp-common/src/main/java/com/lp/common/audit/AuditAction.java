@@ -5,8 +5,9 @@ package com.lp.common.audit;
  * audit_outbox.action_type}.
  *
  * <p>The values are part of the cross-service contract: admin-service, course-service and
- * trade-service must agree on them. Only the three review actions covered by L1-7 are listed; the
- * unified audit is not a general purpose management log.
+ * trade-service must agree on them. The three review actions covered by L1-7 are listed together
+ * with the settlement void action that unlocks a settled bill day; the unified audit is not a
+ * general purpose management log.
  *
  * @author Caspian
  * @since 0.6.0
@@ -30,6 +31,9 @@ public final class AuditAction {
 
     /** A pending teacher application was rejected: {@code 5}. */
     public static final int TEACHER_REJECT = 5;
+
+    /** A settled bill day was voided to unlock it: {@code 6}. */
+    public static final int SETTLE_VOID = 6;
 
     private AuditAction() {}
 }

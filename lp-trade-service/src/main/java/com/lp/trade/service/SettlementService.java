@@ -1,15 +1,21 @@
 package com.lp.trade.service;
 
+import com.lp.common.audit.AuditAction;
+import com.lp.common.audit.AuditObject;
+import com.lp.common.audit.OperatorRole;
 import com.lp.common.exception.BizException;
 import com.lp.common.exception.ErrorCode;
+import com.lp.trade.entity.AuditOutbox;
 import com.lp.trade.entity.PaymentReconcile;
 import com.lp.trade.entity.PaymentSettleBatch;
+import com.lp.trade.mapper.AuditOutboxMapper;
 import com.lp.trade.mapper.PaymentReconcileMapper;
 import com.lp.trade.mapper.PaymentSettleBatchMapper;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Objects;
+import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,8 +29,9 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>Both bills of the day must have been imported first ({@code payment_reconcile.status} 1 to 3),
  * otherwise the call fails with {@code 62019}. A day with pending differences fails with {@code
- * 50204} and writes nothing. The unique key {@code uk_channel_date} makes the call idempotent: a
- * repeated close returns the stored batch and its primary key.
+ * 50204} and writes nothing. The unique key {@code uk_active_day} makes the call idempotent: a
+ * repeated close returns the stored batch and its primary key, while a close after a void inserts a
+ * new batch and keeps the voided row as history.
  *
  * @author Caspian
  * @since 0.6.2
@@ -46,22 +53,30 @@ public class SettlementService {
 
     private static final int STATUS_IMPORTED_MAX = 3;
 
+    private static final int MAX_REASON_LENGTH = 300;
+
     private final PaymentReconcileMapper reconcileMapper;
 
     private final PaymentSettleBatchMapper settleBatchMapper;
+
+    private final AuditOutboxMapper auditOutboxMapper;
 
     /**
      * Creates the settlement service.
      *
      * @param reconcileMapper reads the day's payment and refund aggregates
      * @param settleBatchMapper reads and writes the settle batch
+     * @param auditOutboxMapper writes the void audit intent in the same transaction
      * @author Caspian
      * @since 0.6.2
      */
     public SettlementService(
-            PaymentReconcileMapper reconcileMapper, PaymentSettleBatchMapper settleBatchMapper) {
+            PaymentReconcileMapper reconcileMapper,
+            PaymentSettleBatchMapper settleBatchMapper,
+            AuditOutboxMapper auditOutboxMapper) {
         this.reconcileMapper = reconcileMapper;
         this.settleBatchMapper = settleBatchMapper;
+        this.auditOutboxMapper = auditOutboxMapper;
     }
 
     /**
@@ -87,31 +102,40 @@ public class SettlementService {
                     ErrorCode.RECONCILE_UNRESOLVED,
                     "reconciliation still has unresolved differences");
         }
-        PaymentSettleBatch existing = settleBatchMapper.selectByKey(channel, billDate);
-        if (existing != null && Objects.equals(existing.getStatus(), STATUS_CLOSED)) {
+        PaymentSettleBatch existing = settleBatchMapper.selectActiveByKey(channel, billDate);
+        if (existing != null) {
             return existing;
         }
         settleBatchMapper.upsert(build(channel, billDate, closedBy, payment, refund));
-        return settleBatchMapper.selectByKey(channel, billDate);
+        return settleBatchMapper.selectActiveByKey(channel, billDate);
     }
 
     /**
-     * Voids a closed batch and unlocks its bill day.
+     * Voids a closed batch, unlocks its bill day and records the reason in the unified audit.
      *
      * <p>The row is kept and marked {@code status=2} with the operator and the time, so the same
-     * bill day can be imported and closed again. Only a closed batch can be voided; voiding twice
-     * or voiding a missing batch fails with {@code 40901} or {@code 40401}.
+     * bill day can be imported and closed again. The close then inserts a new row instead of
+     * reviving this one, which keeps every voided batch queryable. Only a closed batch can be
+     * voided; voiding twice or voiding a missing batch fails with {@code 40901} or {@code 40401}.
+     *
+     * <p>The reason is mandatory. It is written to {@code audit_outbox} in the same transaction and
+     * relayed to {@code admin_audit_log}, so a void can never happen without an operator, a time
+     * and a reason.
      *
      * @param batchId primary key of the batch
      * @param voidBy operator user id resolved from the gateway identity header
+     * @param reason why the batch must be voided, required and at most 300 characters
+     * @param traceId request trace id, generated when blank
      * @return voided batch
-     * @throws BizException with {@code 40401} when the batch is missing, or {@code 40901} when it
-     *     is not closed
+     * @throws BizException with {@code 40001} when the reason is missing or too long, {@code 40401}
+     *     when the batch is missing, or {@code 40901} when it is not closed
      * @author Caspian
      * @since 0.6.2
      */
     @Transactional
-    public PaymentSettleBatch voidSettleBatch(long batchId, long voidBy) {
+    public PaymentSettleBatch voidSettleBatch(
+            long batchId, long voidBy, String reason, String traceId) {
+        String normalizedReason = requireReason(reason);
         PaymentSettleBatch existing = settleBatchMapper.selectById(batchId);
         if (existing == null) {
             throw new BizException(ErrorCode.NOT_FOUND, "settle batch not found");
@@ -119,10 +143,45 @@ public class SettlementService {
         if (!Objects.equals(existing.getStatus(), STATUS_CLOSED)) {
             throw new BizException(ErrorCode.STATE_CONFLICT, "settle batch is not closed");
         }
-        if (settleBatchMapper.voidBatch(batchId, voidBy, LocalDateTime.now()) == 0) {
+        LocalDateTime voidAt = LocalDateTime.now();
+        if (settleBatchMapper.voidBatch(batchId, voidBy, voidAt) == 0) {
             throw new BizException(ErrorCode.STATE_CONFLICT, "settle batch is not closed");
         }
+        auditOutboxMapper.insert(voidAudit(batchId, voidBy, normalizedReason, traceId, voidAt));
         return settleBatchMapper.selectById(batchId);
+    }
+
+    private String requireReason(String reason) {
+        if (reason == null || reason.isBlank()) {
+            throw new BizException(ErrorCode.PARAM_INVALID, "void reason is required");
+        }
+        String normalized = reason.trim();
+        if (normalized.length() > MAX_REASON_LENGTH) {
+            throw new BizException(ErrorCode.PARAM_INVALID, "void reason is too long");
+        }
+        return normalized;
+    }
+
+    private AuditOutbox voidAudit(
+            long batchId, long voidBy, String reason, String traceId, LocalDateTime voidAt) {
+        AuditOutbox outbox = new AuditOutbox();
+        outbox.setDedupeKey("settle-void:" + batchId);
+        outbox.setOperatorId(voidBy);
+        outbox.setOperatorRole(OperatorRole.ADMIN);
+        outbox.setActionType(AuditAction.SETTLE_VOID);
+        outbox.setObjectType(AuditObject.SETTLE_BATCH);
+        outbox.setObjectId(batchId);
+        outbox.setFromStatus(STATUS_CLOSED);
+        outbox.setToStatus(STATUS_VOIDED);
+        outbox.setRemark(reason);
+        outbox.setTraceId(
+                traceId == null || traceId.isBlank()
+                        ? UUID.randomUUID().toString().replace("-", "")
+                        : traceId);
+        outbox.setOccurredAt(voidAt);
+        outbox.setStatus(0);
+        outbox.setRetryCount(0);
+        return outbox;
     }
 
     private void validate(Integer channel, LocalDate billDate) {

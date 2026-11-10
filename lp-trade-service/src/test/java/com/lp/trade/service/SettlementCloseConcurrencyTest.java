@@ -1,6 +1,7 @@
 package com.lp.trade.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.LocalDate;
@@ -20,10 +21,11 @@ import org.springframework.test.context.ActiveProfiles;
 /**
  * Proves a settle close keeps exactly one batch row under two concurrent callers.
  *
- * <p>Both workers read the same day, find no batch and race on {@code uk_channel_date}. The
- * database must let one insert win and make the other statement converge on the same row, so the
- * two callers return the same primary key and the table holds one row. This is a persistence-level
- * guarantee and is therefore exercised against a real schema rather than a mocked mapper.
+ * <p>Both workers read the same day, find no batch and race on {@code uk_active_day}. The database
+ * must let one insert win and make the other statement converge on the same row, so the two callers
+ * return the same primary key and the table holds one row. A second test proves that a voided day
+ * is closed again as a new row while the voided row stays as history. These are persistence-level
+ * guarantees and are therefore exercised against a real schema rather than a mocked mapper.
  *
  * @author Caspian
  * @since 0.6.2
@@ -55,6 +57,7 @@ class SettlementCloseConcurrencyTest {
     void prepareSchema() {
         jdbcTemplate.execute("DROP TABLE IF EXISTS payment_settle_batch");
         jdbcTemplate.execute("DROP TABLE IF EXISTS payment_reconcile");
+        jdbcTemplate.execute("DROP TABLE IF EXISTS audit_outbox");
         jdbcTemplate.execute(
                 "CREATE TABLE payment_reconcile ("
                         + "id BIGINT AUTO_INCREMENT PRIMARY KEY,"
@@ -96,7 +99,28 @@ class SettlementCloseConcurrencyTest {
                         + "closed_at DATETIME NOT NULL,"
                         + "void_by BIGINT,"
                         + "void_at DATETIME,"
-                        + "CONSTRAINT uk_channel_date UNIQUE (channel, bill_date))");
+                        + "active_day_key VARCHAR(64),"
+                        + "CONSTRAINT uk_active_day UNIQUE (active_day_key))");
+        jdbcTemplate.execute(
+                "CREATE TABLE audit_outbox ("
+                        + "id BIGINT AUTO_INCREMENT PRIMARY KEY,"
+                        + "dedupe_key VARCHAR(128) NOT NULL,"
+                        + "operator_id BIGINT NOT NULL,"
+                        + "operator_role TINYINT NOT NULL,"
+                        + "action_type TINYINT NOT NULL,"
+                        + "object_type TINYINT NOT NULL,"
+                        + "object_id BIGINT NOT NULL,"
+                        + "from_status TINYINT NOT NULL,"
+                        + "to_status TINYINT NOT NULL,"
+                        + "remark VARCHAR(300),"
+                        + "trace_id VARCHAR(64) NOT NULL,"
+                        + "occurred_at DATETIME NOT NULL,"
+                        + "status TINYINT NOT NULL DEFAULT 0,"
+                        + "retry_count INT NOT NULL DEFAULT 0,"
+                        + "next_retry_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,"
+                        + "delivered_at DATETIME,"
+                        + "last_error VARCHAR(300),"
+                        + "CONSTRAINT uk_dedupe UNIQUE (dedupe_key))");
         insertBill(1, "100.00", 2);
         insertBill(2, "30.00", 1);
     }
@@ -132,6 +156,41 @@ class SettlementCloseConcurrencyTest {
                 jdbcTemplate.queryForObject(
                         "SELECT COUNT(*) FROM payment_settle_batch", Integer.class);
         assertEquals(1, rows);
+    }
+
+    /**
+     * A void unlocks the day and the next close writes a new row, leaving the voided row intact.
+     *
+     * @author Caspian
+     * @since 0.6.2
+     */
+    @Test
+    void voidedDayIsClosedAgainAsANewBatchRow() {
+        Long firstId = settlementService.close(1, BILL_DATE, CLOSED_BY).getId();
+        settlementService.voidSettleBatch(firstId, 9002L, "duplicate bill import", "trace-void-1");
+        Long secondId = settlementService.close(1, BILL_DATE, CLOSED_BY).getId();
+
+        assertNotEquals(firstId, secondId);
+        assertEquals(
+                2,
+                jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM payment_settle_batch", Integer.class));
+        assertEquals(
+                1,
+                jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM payment_settle_batch WHERE status = 1",
+                        Integer.class));
+        assertEquals(
+                1,
+                jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM payment_settle_batch WHERE status = 2",
+                        Integer.class));
+        assertEquals(
+                "duplicate bill import",
+                jdbcTemplate.queryForObject(
+                        "SELECT remark FROM audit_outbox WHERE object_id = ?",
+                        String.class,
+                        firstId));
     }
 
     private void insertBill(int billType, String channelAmount, int count) {
