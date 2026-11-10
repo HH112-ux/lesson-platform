@@ -196,6 +196,7 @@
 | 真实支付宝支付 | engineering-plan 1.2、5.5、13.2 M2；15.2 D2 | 只有 `MockPaymentGateway` 与未配置即报 50205 的占位实现，无支付宝 SDK 适配器 | 缺商户号、应用私钥、公钥证书、回调域名 | 2026-11-09 |
 | 支付宝对账 | engineering-plan 1.2、13.2 M3、15.1 R11；SPEC-TRADE-014 | 无 `payment_reconcile` 表、无拉账任务、无差异告警 | 依赖商户号与账单权限；**未完成对账能力不得开启真实收款** | 2026-11-09 |
 | 支付宝回调 `app_id` 校验 | SPEC-TRADE-005 AC-6；engineering-plan 5.5、8.3 | 回调只验签与校验金额，未比对 `app_id`；当前为 Mock 渠道 | 阻塞：真实渠道接入时实现 | 2026-11-09 |
+| 小程序支付（JSAPI）与 `payer_openid` 落库 | product-lifecycle F07；engineering-plan 5.5、15.2 D2；SPEC-TRADE-012 | 无小程序支付实现；`payment_record.payer_openid` 当前无写入方，只有账号注销的匿名化会读取并覆写该列 | 缺 AppID、商户号与 APIv3 密钥；注销演练中该列只能由 SQL fixture 预置，属非接口写入，随小程序支付链路补齐 | 2026-11-10 |
 
 ## 4.2 其他未做功能
 
