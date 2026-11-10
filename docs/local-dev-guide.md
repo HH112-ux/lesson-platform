@@ -444,6 +444,32 @@ bash scripts/observability-ac33-drill.sh
 - 演练会留下 3 个处于冷静期的账号（`ac*`），7 天后到期；不需要时可以手工清掉，不影响其他数据。
 - 失败时脚本会打印它当时读到的原始 JSON 行；先看 `docker logs lp-auth-service | grep cache` 与 `docker logs lp-trade-service`，再核对 `prometheus-rules.yml` 是否真的挂载进来了。
 
+### 4.11 双副本注销执行并发演练
+
+`scripts/auth-replica-race-drill.sh` 用两个真实副本证明「同一申请只被执行一次」，约 2 分钟：
+
+1. 用 `docker compose run` 起两个不占宿主端口的 auth 副本（`lp-auth-race-a` / `lp-auth-race-b`），执行任务打开、扫描间隔 5 秒；
+2. 同时冻结两个副本，插入 5 条到期申请，6 秒后同时解冻——两个调度线程的定时器都已过期，会在毫秒级先后扫到同一批行，形成真实竞争；
+3. 断言数据库与计数器，然后删除两个副本容器。
+
+```bash
+bash scripts/auth-replica-race-drill.sh
+# 在 worktree 里跑时，主工作区的 infra/jwt 不在当前目录：
+LP_JWT_DIR="/path/to/main-checkout/infra/jwt" bash scripts/auth-replica-race-drill.sh
+```
+
+| 断言 | 期望 |
+|---|---|
+| 5 条到期行 | 全部 `status=2` 且 `executed_at` 非空 |
+| 两副本 `executed` 之和 | 等于到期行数 5（实际分配不固定，例如 4 + 1） |
+| 同一 `requestId` | 不出现两次 `executed`；输家日志是 `reason=already-claimed`，说明 `WHERE id=? AND status=0` 的占位生效 |
+| `failed` 计数 | 0 |
+
+- 主实例若开着执行任务，脚本会先冻结它，结束时恢复，保证整场只有两个扫描者。
+- 副本通过 `docker compose run` 加入**正在运行的那套栈**：脚本从 `lp-auth-service` 的 compose 标签读出项目名（`lp-dev`）并传 `-p`，因此即使从别的 worktree 执行也能连上同一网络与数据库。
+- 每轮用新的用户名与申请行；中断过的轮次会留下 `status=0` 的残留行，脚本在插入前按用户名与昵称前缀清掉。
+- 悬空 `status=0` 行会让下一轮多扫到别人的行、把 `executed` 计数推高；看到计数对不上先查这类残留。
+
 ## 5. Web 前端
 
 ```bash
