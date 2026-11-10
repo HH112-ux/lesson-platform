@@ -100,8 +100,10 @@ log "loading demo seed data"
   mysql -uroot -p"${LP_MYSQL_ROOT_PASSWORD:-lp_root_dev}" < db/seed/demo-seed.sql
 
 log "preparing MinIO bucket and video placeholder"
-if docker run --rm --network "$NETWORK" minio/mc:latest sh -c '
-  mc alias set local http://minio:9000 "$1" "$2" >/dev/null &&
+# minio/mc is no longer published, but the server image ships the same client, so the
+# bucket is created from inside the running container. backup-drill.sh does the same.
+if "${COMPOSE[@]}" exec -T minio sh -c '
+  mc alias set local http://127.0.0.1:9000 "$1" "$2" >/dev/null &&
   mc mb -p local/lp-media >/dev/null &&
   printf "placeholder video for local playback\n" > /tmp/lesson.mp4 &&
   mc cp /tmp/lesson.mp4 local/lp-media/demo/course-1.mp4 >/dev/null

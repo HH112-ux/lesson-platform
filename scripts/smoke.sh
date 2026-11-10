@@ -7,8 +7,8 @@
 # Usage: bash scripts/smoke.sh
 #
 # Every step prints the HTTP status plus the field it asserts on. The script stops at
-# the first failure and prints the response body. When the mock payment channel is
-# disabled the payment steps print SKIPPED and the script never claims SMOKE OK.
+# the first failure and prints the response body. Any skipped step is counted and makes
+# the run fail: CI must not report green when part of the chain never ran.
 set -uo pipefail
 
 BASE="${LP_SMOKE_BASE:-http://localhost:8080}"
@@ -20,6 +20,7 @@ FIXTURE="$ROOT/scripts/fixtures/sample.mp4"
 
 HTTP_STATUS=""
 BODY=""
+SKIPPED_COUNT=0
 
 command -v jq >/dev/null 2>&1 || { echo "FAIL jq is required"; exit 1; }
 
@@ -163,10 +164,11 @@ step 9 "student starts the payment"
 req POST "/api/v1/payments/$ORDER_NO/pay" "$STUDENT_TOKEN"
 PAY_CODE="$(jq -r '.code // empty' <<<"$BODY")"
 if [ "$PAY_CODE" = "50205" ]; then
+  SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
   printf '  HTTP %s | SKIPPED mock payment channel is disabled (lp.pay.mock.enabled=false)\n' "$HTTP_STATUS"
   printf '  remaining payment, ownership, playback and progress steps SKIPPED\n'
-  printf '\nSMOKE SKIPPED: enable LP_PAY_MOCK_ENABLED=true on dev and rerun\n'
-  exit 0
+  printf '\nSMOKE FAIL: %s step skipped; set LP_PAY_MOCK_ENABLED=true and rerun\n' "$SKIPPED_COUNT"
+  exit 1
 fi
 require_code "start payment"
 PAY_URL="$(jq -r '.data.payParams.payUrl' <<<"$BODY")"
@@ -208,4 +210,8 @@ req POST /api/v1/learning/progress "$STUDENT_TOKEN" \
 require_code "report progress"
 pass "progress=$(jq -r '.data.positionSeconds // .data.position' <<<"$BODY")"
 
+if [ "$SKIPPED_COUNT" -gt 0 ]; then
+  printf '\nSMOKE FAIL: %s step(s) skipped\n' "$SKIPPED_COUNT"
+  exit 1
+fi
 printf '\nSMOKE OK\n'

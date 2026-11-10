@@ -111,7 +111,7 @@
 | L1-7 | 统一操作审计 | SPEC-PLAT-010（10/10） | 已完成 | 三类审核的统一审计已完成；原同层级的账号注销已按门槛编号移到 L1-8 | 2026-11-10 |
 | L1-8 | 账号注销 | SPEC-PLAT-004（26/33） | 进行中 | 已实现 26 条：AC-1/2/3/4/5/7/8/10/11/12/13/14/15/18/19/20/21/23/24/26/27/28/29/30/31/32，覆盖申请与撤销、7 天冷静期落库、重复申请幂等、阻塞失败关闭、员工账号拒绝、查询与状态门禁、trade 冷静期守卫、执行任务与匿名化、环境变量与指标。剩余 7 条均为「部分」：AC-6、AC-9、AC-16、AC-17 已有单测但未在真实链路复核；AC-25 日志字段已补齐，尚无日志断言与真实采样；AC-33 三条规则已就位，但没有 Prometheus/Alertmanager 进程加载求值，随 L1-10 关闭；AC-22 的 Web 侧已于 2026-11-10 用真实账号浏览器实跑（申请/倒计时/撤销/67003 常驻提示/67005 下单与支付门禁），小程序真机预览受外部条件阻塞（无 AppID） | 2026-11-10 |
 | L1-9 | 支付对账 | SPEC-TRADE-014（2/4） | 进行中 | 已完成：CSV 账单导入与 `uk_channel_date_type` 幂等覆盖、差异明细落库、ERROR 日志与 `reconcile_diff_total{channel}`、日查询、重跑与人工标记（AC-1/AC-2）。剩余：AC-3 缺日结与结算接口，`50204` 仅在重跑仍待处理时返回，见 4.2「日结与结算」；AC-4 为真实收款开启前的门禁。自动拉账待商户号与账单权限 | 2026-11-10 |
-| L1-10 | 发布前工程化验证 | 无对应规格条目 | 进行中 | 依赖与镜像漏洞扫描已进 CI（`.github/workflows/supply-chain-ci.yml`，Trivy 固定版本，非阻断基线期，报告落 artifact）；备份恢复演练脚本已落地并在本地跑通（`scripts/backup-drill.sh`，逻辑备份、无 binlog PITR、耗时不代表生产 RTO）；后端依赖基线已升到 Boot 3.5.16 + Cloud 2025.0.3，Tomcat/Netty/Jackson/BouncyCastle/minio 等以显式 `dependencyManagement` 钉在修复版本，Trivy HIGH 清空、CRITICAL 由 15 条降到 3 条（剩余为 Spring Framework 6.2.19，Boot 3.5 线无修复版本）；E2E 冒烟进 CI 未做，见 3.5 与第 5 章 | 2026-11-10 |
+| L1-10 | 发布前工程化验证 | 无对应规格条目 | 进行中 | 依赖与镜像漏洞扫描已进 CI（`.github/workflows/supply-chain-ci.yml`，Trivy 固定版本，非阻断基线期，报告落 artifact）；备份恢复演练脚本已落地并在本地跑通（`scripts/backup-drill.sh`，逻辑备份、无 binlog PITR、耗时不代表生产 RTO）；后端依赖基线已升到 Boot 3.5.16 + Cloud 2025.0.3，Tomcat/Netty/Jackson/BouncyCastle/minio 等以显式 `dependencyManagement` 钉在修复版本，Trivy HIGH 清空、CRITICAL 由 15 条降到 3 条（剩余为 Spring Framework 6.2.19，Boot 3.5 线无修复版本）；E2E 冒烟已进独立 workflow（`e2e-ci.yml`，不进五项必需检查，失败上传六项取证），见 3.5 与第 5 章 | 2026-11-10 |
 | L1-11 | 内容生产通路（上传→处理→播放链路，教师端或运营后台任一） | SPEC-PLAT-006（5/6） | 进行中 | 上传会话、浏览器单次 PUT 直传、确认回填与运营后台教师入口已成：`apps/admin` 的 `/lesson-videos` 走「建会话→PUT→确认→列表回显」，2026-11-10 用 6 秒 MP4 在本地全栈实跑通过（PUT 200、confirm 200、`course_lesson` 回填 640×360 与字节数、会话置已确认）；`submit` 要求每条可见课时均已确认视频；AC-1~AC-5 有单测与实跑证据。剩余缺口：AC-6 播放地址服务端签名未做（教师端仍无法预览已上传视频），转码未做 | 2026-11-10 |
 
 ---
@@ -178,11 +178,11 @@
 | 本地一键起停 | Compose 拉起 MySQL/Redis/RocketMQ/MinIO/Nacos、7 个后端服务、Web 与后台；构建 jar 与前端、执行迁移、导入种子 | `infra/docker-compose.yml`、`scripts/dev-up.sh`、`scripts/dev-down.sh` | 2026-11-09 |
 | 演示数据 | 教师/运营/学员/管理员账号、多状态课程与一笔已支付订单 | `db/seed/demo-seed.sql`、`scripts/seed/seed-demo.sh` | 2026-11-09 |
 | 验收与演练 | 冒烟、outbox 故障演练、退款闭环演练、一条命令验收；支付发起与退款申请的 `Idempotency-Key` 头已补齐，`verify-all.sh` 可在本机全绿 | `scripts/smoke.sh`、`scripts/outbox-fault-drill.sh`、`scripts/refund-drill.sh`、`scripts/verify-all.sh` | 2026-11-10 |
-| CI | `backend-build`/`backend-test`、`frontend-check`、`miniapp-check`、`docs-check` | `.github/workflows/backend-ci.yml`、`frontend-ci.yml`、`docs-ci.yml` | 2026-11-09 |
+| CI | `backend-build`/`backend-test`、`frontend-check`、`miniapp-check`、`docs-check`；`e2e` 为独立 workflow，不进五项必需检查 | `.github/workflows/backend-ci.yml`、`frontend-ci.yml`、`docs-ci.yml`、`e2e-ci.yml` | 2026-11-10 |
 | 依赖与镜像漏洞扫描 | Trivy 固定 0.76.2，扫 Maven `pom.xml`、`pnpm-lock.yaml` 与基础镜像；基线期只报告不阻断，不进五项必需检查；基础镜像周扫在 `schedule` 与手动触发时跑；`.trivyignore.yaml` 规定每条必须带 `id`/`paths`/`statement`/`expired_at`。2026-11-10 升到 Boot 3.5.16 + Cloud 2025.0.3 并补齐 jackson/guava/minio/snappy 补丁后实测 unique 3 条（CRITICAL 3 / HIGH 0），升级前为 unique 76 条（CRITICAL 15 / HIGH 61）；剩余 critical 均为 Spring Framework 6.2.19 且只有 7.0.9 修复版本 | `.github/workflows/supply-chain-ci.yml`、`.trivyignore.yaml` | 2026-11-10 |
 | 备份恢复演练 | `mysqldump` 七个库 → 隔离恢复实例（`--rm`、无卷、临时端口）→ 比对表清单、逐表行数、`CHECKSUM TABLE`、`flyway_schema_history` 最大版本；MinIO `mc mirror --preserve` 双向（桶→宿主机备份树→新桶）→ 比对对象数、字节数与 ETag。边界：逻辑备份、RPO = 两次 dump 间隔且无 binlog PITR、本机耗时不代表生产 RTO | `scripts/backup-drill.sh` | 2026-11-10 |
 | 本地钩子 | `pre-commit` 跑文档校验与 Spotless，`commit-msg` 跑提交信息校验 | `.githooks/pre-commit`、`.githooks/commit-msg`、`scripts/install-hooks.sh` | 2026-11-09 |
-| 测试 | 47 个后端测试类、6 个前端 spec；无端到端测试进入 CI | `lp-*/src/test/**`、`apps/*/src/**/*.spec.ts` | 2026-11-09 |
+| 测试 | 47 个后端测试类、6 个前端 spec；端到端冒烟由 `e2e-ci.yml` 在 push、每日定时与手动触发时运行（PR 仅按路径触发），失败上传六项取证 | `lp-*/src/test/**`、`apps/*/src/**/*.spec.ts`、`.github/workflows/e2e-ci.yml` | 2026-11-10 |
 | 未做 | 镜像构建与推送、staging/prod 部署、监控栈编排、告警规则 | `.github/workflows/**`、`infra/**` | 2026-11-10 |
 
 ---
@@ -232,6 +232,7 @@
 | 监控栈与告警 | engineering-plan 13.6 M0-40/M0-41 | 各服务暴露 `/actuator/prometheus`，trade 有 outbox 指标；无 Prometheus/Grafana 编排。账号注销的三条告警规则已在 `infra/observability/prometheus-rules.yml`，但没有进程加载求值 | 规则文件已就位；监控栈未排期，规则求值随 L1-10 | 2026-11-10 |
 | 除 trade 与 auth 外的服务未暴露 `/actuator/prometheus` | engineering-plan 13.6 M0-40 | 仅 `lp-trade-service` 与 `lp-auth-service` 含 `micrometer-registry-prometheus`；`course`、`learn`、`ugc`、`admin`、`ai`、`gateway` 仍只有 `spring-boot-starter-actuator`，`/actuator/prometheus` 返回 `50001`。`lp.auth.account_cancellation.*` 已可 scrape，仓库提供 `infra/observability/prometheus-rules.yml`，但没有 Prometheus/Alertmanager 进程加载规则，规则从未被求值 | 其余服务的 registry 单独排期；规则求值随 L1-10 关闭，在那之前 AC-12/AC-33 的告警只停留在文件层 | 2026-11-10 |
 | 不存在的路径返回 `50001` | `lp-common` 的 `GlobalExceptionHandler` | `NoResourceFoundException` 落入兜底 `Exception` 分支，被报成 `50001 internal server error`；实际是路径或端点不存在（如未注册的 `/actuator/prometheus`），排查时容易被误导为服务端故障 | 技术债；应映射为 `40401`，与 `ErrorCode.NOT_FOUND` 对齐 | 2026-11-10 |
+| 预签名地址与服务端回读地址未拆分 | `lp-course-service` 的 `lp.course.upload.minio-endpoint` | 同一个端点既用于生成浏览器侧预签名 PUT URL，又用于 confirm 时容器内回读对象：容器内必须指 `http://minio:9000`，而该主机名在宿主机浏览器里不可解析，本地靠修改 `/etc/hosts` 兜底；指宿主机 LAN IP 则容器内 `connection refused`（MinIO 只绑定 `127.0.0.1`） | 技术债；应拆成「浏览器侧签名地址」与「服务端回读地址」两个配置，拆分前本地按 `docs/local-dev-guide.md` 的 hosts 步骤操作 | 2026-11-10 |
 | 小程序 CI 上传 | engineering-plan 13.6 M0-49 | CI 仅做静态检查，无 `miniprogram-ci` 上传 | 缺 AppID 与上传私钥 | 2026-11-09 |
 | staging/prod 部署 | engineering-plan 3.3、3.4、13.2 M5 | 无镜像构建、K8s 清单或部署 workflow | 缺服务器、域名、备案与凭据 | 2026-11-09 |
 
