@@ -22,6 +22,7 @@ import LoginView from './views/LoginView.vue'
 import OrdersView from './views/OrdersView.vue'
 import RefundQueueView from './views/RefundQueueView.vue'
 import ReviewQueueView from './views/ReviewQueueView.vue'
+import TeacherCoursesView from './views/TeacherCoursesView.vue'
 import UsersView from './views/UsersView.vue'
 
 const signedIn = computed(() => Boolean(accessToken.value) && Boolean(currentUser.value))
@@ -99,6 +100,7 @@ onMounted(() => {
         <UsersView v-else-if="currentRoute.name === 'users'" />
         <OrdersView v-else-if="currentRoute.name === 'orders'" />
         <RefundQueueView v-else-if="currentRoute.name === 'refunds'" />
+        <TeacherCoursesView v-else-if="currentRoute.name === 'teacher-courses'" />
         <LessonVideoView v-else-if="currentRoute.name === 'lesson-video'" />
         <p
           v-else

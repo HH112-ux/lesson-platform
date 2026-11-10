@@ -945,7 +945,13 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
         if (request.price() != null) {
             course.setPrice(requireMoney(request.price(), "price"));
         }
-        if (request.originalPrice() != null) {
+        if (Boolean.TRUE.equals(request.clearOriginalPrice())) {
+            if (request.originalPrice() != null) {
+                throw new BizException(
+                        ErrorCode.PARAM_INVALID, "cannot set and clear originalPrice at once");
+            }
+            course.setOriginalPrice(null);
+        } else if (request.originalPrice() != null) {
             course.setOriginalPrice(requireMoney(request.originalPrice(), "originalPrice"));
         }
         if (request.level() != null) {

@@ -27,6 +27,9 @@ public final class ReconcilePermissions {
     /** Permission required to import a bill or mark differences handled. */
     public static final String HANDLE = "admin:reconcile:handle";
 
+    /** Permission required to close or void a settle batch; granted to {@code ADMIN} only. */
+    public static final String CLOSE = "admin:reconcile:close";
+
     private ReconcilePermissions() {}
 
     /**
