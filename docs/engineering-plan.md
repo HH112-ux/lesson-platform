@@ -908,9 +908,15 @@ erDiagram
 
 `id, message_id, user_id, rating TINYINT(1 有用/2 无用), comment VARCHAR(300)` + 公共字段；唯一 `uk_message_user(message_id, user_id)`。
 
-### 4.3.7 审计（`lp_ums`）
+### 4.3.7 审计（`lp_cms`，L1-7）
 
-**audit_log 操作审计（追加写）**：`id, actor_id, actor_role, action VARCHAR(64), target_type, target_id, detail JSON, ip VARCHAR(64), trace_id CHAR(32), created_at`；索引 `idx_actor_created(actor_id, created_at)`、`idx_action_created(action, created_at)`。
+**admin_audit_log 统一操作审计（追加写）**：`id, operator_id, operator_role TINYINT, action_type TINYINT, object_type TINYINT, object_id, from_status TINYINT, to_status TINYINT, remark VARCHAR(300), trace_id VARCHAR(64), dedupe_key VARCHAR(128), created_at`；唯一 `uk_dedupe(dedupe_key)`、`idx_object_created(object_type, object_id, created_at)`、`idx_operator_created(operator_id, created_at)`。当前只覆盖课程审核、退款审核、教师审核六种动作；字段含义、索引与建表校验见迁移 `course/V7__admin_audit_log.sql`，事务边界在 5.9.1（PR-B 课程/教师、PR-C 退款）。
+
+**位置调整说明**：原方案把审计放在 `lp_ums`（`audit_log`）。实际落地改为放在 `lp_cms`、由 course-service 持有，原因是三类动作的状态分别在 `lp_cms`（课程、教师）与 `lp_oms`（退款），而 `admin-service` 无数据源；放在 `lp_ums` 会让课程与教师审核必须跨服务写审计，"状态已改、审计未写"无法用单库事务排除。`lp_ums.audit_log` 保留给后续账号、角色、AI 模型配置等非本次范围的管理操作，尚未建表。
+
+**退款侧的投递箱（`lp_oms.audit_outbox`）**：`id, dedupe_key, operator_id, operator_role, action_type, object_type, object_id, from_status, to_status, remark, trace_id, occurred_at, status TINYINT(0 待投递/1 已投递/2 已放弃), retry_count, next_retry_at, delivered_at, last_error, created_at, updated_at`；唯一 `uk_dedupe(dedupe_key)`、`idx_status_next(status, next_retry_at)`。用于补齐退款审核无法跨库同事务的缺口，规则见 5.9.1（PR-C）。
+
+**与 `course_review_audit` 的关系**：保留且继续双写，不迁移历史数据，也不删表。`course_review_audit` 继续服务单课程审核历史查询（含审核人、备注、时间），`admin_audit_log` 提供跨域统一视图；旧行没有 `operator_role` 与 `trace_id`，因此不回填、不合并，`course_review_audit` 自本版起视为只读历史表。
 
 ## 4.4 数据一致性与事务边界
 
