@@ -214,7 +214,7 @@
 | 支付重付约束 | SPEC-TRADE-004 AC-3、AC-4；engineering-plan 2.3 | 重新发起支付时直接复用未关闭的支付单，未返回 62006；`ErrorCode` 中没有 62006，也不要求先关闭原单 | 未排期；属支付发起与重付的业务缺口（L2-2），不阻塞 L1 上线 | 2026-11-10 |
 | 全文搜索与多维筛选 | product-lifecycle F02；engineering-plan 1.3 | 仅 `LIKE` 标题/副标题；无难度、热度、上新排序；`ft_` 索引未被查询使用 | 未排期 | 2026-11-09 |
 | 资料维护与账号注销 | product-lifecycle F01；engineering-plan 15.2 D8；SPEC-PLAT-004 | 资料修改未实现；注销已有 `POST/DELETE/GET /api/v1/auth/account-cancellation`（冷静期 7 天、重复申请幂等、阻塞返回 67003、依赖失败返回 50401），trade 冷静期守卫已实现（下单与支付返回 67005、200ms 探测、45s 缓存、提交后异步主动失效）；执行任务、匿名化与告警规则未实现；Web `/account` 与小程序账号页已提供注销申请、冷静期倒计时、撤销与阻塞提示 | 进行中（SPEC-PLAT-004 22/33） | 2026-11-10 |
-| 注销后「登录返回 `67001`」不可达 | SPEC-PLAT-004 AC-13/AC-14 与 AC-15/AC-16；`AuthServiceImpl.login` | 匿名化后 `username` 改为 `deleted_{userId}`、`email`/`phone` 置 NULL、密码随机化，而 `login()` 先校验密码再判状态，因此已注销账号无法从 `/auth/login` 命中 `67001`；真实验证只能覆盖旧 token 下的 `/me` 与 `/refresh`。现有单测是构造 `status=3` + 正常密码，不代表真实链路 | 冻结 AC 之间的冲突，处置方向待负责人裁决：A 改 AC 为「旧 token 下 `/me`、`refresh` 返回 `67001`」；B 放弃 `username` 改名以保住登录返回 `67001`。本行只记录事实，不预设结论 | 2026-11-10 |
+| 注销后原用户名登录返回 `40101`，`67001` 只在匿名名上可达 | SPEC-PLAT-004 AC-13/AC-14 与 AC-15；`AuthServiceImpl.login`、`AccountAnonymizationMapper` | #150（`02a790b`）已按方案 A 落地「仅 `status=3` 先判状态、后验密码」，用 `deleted_{userId}` 登录返回 `67001`。但 AC-15 同时要求 `username` 改为不可逆占位，匿名化后原用户名不再存在，原用户名登录在查账号阶段即返回 `40101`；真实验证覆盖旧 token 下的 `/me`、`/refresh` 与匿名名登录的 `67001` | 已按方案 A 收敛，不再待裁决；演练脚本同时断言原用户名 `40101` 与匿名名 `67001`，并用「仅改 `status=3`、密码不变」的 fixture 证明状态门禁先于密码，禁用账号分支断言「密码优先、`40301` 在后」 | 2026-11-10 |
 | 手动取消不释放优惠券 | SPEC-TRADE-006、SPEC-TRADE-007 AC-5 | 超时关单会释放订单占用的优惠券，手动取消（`OrderServiceImpl.cancel`）只关闭订单与支付单，券仍停留为已使用且绑定该订单，用户丢券且两种取消行为不一致 | 未排期；行为不一致 | 2026-11-09 |
 | 幂等层降级时同键换 body 无法识别 | SPEC-TRADE-001 AC-5、SPEC-TRADE-008 | Redis 不可用时幂等层记录 WARN 日志并累加 `lp.trade.idempotency.degraded` 指标后放行，该窗口内同键换请求体不会被识别为 `40901`，仅靠数据库唯一键（`uk_idempotency`、`uk_active_order`、支付单行锁）兜底 | 已接受；依赖监控告警 | 2026-11-09 |
 | 前端 `40901` 文案仍为「用户名已被占用」 | SPEC-TRADE-001 AC-5 | 下单与退款幂等冲突返回 `40901` 时，Web 端提示「用户名已被占用」，与「同一幂等键换请求体」语义不符，会误导用户；改文案需同步修改 `apps/web/src/utils/errors.spec.ts` 中对 `40901` 的断言 | 已知问题；非本 PR 引入 | 2026-11-09 |
@@ -223,6 +223,8 @@
 | 小程序评论 | product-lifecycle 4.3 | 小程序无评论页面 | 依赖 UGC | 2026-11-09 |
 | 小程序购买 ticket 闭环 | engineering-plan 15.2 D2；错误码 62012–62015 | ticket 签发与兑换接口已实现、Web 可兑换；小程序只复制普通链接，不签发 ticket | 前后端未接线 | 2026-11-09 |
 | 监控栈与告警 | engineering-plan 13.6 M0-40/M0-41 | 各服务暴露 `/actuator/prometheus`，trade 有 outbox 指标；无 Prometheus/Grafana 编排与告警规则 | 未排期 | 2026-11-09 |
+| 除 trade 外的服务未暴露 `/actuator/prometheus` | engineering-plan 13.6 M0-40 | 仅 `lp-trade-service` 含 `micrometer-registry-prometheus`；auth 由本 PR 补上；`course`、`learn`、`ugc`、`admin`、`ai`、`gateway` 仍只有 `spring-boot-starter-actuator`，`/actuator/prometheus` 返回 `50001`，SPEC-PLAT-004 的 `lp.auth.account_cancellation.executed` 一类计数器无法 scrape | 本 PR 只补 auth，其余服务单独排期；缺 registry 时 M0-40 与 AC-26/AC-27 的指标不可观测 | 2026-11-10 |
+| 不存在的路径返回 `50001` | `lp-common` 的 `GlobalExceptionHandler` | `NoResourceFoundException` 落入兜底 `Exception` 分支，被报成 `50001 internal server error`；实际是路径或端点不存在（如未注册的 `/actuator/prometheus`），排查时容易被误导为服务端故障 | 技术债；应映射为 `40401`，与 `ErrorCode.NOT_FOUND` 对齐 | 2026-11-10 |
 | 小程序 CI 上传 | engineering-plan 13.6 M0-49 | CI 仅做静态检查，无 `miniprogram-ci` 上传 | 缺 AppID 与上传私钥 | 2026-11-09 |
 | staging/prod 部署 | engineering-plan 3.3、3.4、13.2 M5 | 无镜像构建、K8s 清单或部署 workflow | 缺服务器、域名、备案与凭据 | 2026-11-09 |
 
