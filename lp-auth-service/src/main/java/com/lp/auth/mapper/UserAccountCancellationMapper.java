@@ -2,6 +2,7 @@ package com.lp.auth.mapper;
 
 import com.lp.auth.entity.UserAccountCancellation;
 import java.time.LocalDateTime;
+import java.util.List;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Options;
@@ -69,6 +70,39 @@ public interface UserAccountCancellationMapper {
                     + "VALUES (#{userId}, 0, #{requestedAt}, #{effectiveAt})")
     @Options(useGeneratedKeys = true, keyProperty = "id")
     int insert(UserAccountCancellation request);
+
+    /**
+     * Finds requests whose cooling-off period has ended, oldest deadline first.
+     *
+     * @param now current time, compared against the stored {@code effective_at}
+     * @param limit maximum rows to return in one scan
+     * @return due requests, empty when nothing has expired
+     * @author Caspian
+     * @since 0.3.0
+     */
+    @Select(
+            "SELECT id, user_id AS userId, status, requested_at AS requestedAt, "
+                    + "effective_at AS effectiveAt, withdrawn_at AS withdrawnAt, "
+                    + "executed_at AS executedAt, created_at AS createdAt, "
+                    + "updated_at AS updatedAt FROM user_account_cancellation "
+                    + "WHERE status = 0 AND effective_at <= #{now} "
+                    + "ORDER BY effective_at, id LIMIT #{limit}")
+    List<UserAccountCancellation> selectDue(
+            @Param("now") LocalDateTime now, @Param("limit") int limit);
+
+    /**
+     * Claims an active request for execution; only the winning replica updates a row.
+     *
+     * @param id request id
+     * @param executedAt execution time
+     * @return 1 when this call claimed the request, 0 when it was already withdrawn or claimed
+     * @author Caspian
+     * @since 0.3.0
+     */
+    @Update(
+            "UPDATE user_account_cancellation SET status = 2, executed_at = #{executedAt} "
+                    + "WHERE id = #{id} AND status = 0")
+    int markExecuted(@Param("id") long id, @Param("executedAt") LocalDateTime executedAt);
 
     /**
      * Withdraws an active request.
