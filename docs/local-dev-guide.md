@@ -380,6 +380,70 @@ curl -s http://127.0.0.1:8103/internal/v1/entitlement-outbox/stats \
 - 注销生效后**不主动吊销 refresh token**：Redis 中该账号剩余的 `lp:auth:refresh:*` 键按 TTL 自然过期，最长 7 天（`lp.auth.jwt.refresh-token-ttl-seconds` 默认 `604800`），不要据此认为已即时吊销。真正拦住刷新的是 `status=3` 的状态判定，`/auth/refresh` 与 `/auth/me` 在注销后立即返回 `67001`（AC-14）。
 - 执行类指标与告警规则见 [infra/observability/README.md](../infra/observability/README.md)。
 
+### 4.9 本地监控栈（Prometheus / Alertmanager / Grafana）
+
+监控栈独立于主栈，但复用主栈的 `lp-dev_default` 网络，因此按「先应用、后监控」的顺序启动：
+
+```bash
+docker compose -f infra/docker-compose.yml up -d
+docker compose -f infra/observability/docker-compose.yml up -d
+
+curl -s http://127.0.0.1:9090/-/healthy      # Prometheus
+curl -s http://127.0.0.1:9093/-/healthy      # Alertmanager
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3000/login   # Grafana
+```
+
+| 组件 | 地址 | 本地边界 |
+|---|---|---|
+| Prometheus | `http://127.0.0.1:9090` | 抓 8 个服务 + 自身；`rule_files` 卷挂载现有 `prometheus-rules.yml`，不复制规则 |
+| Alertmanager | `http://127.0.0.1:9093` | 只有空 receiver，仅验证规则能送达，不发通知 |
+| Grafana | `http://127.0.0.1:3000` | 只配 Prometheus 数据源，不铺面板；账号 `admin`，密码取 `LP_GRAFANA_ADMIN_PASSWORD`，默认 `lp_grafana_dev` |
+
+接入与指标口径见 [infra/observability/README.md](../infra/observability/README.md)。两处快速自检：
+
+```bash
+# 8 个服务 + prometheus 自身都应 up
+curl -s http://127.0.0.1:9090/api/v1/targets | \
+  python3 -c "import json,sys;a=json.load(sys.stdin)['data']['activeTargets'];print(len(a),'targets',sum(1 for t in a if t['health']=='up'),'up')"
+
+# 规则组 lp-auth-account-cancellation 的三条规则 health=ok
+curl -s 'http://127.0.0.1:9090/api/v1/rules?type=alert' | \
+  python3 -c "import json,sys
+for g in json.load(sys.stdin)['data']['groups']:
+    for r in g['rules']: print(g['name'], r['name'], r['health'], r['lastEvaluation'])"
+```
+
+- 主栈重建（`docker compose up -d --build`）不会影响监控栈；反过来停监控栈也不影响业务服务。
+- 服务没暴露 registry 时 `/actuator/prometheus` 返回 HTTP 200 但 body 是兜底错误 `{"code":50001,...}`，标签页里看不出异常，必须看 body 才判得准。
+
+### 4.10 AC-33 缓存失效告警演练
+
+`scripts/observability-ac33-drill.sh` 用真实请求跑完整条链路，约 8 分钟，全程**不停止 trade**，只用 `docker pause` 冻结（目标与端口都留在原地，不需要重启任何服务）：
+
+1. 注册 3 个账号，在 trade 仍可达时逐个提交注销申请（申请会探测 trade，trade 不可达时按 AC-10 直接 `50401`，所以申请必须放在暂停之前）；
+2. 冻结 trade，撤销这 3 个账号（撤销不做探测，提交后通知 trade 清缓存会失败），等计数器 +3 后解冻；
+3. 等告警 firing（`for: 1m`，约 1 分钟内触发），再等它回到 inactive。
+
+冻结只持续到 3 次失效全部超时（约数秒），trade 不会长时间不可用：本地同一套栈还有其他检查在用 trade。**不能撤销完立刻解冻**——排队中的异步失效会在容器醒来后成功，计数器只记到 1 次而不是 3 次。
+
+```bash
+bash scripts/observability-ac33-drill.sh
+```
+
+脚本自证四样，缺一不算通过：
+
+| 证据 | 断言 |
+|---|---|
+| 规则在求值 | `/api/v1/rules` 中 `LpAuthAccountCancellationCacheInvalidateFailed` 的 `health=ok`，且相隔 20 秒的两次 `lastEvaluation` 不同 |
+| 计数器 | `lp_auth_account_cancellation_cache_invalidate_failed_total` 相对基线增加 3 |
+| 两处都能查到 firing | `/api/v1/alerts` 与 `:9093/api/v2/alerts` 都有该告警处于 active；`value` 只从 Prometheus 取，要求 ≥ 3（Alertmanager 不含数值，脚本原样打印响应，不伪造） |
+| 窗口过后回 inactive | 这批失败离开 5m 窗口后，`/api/v1/alerts` 不再返回该告警 |
+
+- 告警的 `value` 是 `increase(...[5m])` 在触发那次的取值，**不是**计数器累计值，所以显示约 3；要看累计值查 `/actuator/prometheus`。
+- 规则的 `for` 是 **1m**，不是 5m：门槛 `>= 3` 与窗口 `[5m]` 都不动。原来的 `for: 5m` 对单批失败永远不 firing——t=0 写入 3 次事件，条件最多维持到 t=5m，而 `for: 5m` 恰好在 t=5m 才满足持续要求，此刻最早的事件已滑出窗口，pending 必然重置。`for: 1m` 保留「持续时间」意图（过滤瞬时抖动），又能在窗口内触发。
+- 演练会留下 3 个处于冷静期的账号（`ac*`），7 天后到期；不需要时可以手工清掉，不影响其他数据。
+- 失败时脚本会打印它当时读到的原始 JSON 行；先看 `docker logs lp-auth-service | grep cache` 与 `docker logs lp-trade-service`，再核对 `prometheus-rules.yml` 是否真的挂载进来了。
+
 ## 5. Web 前端
 
 ```bash
