@@ -12,6 +12,10 @@
 -- Rollback: drop uk_active_day and active_day_key, then restore uk_channel_date. The restore only
 -- succeeds before a second batch exists for any day; otherwise remove or archive the extra rows
 -- first, because a destructive delete of settlement history is not acceptable.
+--
+-- Deploy order: run this script only after every trade-service instance runs the release that
+-- writes and clears active_day_key. A pre-release instance inserts status=1 rows without the key,
+-- and its void statement leaves the key in place, so a later close would revive the voided row.
 ALTER TABLE payment_settle_batch
     DROP INDEX uk_channel_date,
     ADD COLUMN active_day_key VARCHAR(64) NULL
