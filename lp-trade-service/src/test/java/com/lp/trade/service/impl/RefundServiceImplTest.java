@@ -14,6 +14,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.lp.common.audit.OperatorRole;
 import com.lp.common.exception.BizException;
 import com.lp.common.exception.ErrorCode;
 import com.lp.trade.client.LearnProgressClient;
@@ -24,10 +25,12 @@ import com.lp.trade.dto.ApplyRefundRequest;
 import com.lp.trade.dto.CourseProgressSummary;
 import com.lp.trade.dto.RefundView;
 import com.lp.trade.entitlement.EntitlementService;
+import com.lp.trade.entity.AuditOutbox;
 import com.lp.trade.entity.PaymentRecord;
 import com.lp.trade.entity.RefundRequest;
 import com.lp.trade.entity.TradeOrder;
 import com.lp.trade.entity.TradeOrderItem;
+import com.lp.trade.mapper.AuditOutboxMapper;
 import com.lp.trade.mapper.PaymentMapper;
 import com.lp.trade.mapper.RefundRequestMapper;
 import com.lp.trade.mapper.TradeOrderMapper;
@@ -43,6 +46,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -97,6 +101,8 @@ class RefundServiceImplTest {
 
     @Mock private LearnProgressClient learnProgressClient;
 
+    @Mock private AuditOutboxMapper auditOutboxMapper;
+
     private RefundServiceImpl refundService;
 
     /**
@@ -115,7 +121,8 @@ class RefundServiceImplTest {
                         paymentGateway,
                         entitlementService,
                         learnProgressClient,
-                        new TransactionTemplate(new SynchronousTransactionManager()));
+                        new TransactionTemplate(new SynchronousTransactionManager()),
+                        auditOutboxMapper);
     }
 
     /**
@@ -269,7 +276,9 @@ class RefundServiceImplTest {
         when(tradeOrderMapper.markRefunded(eq(ORDER_ID), any())).thenReturn(1);
         when(paymentMapper.markRefunded(3L)).thenReturn(1);
 
-        RefundView view = refundService.review(REFUND_ID, true, null, REVIEWER_ID);
+        RefundView view =
+                refundService.review(
+                        REFUND_ID, true, null, REVIEWER_ID, OperatorRole.OPS, "trace-1");
 
         assertEquals(RefundStatus.REFUNDED, view.getStatus());
         assertNotNull(view.getRefundedAt());
@@ -279,6 +288,15 @@ class RefundServiceImplTest {
                 .refund(any(PaymentRecord.class), eq(REFUND_NO), eq(PAY_AMOUNT));
         verify(paymentMapper).markRefunded(3L);
         verify(entitlementService).revoke(USER_ID, COURSE_ID, ORDER_ID, ORDER_NO);
+        AuditOutbox outbox = captureAuditIntent();
+        assertEquals(2, outbox.getActionType());
+        assertEquals(1, outbox.getObjectType());
+        assertEquals(REFUND_ID, outbox.getObjectId());
+        assertEquals(0, outbox.getFromStatus());
+        assertEquals(1, outbox.getToStatus());
+        assertEquals(OperatorRole.OPS, outbox.getOperatorRole());
+        assertEquals("trace-1", outbox.getTraceId());
+        assertTrue(outbox.getDedupeKey().startsWith("refund-review:" + REFUND_ID + ":"));
     }
 
     /**
@@ -295,10 +313,18 @@ class RefundServiceImplTest {
         BizException exception =
                 assertThrows(
                         BizException.class,
-                        () -> refundService.review(REFUND_ID, false, "  ", REVIEWER_ID));
+                        () ->
+                                refundService.review(
+                                        REFUND_ID,
+                                        false,
+                                        "  ",
+                                        REVIEWER_ID,
+                                        OperatorRole.OPS,
+                                        "trace-1"));
 
         assertEquals(ErrorCode.PARAM_INVALID.getCode(), exception.getCode());
         verify(refundRequestMapper, never()).markRejected(anyLong(), anyString(), anyLong(), any());
+        verify(auditOutboxMapper, never()).insert(any(AuditOutbox.class));
     }
 
     /**
@@ -317,11 +343,22 @@ class RefundServiceImplTest {
                         eq(REFUND_ID), eq("progress too high"), eq(REVIEWER_ID), any()))
                 .thenReturn(1);
 
-        RefundView view = refundService.review(REFUND_ID, false, "progress too high", REVIEWER_ID);
+        RefundView view =
+                refundService.review(
+                        REFUND_ID,
+                        false,
+                        "progress too high",
+                        REVIEWER_ID,
+                        OperatorRole.OPS,
+                        "trace-1");
 
         assertEquals(RefundStatus.REJECTED, view.getStatus());
         assertEquals("progress too high", view.getReviewReason());
         verify(paymentGateway, never()).refund(any(), anyString(), any());
+        AuditOutbox outbox = captureAuditIntent();
+        assertEquals(3, outbox.getActionType());
+        assertEquals(3, outbox.getToStatus());
+        assertEquals("progress too high", outbox.getRemark());
         verify(entitlementService, never()).revoke(anyLong(), anyLong(), anyLong(), anyString());
         verify(tradeOrderMapper, never()).markRefunding(anyLong());
     }
@@ -337,10 +374,13 @@ class RefundServiceImplTest {
         when(refundRequestMapper.selectById(REFUND_ID)).thenReturn(refundedRefund());
         when(tradeOrderMapper.selectById(ORDER_ID)).thenReturn(paidOrder(LocalDateTime.now()));
 
-        RefundView view = refundService.review(REFUND_ID, true, null, REVIEWER_ID);
+        RefundView view =
+                refundService.review(
+                        REFUND_ID, true, null, REVIEWER_ID, OperatorRole.OPS, "trace-1");
 
         assertEquals(RefundStatus.REFUNDED, view.getStatus());
         verify(paymentGateway, never()).refund(any(), anyString(), any());
+        verify(auditOutboxMapper, never()).insert(any(AuditOutbox.class));
         verify(entitlementService, never()).revoke(anyLong(), anyLong(), anyLong(), anyString());
     }
 
@@ -366,7 +406,9 @@ class RefundServiceImplTest {
         when(refundRequestMapper.markFailed(eq(REFUND_ID), anyString())).thenReturn(1);
         when(tradeOrderMapper.markPaidAfterRefundFailure(ORDER_ID)).thenReturn(1);
 
-        RefundView view = refundService.review(REFUND_ID, true, null, REVIEWER_ID);
+        RefundView view =
+                refundService.review(
+                        REFUND_ID, true, null, REVIEWER_ID, OperatorRole.OPS, "trace-1");
 
         assertEquals(RefundStatus.FAILED, view.getStatus());
         assertEquals("channel rejected: BizException: channel down", view.getFailReason());
@@ -397,7 +439,9 @@ class RefundServiceImplTest {
                 .thenThrow(new RuntimeException("Read timed out"));
         when(refundRequestMapper.markUnknown(eq(REFUND_ID), anyString())).thenReturn(1);
 
-        RefundView view = refundService.review(REFUND_ID, true, null, REVIEWER_ID);
+        RefundView view =
+                refundService.review(
+                        REFUND_ID, true, null, REVIEWER_ID, OperatorRole.OPS, "trace-1");
 
         assertEquals(RefundStatus.UNKNOWN, view.getStatus());
         assertEquals("result unknown: RuntimeException: Read timed out", view.getFailReason());
@@ -457,7 +501,15 @@ class RefundServiceImplTest {
         ExecutorService pool = Executors.newFixedThreadPool(2);
         try {
             Future<RefundView> review =
-                    pool.submit(() -> refundService.review(REFUND_ID, true, null, REVIEWER_ID));
+                    pool.submit(
+                            () ->
+                                    refundService.review(
+                                            REFUND_ID,
+                                            true,
+                                            null,
+                                            REVIEWER_ID,
+                                            OperatorRole.OPS,
+                                            "trace-1"));
             assertTrue(channelEntered.await(5, TimeUnit.SECONDS));
             Future<Integer> observed =
                     pool.submit(() -> refundRequestMapper.selectById(REFUND_ID).getStatus());
@@ -599,6 +651,12 @@ class RefundServiceImplTest {
 
     private CourseProgressSummary progress(int percent) {
         return new CourseProgressSummary(percent, 100, percent);
+    }
+
+    private AuditOutbox captureAuditIntent() {
+        ArgumentCaptor<AuditOutbox> captor = ArgumentCaptor.forClass(AuditOutbox.class);
+        verify(auditOutboxMapper).insert(captor.capture());
+        return captor.getValue();
     }
 
     private RefundRequest pendingRefund() {
