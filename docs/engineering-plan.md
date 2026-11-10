@@ -1256,6 +1256,26 @@ spec:
 
 **与 `course_review_audit` 的关系**：保留、继续双写、历史数据不迁移。课程审核同时写 `course_review_audit`（单课程历史查询）与 `admin_audit_log`（跨域统一视图）；旧行没有 `operator_role` 与 `trace_id`，不回填、不合并，`course_review_audit` 视为只读历史表。
 
+### 5.9.1 统一操作审计（L1-7）
+
+**范围**：只覆盖课程审核（通过/驳回）、退款审核（通过/驳回）、教师审核（通过/驳回）六种动作，不做"全管理操作审计"。动作类型 `0 课程通过 / 1 课程驳回 / 2 退款通过 / 3 退款驳回 / 4 教师通过 / 5 教师驳回`，对象类型 `0 课程 / 1 退款 / 2 教师`，操作人角色 `0 运营 / 1 管理员`，均由代码常量类映射（`AuditAction`、`AuditObject`、`OperatorRole`），禁止字符串魔法值。
+
+**存储**：`lp_cms.admin_audit_log`（迁移 `course/V7`），索引满足两种检索——`idx_object_created(object_type, object_id, created_at)` 支撑按对象查，`idx_operator_created(operator_id, created_at)` 支撑按操作人+时间查。
+
+**事务边界（选择与理由）**：
+
+| 动作 | 状态归属 | 选择 | 理由 |
+|---|---|---|---|
+| 课程审核 | `lp_cms.course` | 状态更新与审计同库同事务 | 同一数据源，审计失败即整体回滚，不会出现"改了状态没审计" |
+| 教师审核 | `lp_cms.teacher_profile` | 同上 | 同上 |
+| 退款审核 | `lp_oms.refund_request` | 审核事务内写 `audit_outbox` 投递意图，再由 trade-service 中继投递到 `lp_cms.admin_audit_log` | 状态与审计表跨库，无法同事务；若先改状态再 HTTP 写审计，失败即丢审计。改为在同一事务内写意图，"状态改了必有意图"；投递为至少一次，`dedupe_key` 唯一键吸收重复；超过重试上限置 `status=2 已放弃` 并打 ERROR 与指标，留人工对账 |
+
+课程审核与教师审核的审计写入在 `@Transactional` 方法内完成：先写业务状态，再写 `admin_audit_log`，任一步抛异常由同一事务回滚，因此不存在"状态已改、审计缺失"的中间态。
+
+**退款投递语义**：中继按 `status=0` 且 `next_retry_at <= now` 取批（默认 50 条），失败按 5s 起指数退避、上限 300s；course-service 侧 `INSERT ... ON DUPLICATE KEY UPDATE dedupe_key = dedupe_key` 保证重复投递不产生第二行。**积压发现方式**：`SELECT status, COUNT(*) FROM audit_outbox GROUP BY status`，待投递持续增长或 `status=2` 出现即告警；中继同时累加投递成功/失败/放弃三类指标，`status=2` 需人工补写审计。
+
+**与 `course_review_audit` 的关系**：保留、继续双写、历史数据不迁移。课程审核同时写 `course_review_audit`（单课程历史查询）与 `admin_audit_log`（跨域统一视图）；旧行没有 `operator_role` 与 `trace_id`，不回填、不合并，`course_review_audit` 视为只读历史表。
+
 ## 5.10 教师域（course-service，`/api/v1/teacher`）
 
 鉴权要求：`X-User-Roles` 含 `TEACHER`，且存在 `teacher_profile.user_id = X-User-Id` 的启用档案；`ADMIN` 可读写任意课程，但建课与列表仍要求本人教师档案。**每条请求都在 service 层按 `owner_teacher_id = 当前用户对应 teacher_profile.id` 过滤**，不接受前端传教师 ID，越权返回 `40301`。
