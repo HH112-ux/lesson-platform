@@ -13,8 +13,10 @@ import org.springframework.stereotype.Component;
  * Redis backed idempotency store.
  *
  * <p>Two keys per request: a short lived lease that names the executor, and a long lived result
- * that carries the first success. The lease is released with compare-and-delete so a slow owner
- * cannot delete a lease that has already expired and been taken over.
+ * that carries the first success. Acquiring the lease is one script that also refuses keys which
+ * already carry a result, so a request that lost the race cannot run the action again. The lease is
+ * released with compare-and-delete so a slow owner cannot delete a lease that has already expired
+ * and been taken over.
  *
  * @author Caspian
  * @since 0.4.0
@@ -32,6 +34,13 @@ public class RedisIdempotencyStore implements IdempotencyStore {
             new DefaultRedisScript<>(
                     "if redis.call('get', KEYS[1]) == ARGV[1] then"
                             + " return redis.call('del', KEYS[1]) else return 0 end",
+                    Long.class);
+
+    private static final DefaultRedisScript<Long> ACQUIRE_SCRIPT =
+            new DefaultRedisScript<>(
+                    "if redis.call('exists', KEYS[2]) == 1 then return 0 end "
+                            + "if redis.call('set', KEYS[1], ARGV[1], 'PX', ARGV[2], 'NX') then "
+                            + "return 1 else return 0 end",
                     Long.class);
 
     private final StringRedisTemplate redisTemplate;
@@ -68,11 +77,15 @@ public class RedisIdempotencyStore implements IdempotencyStore {
     @Override
     public boolean acquireLease(
             IdempotencyScope scope, long userId, String keyHash, String ownerToken, Duration ttl) {
-        Boolean acquired =
-                redisTemplate
-                        .opsForValue()
-                        .setIfAbsent(leaseKey(scope, userId, keyHash), ownerToken, ttl);
-        return Boolean.TRUE.equals(acquired);
+        Long acquired =
+                redisTemplate.execute(
+                        ACQUIRE_SCRIPT,
+                        List.of(
+                                leaseKey(scope, userId, keyHash),
+                                resultKey(scope, userId, keyHash)),
+                        ownerToken,
+                        String.valueOf(ttl.toMillis()));
+        return Long.valueOf(1L).equals(acquired);
     }
 
     @Override

@@ -30,12 +30,17 @@ public interface IdempotencyStore {
     /**
      * Tries to become the single executor for a key.
      *
+     * <p>The check and the write are atomic: a key that already has a stored result can never be
+     * leased again, so a late lease attempt observes the finished request instead of overwriting
+     * it.
+     *
      * @param scope endpoint scope
      * @param userId authenticated buyer id
      * @param keyHash SHA-256 hash of the client key
      * @param ownerToken token identifying the executor
      * @param ttl lease lifetime; an expired lease may be taken over
-     * @return true when the lease was acquired, false when another request holds it
+     * @return true when the lease was acquired, false when another request holds it or the key
+     *     already has a stored result
      * @author Caspian
      * @since 0.4.0
      */

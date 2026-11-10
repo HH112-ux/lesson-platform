@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lp.common.exception.BizException;
 import com.lp.common.exception.ErrorCode;
+import com.lp.common.result.Result;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Duration;
 import java.util.Map;
@@ -166,6 +167,41 @@ class IdempotencyServiceTest {
     }
 
     @Test
+    void doesNotRerunTheActionWhenTheResultLandsBetweenLookupAndLease() throws Exception {
+        CountDownLatch claiming = new CountDownLatch(1);
+        CountDownLatch ownerFinished = new CountDownLatch(1);
+        AtomicInteger calls = new AtomicInteger();
+        GatedStore gated = new GatedStore(claiming, ownerFinished);
+        IdempotencyService gatedService =
+                new IdempotencyService(gated, objectMapper, meterRegistry, 5_000L, 20L);
+
+        var waiter =
+                executor.submit(
+                        () ->
+                                gatedService.execute(
+                                        IdempotencyScope.PAYMENT_INITIATE,
+                                        7L,
+                                        "key-1",
+                                        "digest",
+                                        TRACE_ID,
+                                        () -> {
+                                            calls.incrementAndGet();
+                                            return new Payload("pay-2", 300);
+                                        }));
+
+        assertTrue(claiming.await(2, TimeUnit.SECONDS));
+        gated.completeAsOwner(
+                objectMapper.writeValueAsString(Result.ok(new Payload("pay-1", 300), TRACE_ID)));
+        ownerFinished.countDown();
+
+        IdempotencyOutcome<String> outcome = waiter.get(5, TimeUnit.SECONDS);
+
+        assertTrue(outcome.replayed());
+        assertTrue(outcome.value().contains("\"id\":\"pay-1\""));
+        assertEquals(0, calls.get());
+    }
+
+    @Test
     void reportsInProgressWhenTheFirstRequestOutlivesTheWaitWindow() {
         store.acquireLease(
                 IdempotencyScope.ORDER_CREATE,
@@ -274,7 +310,12 @@ class IdempotencyServiceTest {
                 String ownerToken,
                 Duration ttl) {
             failIfUnavailable();
-            return leases.add(key(scope, userId, keyHash));
+            String key = key(scope, userId, keyHash);
+            // Mirrors the store contract: a completed key can never be leased again.
+            if (results.containsKey(key)) {
+                return false;
+            }
+            return leases.add(key);
         }
 
         @Override
@@ -303,6 +344,111 @@ class IdempotencyServiceTest {
 
         private String key(IdempotencyScope scope, long userId, String keyHash) {
             return scope.slug() + ":" + userId + ":" + keyHash;
+        }
+    }
+
+    /**
+     * Store that parks the waiter inside its second lease attempt until the first owner finished.
+     *
+     * <p>The first owner holds the lease and stores its result before releasing it. The second
+     * {@code acquireLease} call signals {@code claiming}, waits for the test to complete the owner,
+     * and then grants the lease even though a result is already stored. That reproduces the
+     * save-then-release window deterministically, without sleeping, and isolates the service level
+     * recheck because this store deliberately ignores the stored result when granting.
+     *
+     * @author Caspian
+     * @since 0.4.0
+     */
+    static final class GatedStore implements IdempotencyStore {
+
+        private static final String FIRST_OWNER = "first-request";
+
+        private static final IdempotencyScope SCOPE = IdempotencyScope.PAYMENT_INITIATE;
+
+        private static final long USER_ID = 7L;
+
+        private static final String KEY_HASH = IdempotencyDigests.sha256("key-1");
+
+        private final Map<String, StoredIdempotentResult> results = new ConcurrentHashMap<>();
+
+        private final Map<String, String> leases = new ConcurrentHashMap<>();
+
+        private final CountDownLatch claiming;
+
+        private final CountDownLatch ownerFinished;
+
+        private final Map<String, AtomicInteger> attempts = new ConcurrentHashMap<>();
+
+        GatedStore(CountDownLatch claiming, CountDownLatch ownerFinished) {
+            this.claiming = claiming;
+            this.ownerFinished = ownerFinished;
+            leases.put(key(SCOPE, USER_ID, KEY_HASH), FIRST_OWNER);
+        }
+
+        @Override
+        public Optional<StoredIdempotentResult> findResult(
+                IdempotencyScope scope, long userId, String keyHash) {
+            return Optional.ofNullable(results.get(key(scope, userId, keyHash)));
+        }
+
+        @Override
+        public boolean acquireLease(
+                IdempotencyScope scope,
+                long userId,
+                String keyHash,
+                String ownerToken,
+                Duration ttl) {
+            String key = key(scope, userId, keyHash);
+            AtomicInteger attemptsForKey =
+                    attempts.computeIfAbsent(key, ignored -> new AtomicInteger());
+            if (attemptsForKey.incrementAndGet() == 1) {
+                return false;
+            }
+            claiming.countDown();
+            await(ownerFinished);
+            return leases.putIfAbsent(key, ownerToken) == null;
+        }
+
+        @Override
+        public void saveResult(
+                IdempotencyScope scope,
+                long userId,
+                String keyHash,
+                StoredIdempotentResult result,
+                Duration ttl) {
+            results.put(key(scope, userId, keyHash), result);
+        }
+
+        @Override
+        public void releaseLease(
+                IdempotencyScope scope, long userId, String keyHash, String ownerToken) {
+            leases.remove(key(scope, userId, keyHash), ownerToken);
+        }
+
+        void completeAsOwner(String body) {
+            saveResult(
+                    SCOPE,
+                    USER_ID,
+                    KEY_HASH,
+                    new StoredIdempotentResult("digest", body),
+                    Duration.ofMinutes(30));
+            releaseLease(SCOPE, USER_ID, KEY_HASH, FIRST_OWNER);
+        }
+
+        private String key(IdempotencyScope scope, long userId, String keyHash) {
+            return scope.slug() + ":" + userId + ":" + keyHash;
+        }
+
+        private static void await(CountDownLatch latch) {
+            try {
+                if (!latch.await(5, TimeUnit.SECONDS)) {
+                    throw new IllegalStateException("the first owner did not finish in time");
+                }
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(
+                        "interrupted while waiting for the owner", exception);
+            }
         }
     }
 }
