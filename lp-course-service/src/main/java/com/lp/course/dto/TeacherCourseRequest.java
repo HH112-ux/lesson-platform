@@ -8,6 +8,10 @@ import java.math.BigDecimal;
  * <p>All fields are optional on edit; the service keeps the previous value when a field is omitted.
  * On create the picture is stricter: category, title, cover and price are required.
  *
+ * <p>Amounts of this path are expressed in yuan and never in fen. The operations review path takes
+ * fen instead; the server owns the conversion, so the console must not convert an amount before
+ * sending it.
+ *
  * @param categoryId target category, required on create
  * @param title course title, at most 120 characters
  * @param subtitle optional selling point, at most 200 characters

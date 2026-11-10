@@ -1312,7 +1312,7 @@ spec:
 | GET | `/api/v1/teacher/overview` | 教师总览（规划中；`totalRevenue30d` 单位分） | — | `{courseCount,publishedCount,pendingReviewCount,totalRevenue30d,learnerCount30d}` | 40101,40301 |
 | GET | `/api/v1/teacher/courses` | 我的课程列表 | query:`status,pageNum,pageSize` | 分页 `{items:[{courseId,title,subtitle,coverUrl,description,price,originalPrice,categoryId,level,status,reviewRemark,lessonCount,submittedAt,updatedAt}],total,pageNum,pageSize,counts:{draft,pending,published,offline}}`；`price` 单位分；`counts` 为本人全部课程按状态计数，不受 `status` 过滤与分页影响 | 40001,40101,40301 |
 | GET | `/api/v1/teacher/courses/{courseId}` | 我的课程详情（不含章节/课时，目录走 5.4 公开接口） | — | 同上单条 | 40301,40401 |
-| POST | `/api/v1/teacher/courses` | 建课草稿（`price`、`originalPrice` 单位分；入驻审核未通过返回 `61006`） | `{categoryId,title,subtitle?,coverUrl,description?,price,originalPrice?,level}` | 课程详情，`status:0` | 40001,40101,40301,61006 |
+| POST | `/api/v1/teacher/courses` | 建课草稿（`price`、`originalPrice` 单位**元**；审核接口以分定最终价，换算在服务端做，前端不得自行换算；入驻审核未通过返回 `61006`） | `{categoryId,title,subtitle?,coverUrl,description?,price,originalPrice?,level}` | 课程详情，`status:0` | 40001,40101,40301,61006 |
 | PUT | `/api/v1/teacher/courses/{courseId}` | 编辑本人课程（草稿/已下架可改，字段可选；已下架编辑后回草稿 `3→0` 须重新审核；入驻审核未通过返回 `61006`） | 同建课字段，均可选 | 课程详情 | 40001,40301,40401,40901,61006 |
 | POST | `/api/v1/teacher/courses/{courseId}/submit` | 提交审核（`0→1` 或 `3→1`；至少 1 个带视频与有效时长的课时；待审核期间只读） | `{}` | 课程详情，`status:1` | 40001,40301,40401,40901 |
 | POST | `/api/v1/teacher/courses/{courseId}/publish` | 本人课程再上架（`3→2`；仅内容未变更可直接上架，编辑过须回草稿复审） | `{}` | `{status:2}` | 40301,40901 |
@@ -2305,7 +2305,7 @@ DoD：学伴无法回答率 ≤ 30%、找课点击率 +10%、售后 FAQ 命中�
 
 **教师端**
 - [ ] 教师访问他人课程（改课/看数据）用例全部返回 40301
-- [ ] 教师无法修改课程价格（写接口不含 price 字段）
+- [ ] 教师不可直接设定最终价，仅提交拟定价，最终价由运营审核确定
 - [ ] 未通过入驻审核的账号无法进入教师工作台
 
 **安全**
