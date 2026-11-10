@@ -13,7 +13,9 @@ import com.lp.trade.reconcile.LocalReconcileRecord;
 import com.lp.trade.reconcile.ReconcileBillCsvParser;
 import com.lp.trade.reconcile.ReconcileBillLine;
 import com.lp.trade.reconcile.ReconcileCalculator;
+import com.lp.trade.reconcile.ReconcilePageView;
 import com.lp.trade.reconcile.ReconcileResult;
+import com.lp.trade.reconcile.ReconcileView;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -41,6 +43,8 @@ public class ReconcileService {
     static final int BILL_TYPE_PAYMENT = 1;
 
     static final int BILL_TYPE_REFUND = 2;
+
+    static final int MAX_PAGE_SIZE = 100;
 
     private static final Logger LOG = LoggerFactory.getLogger(ReconcileService.class);
 
@@ -132,6 +136,49 @@ public class ReconcileService {
                     .increment(result.diffCount());
         }
         return reconcileMapper.selectByKey(channel, billDate, billType);
+    }
+
+    /**
+     * Lists the reconciliation aggregates of one channel and bill day.
+     *
+     * @param channel payment channel; only {@link PaymentChannel#ALIPAY} is supported
+     * @param billDate bill day in Asia/Shanghai
+     * @param status optional status filter, 0 to 3
+     * @param pageNum one based page number
+     * @param pageSize page size, capped at {@value #MAX_PAGE_SIZE}
+     * @return one page of aggregates ordered by bill day descending
+     * @throws BizException when the channel, bill day or status is invalid
+     * @author Caspian
+     * @since 0.6.1
+     */
+    public ReconcilePageView daily(
+            Integer channel, LocalDate billDate, Integer status, int pageNum, int pageSize) {
+        if (!Objects.equals(channel, PaymentChannel.ALIPAY)) {
+            throw new BizException(
+                    ErrorCode.PARAM_INVALID,
+                    "only alipay reconciliation is supported in the first release");
+        }
+        if (billDate == null) {
+            throw new BizException(ErrorCode.PARAM_INVALID, "billDate is required");
+        }
+        if (status != null && (status < 0 || status > 3)) {
+            throw new BizException(ErrorCode.PARAM_INVALID, "status must be between 0 and 3");
+        }
+        int safePageNum = Math.max(pageNum, 1);
+        int safePageSize = Math.min(Math.max(pageSize, 1), MAX_PAGE_SIZE);
+        long total = reconcileMapper.count(channel, billDate, status);
+        List<ReconcileView> records =
+                reconcileMapper
+                        .page(
+                                channel,
+                                billDate,
+                                status,
+                                (safePageNum - 1) * safePageSize,
+                                safePageSize)
+                        .stream()
+                        .map(ReconcileView::from)
+                        .toList();
+        return new ReconcilePageView(records, total, safePageNum, safePageSize);
     }
 
     private void validateRequest(Integer channel, LocalDate billDate, Integer billType) {
