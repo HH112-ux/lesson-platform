@@ -1,0 +1,8 @@
+# Local development only. Never activate this profile in staging or production: the
+# credentials below mirror infra/docker-compose.yml and CourseUploadSettingsValidator
+# rejects them in every other profile.
+lp:
+  course:
+    upload:
+      minio-access-key: ${LP_COURSE_UPLOAD_MINIO_ACCESS_KEY:${LP_MINIO_ROOT_USER:lpminio}}
+      minio-secret-key: ${LP_COURSE_UPLOAD_MINIO_SECRET_KEY:${LP_MINIO_ROOT_PASSWORD:lp_minio_dev}}
