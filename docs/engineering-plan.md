@@ -152,7 +152,7 @@ flowchart TB
 
 ## 2.3 关键流程的状态机
 
-**课程状态**：`0 草稿 → 1 待审核 → 2 已上架 → 3 已下架`；审核驳回回到 `0` 并记录 `review_remark`。规则（见 SPEC-COURSE-002/004）：**待审核只读**，不可编辑、不可撤回、不可重复提交；运营**审核通过与定价、首次上架为同一动作**（`1→2`），不设置「审核通过待上架」的中间状态；已下架课程**未发生内容变更**可直接再上架（`3→2`），一旦编辑内容即回草稿（`3→0`）并必须重新审核。教师只能对自己 `owner_teacher_id` 的课程发起 `0→1`、`2→3`、`3→2`；`1→2` 只能由运营执行。
+**课程状态**：`0 草稿 → 1 待审核 → 2 已上架 → 3 已下架`；审核驳回回到 `0` 并记录 `review_remark`。规则（见 SPEC-COURSE-002/004/012）：**待审核只读**，不可编辑、不可改价、不可重复提交，但教师本人可撤回为草稿（`1→0`，写入审核审计）；运营**审核通过与定价、首次上架为同一动作**（`1→2`），不设置「审核通过待上架」的中间状态；已下架课程**未发生内容变更**可直接再上架（`3→2`），一旦编辑内容即回草稿（`3→0`）并必须重新审核。教师只能对自己 `owner_teacher_id` 的课程发起 `0→1`、`1→0`（撤回）、`2→3`、`3→2`；`1→2` 只能由运营执行。
 
 **订单状态**（仅支付宝单渠道，`payment_record.channel=1`；历史 `channel=2` 记录只读）：
 
@@ -548,10 +548,10 @@ erDiagram
 |---|---|---|---|
 | id | BIGINT UNSIGNED | PK | — |
 | course_id | BIGINT UNSIGNED | NOT NULL | `course.id` |
-| action | TINYINT | NOT NULL | 1 通过/2 驳回 |
+| action | TINYINT | NOT NULL | 1 通过/2 驳回/3 教师撤回 |
 | from_status | TINYINT | NOT NULL | 决策前状态，固定为 1 待审核 |
 | to_status | TINYINT | NOT NULL | 决策后状态：2 已上架/0 草稿 |
-| reviewer_id | BIGINT UNSIGNED | NOT NULL | 审核人用户 id |
+| reviewer_id | BIGINT UNSIGNED | NOT NULL | 操作人用户 id（运营审核人或撤回的教师） |
 | remark | VARCHAR(300) | NULL | 审核意见，驳回时必填 |
 | created_at | DATETIME(3) | NOT NULL | 决策时间 |
 
@@ -1092,7 +1092,7 @@ erDiagram
 | GET | `/internal/v1/courses` | 内部接口，不经网关对外：批量课程摘要（交易校验与下单取价） | query:`ids`（逗号分隔，必填） | `[{courseId,title,coverUrl,price,status,teacherId,lessonCount}]` | 40001 |
 | GET | `/internal/v1/courses/{courseId}/lessons` | 内部接口，不经网关对外：课时列表（`free` 为试看标记） | — | `[{lessonId,chapterId,title,free,sort}]` | 40401 |
 | GET | `/internal/v1/courses/stats` | 内部接口，不经网关对外：课程按状态计数（运营看板数据源） | — | `{total,draft,pendingReview,published,offline}` | — |
-| GET | `/internal/v1/courses/{courseId}/review-audits` | 内部接口，不经网关对外：课程审核审计流水（按决策时间倒序） | — | `[{auditId,courseId,action,fromStatus,toStatus,reviewerId,remark,createdAt}]`；`action` 1 通过/2 驳回 | 40401 |
+| GET | `/internal/v1/courses/{courseId}/review-audits` | 内部接口，不经网关对外：课程审核审计流水（按决策时间倒序） | — | `[{auditId,courseId,action,fromStatus,toStatus,reviewerId,remark,createdAt}]`；`action` 1 通过/2 驳回/3 教师撤回 | 40401 |
 | POST | `/api/v1/comments` | 发评论 | `{courseId,lessonId?,parentId?,content}` | `{id,status:0}` | 40001,40301(未购),64001 |
 | DELETE | `/api/v1/comments/{commentId}` | 删本人评论（逻辑删） | — | `{deleted:true}` | 40301,40401 |
 | POST | `/api/v1/reports` | 举报 | `{targetType,targetId,reasonType,content}` | `{id}` | 40001,64002 |
@@ -1249,7 +1249,7 @@ spec:
 | POST | `/api/v1/admin/courses/{courseId}/submit` | 提交审核（运营代提交） | `{}` | `{status:1}` | 40901 |
 | GET | `/api/v1/admin/courses/pending` | 课程审核队列（`status=1`，按提交时间正序） | query:`pageNum,pageSize` | 分页 `{records:[{courseId,title,coverUrl,ownerTeacherId,price,submittedAt}],total,pageNum,pageSize}`；`price` 单位分 | 40301 |
 | POST | `/api/v1/admin/courses/{courseId}/review` | **审核课程**（通过：定价并上架同一动作 `1→2`，无「待上架」中间态；驳回→草稿，`remark` 必填） | `{approved:bool,priceFen?,remark?}` | `{courseId,status:0\|2,priceFen,reviewedAt}` | 40001,40301,40401,61005 |
-| GET | `/api/v1/admin/courses/{courseId}/review-audits` | 课程审核审计流水（按决策时间倒序，供运营追溯） | — | `[{auditId,courseId,action,fromStatus,toStatus,reviewerId,remark,createdAt}]`；`action` 1 通过/2 驳回 | 40301,40401,50201 |
+| GET | `/api/v1/admin/courses/{courseId}/review-audits` | 课程审核审计流水（按决策时间倒序，供运营追溯） | — | `[{auditId,courseId,action,fromStatus,toStatus,reviewerId,remark,createdAt}]`；`action` 1 通过/2 驳回/3 教师撤回 | 40301,40401,50201 |
 | POST | `/api/v1/admin/courses/{courseId}/publish` | 上架并定价（运营；已下架未变更可直接再上架 `3→2`，内容变更过须回草稿复审；`price` 单位分） | `{price?,categoryId?}` | `{status:2}` | 40301,40901 |
 | POST | `/api/v1/admin/courses/{courseId}/unpublish` | 下架 | `{reason}` | `{status:3}` | 40301 |
 | POST | `/api/v1/admin/entitlements/grant` | 运营发放课程权益（免费课开通/客诉补偿，不产生订单，15.2 D9） | `{userId,courseId,reason}` | `{entitlementId}` | 40001,40301,40901(已有权益) |
@@ -1328,7 +1328,7 @@ spec:
 
 鉴权要求：`X-User-Roles` 含 `TEACHER`，且存在 `teacher_profile.user_id = X-User-Id` 的启用档案；`ADMIN` 可读写任意课程，但建课与列表仍要求本人教师档案。**每条请求都在 service 层按 `owner_teacher_id = 当前用户对应 teacher_profile.id` 过滤**，不接受前端传教师 ID，越权返回 `40301`。
 
-**编辑与状态规则**（与 3.2 状态机一致）：草稿（`0`）可编辑；待审核（`1`）对教师只读，不可撤回、不可重复提交；已上架（`2`）教师不可直接编辑，须由运营下架为 `3`；已下架（`3`）可编辑，编辑成功即回草稿（`3→0`）并须重新提交审核。教师提交的 `price` 是拟定价格，运营在审核通过（`1→2`）时确认最终价格（`priceFen` 可选覆盖）。
+**编辑与状态规则**（与 3.2 状态机一致）：草稿（`0`）可编辑；待审核（`1`）对教师只读，不可编辑、不可重复提交，教师本人可撤回为草稿（`1→0`）；已上架（`2`）教师不可直接编辑，须由运营下架为 `3`；已下架（`3`）可编辑，编辑成功即回草稿（`3→0`）并须重新提交审核。教师提交的 `price` 是拟定价格，运营在审核通过（`1→2`）时确认最终价格（`priceFen` 可选覆盖）。
 
 | 方法 | 路径 | 用途 | 请求 | 响应 | 主要错误码 |
 |---|---|---|---|---|---|
@@ -1340,6 +1340,7 @@ spec:
 | POST | `/api/v1/teacher/courses` | 建课草稿（`price`、`originalPrice` 单位**元**；审核接口以分定最终价，换算在服务端做，前端不得自行换算；入驻审核未通过返回 `61006`） | `{categoryId,title,subtitle?,coverUrl,description?,price,originalPrice?,level}` | 课程详情，`status:0` | 40001,40101,40301,61006 |
 | PUT | `/api/v1/teacher/courses/{courseId}` | 编辑本人课程（草稿/已下架可改，字段可选；已下架编辑后回草稿 `3→0` 须重新审核；入驻审核未通过返回 `61006`） | 同建课字段，均可选 | 课程详情 | 40001,40301,40401,40901,61006 |
 | POST | `/api/v1/teacher/courses/{courseId}/submit` | 提交审核（`0→1` 或 `3→1`；至少 1 个带视频与有效时长的课时；待审核期间只读） | `{}` | 课程详情，`status:1` | 40001,40301,40401,40901 |
+| POST | `/api/v1/teacher/courses/{courseId}/withdraw` | 撤回待审（`1→0`；仅课程归属教师本人，管理员不代撤回；写入审核审计 `action=3`） | `{}` | 课程详情，`status:0` | 40301,40401,40901 |
 | POST | `/api/v1/teacher/courses/{courseId}/publish` | 本人课程再上架（`3→2`；仅内容未变更可直接上架，编辑过须回草稿复审） | `{}` | `{status:2}` | 40301,40901 |
 | POST | `/api/v1/teacher/courses/{courseId}/unpublish` | 本人课程下架（`2→3`） | `{reason}` | `{status:3}` | 40301,40901 |
 | GET | `/api/v1/teacher/courses/{courseId}/chapters` | 章节+课时目录（含隐藏项；`hasVideo` 表示是否已确认视频，不下发对象键） | — | `[{chapterId,title,sort,status,lessons:[{lessonId,chapterId,title,hasVideo,durationSec,free,sort,status}]}]` | 40301,40401 |
@@ -1847,7 +1848,7 @@ flowchart LR
 | 域 | 必测内容 |
 |---|---|
 | 认证 | 注册/登录/刷新/退出、Token 过期、越权、**小程序 code 登录与 code 重放**、**绑定手机号冲突（不自动合并账号，15.2 D8）**、注销冷静期申请与撤销 |
-| 课程 | 列表/搜索/详情/目录、未购不可播、上下架；**待审核只读/不可撤回/不可重复提交、已下架编辑回草稿复审**（SPEC-COURSE-002/003）；**无评分展示**（product-lifecycle 2.5） |
+| 课程 | 列表/搜索/详情/目录、未购不可播、上下架；**待审核只读/不可重复提交、教师本人可撤回为草稿、已下架编辑回草稿复审**（SPEC-COURSE-002/003/012）；**无评分展示**（product-lifecycle 2.5） |
 | **教师端** | 建课→提交→审核→上架全流程；**用教师 A 访问教师 B 的课程/章节/课时/看板必须全部 40301**；教师可提交拟定价但不能自行设定最终价；未通过入驻审核不能建课；**审核通过与定价上架同一动作（无「待上架」态，SPEC-COURSE-004）** |
 | 交易 | 购物车（仅 Web）、优惠券、下单幂等、超时关单（30 分钟，15.2 D11）、**支付宝回调（微信回调已随渠道移除）**、退款（**7 天/进度 ≤ 20% 准入与全额退款，15.2 D6**）、**小程序下单必须返回 62011**、**重付仅限原渠道（SPEC-TRADE-004）**、**0 元订单创建即完成并发放权益（D9），不使用 62008** |
 | **对账** | 支付宝单渠道账单比对、差异识别（长款/短款）、重跑幂等、`uk_channel_date_type` 覆盖更新；**未完成对账能力不得开启真实收款** |

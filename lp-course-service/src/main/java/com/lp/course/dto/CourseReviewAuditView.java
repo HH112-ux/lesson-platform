@@ -7,11 +7,11 @@ import java.time.LocalDateTime;
  *
  * @param auditId audit primary key
  * @param courseId reviewed course id
- * @param action 1 approved, 2 rejected
+ * @param action 1 approved, 2 rejected, 3 withdrawn by the owning teacher
  * @param fromStatus course status before the decision
  * @param toStatus course status after the decision
  * @param reviewerId operator user id
- * @param remark review remark, {@code null} on approval
+ * @param remark review remark, {@code null} on approval or teacher withdrawal
  * @param createdAt decision time
  * @author Caspian
  * @since 0.1.0

@@ -88,6 +88,21 @@ public interface TeacherCourseService {
     TeacherCourseView submit(long userId, String roles, long courseId);
 
     /**
+     * Withdraws the caller's own pending submission and sends the course back to draft.
+     *
+     * <p>Only the owning teacher can withdraw. Administrators must reject or take the course
+     * offline instead, so a review decision never looks like a teacher withdrawal.
+     *
+     * @param userId authenticated user id
+     * @param roles comma separated gateway roles
+     * @param courseId course primary key
+     * @return the course back in draft status
+     * @author Caspian
+     * @since 0.13.0
+     */
+    TeacherCourseView withdraw(long userId, String roles, long courseId);
+
+    /**
      * Lists the chapters and lessons of one owned course, including hidden rows.
      *
      * @param userId authenticated user id

@@ -198,6 +198,23 @@ export function submitTeacherCourse(courseId: number): Promise<TeacherCourse> {
 }
 
 /**
+ * Withdraws the caller's own pending course back to draft.
+ *
+ * <p>Only the owning teacher may call this; operations users get 40301. Courses that are no longer
+ * pending get 40901.
+ *
+ * @param courseId course identifier
+ * @returns the course back in draft status
+ * @author Caspian
+ * @since 0.13.0
+ */
+export function withdrawTeacherCourse(courseId: number): Promise<TeacherCourse> {
+  return apiRequest<TeacherCourse>(`/api/v1/teacher/courses/${courseId}/withdraw`, {
+    method: 'POST',
+  })
+}
+
+/**
  * Lists the chapters of a course with their lessons.
  *
  * @param courseId course identifier
