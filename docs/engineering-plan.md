@@ -1298,8 +1298,8 @@ spec:
 | POST | `/api/v1/teacher/courses/{courseId}/chapters` | 建章节（草稿/已下架课程；已下架改动回草稿） | `{title,sort?,status?}` | 章节详情 | 40001,40301,40401,40901 |
 | PUT | `/api/v1/teacher/courses/{courseId}/chapters/{chapterId}` | 改章节（字段可选） | `{title?,sort?,status?}` | 章节详情 | 40001,40301,40401,40901 |
 | DELETE | `/api/v1/teacher/courses/{courseId}/chapters/{chapterId}` | 删章节（逻辑删，级联隐藏课时） | — | `data:null` | 40301,40401,40901 |
-| POST | `/api/v1/teacher/courses/{courseId}/chapters/{chapterId}/lessons` | 建课时（`videoUrl` 与 `durationSec>0` 必填） | `{title,videoUrl,durationSec,isFree?,sort?,status?}` | 课时详情 | 40001,40301,40401,40901 |
-| PUT | `/api/v1/teacher/courses/{courseId}/chapters/{chapterId}/lessons/{lessonId}` | 改课时（字段可选） | `{title?,videoUrl?,durationSec?,isFree?,sort?,status?}` | 课时详情 | 40001,40301,40401,40901 |
+| POST | `/api/v1/teacher/courses/{courseId}/chapters/{chapterId}/lessons` | 建课时（视频字段由上传确认写入；传 `videoUrl`/`durationSec` 返回 `40001`） | `{title,isFree?,sort?,status?}` | 课时详情 | 40001,40301,40401,40901 |
+| PUT | `/api/v1/teacher/courses/{courseId}/chapters/{chapterId}/lessons/{lessonId}` | 改课时（字段可选；同样拒绝视频字段） | `{title?,isFree?,sort?,status?}` | 课时详情 | 40001,40301,40401,40901 |
 | DELETE | `/api/v1/teacher/courses/{courseId}/chapters/{chapterId}/lessons/{lessonId}` | 删课时（逻辑删） | — | `data:null` | 40301,40401,40901 |
 | POST | `/api/v1/teacher/lessons/{lessonId}/video` | 上传视频（multipart，服务端校验项见 SPEC-PLAT-006，当前未实现） | form-data `file` | `{videoUrl,durationSec,codec,width,height,sizeBytes}` | 40301,40002,50001,61003 |
 | GET | `/api/v1/teacher/courses/{courseId}/dashboard` | **课程数据看板**（`revenue`、`refundAmount` 与趋势内 `revenue` 单位分） | query:`dateFrom,dateTo`（≤90 天） | `{summary:{salesCount,revenue,refundAmount,newLearnerCount,avgProgressPercent,commentCount},trend:[{date,paidOrderCount,revenue,newLearnerCount}]}` | 40301,40401 |
