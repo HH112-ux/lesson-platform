@@ -17,6 +17,7 @@ import com.lp.trade.mapper.PaymentMapper;
 import com.lp.trade.mapper.TradeOrderMapper;
 import com.lp.trade.payment.PaymentGateway;
 import com.lp.trade.payment.SignatureVerifier;
+import com.lp.trade.service.AccountDeletionGuard;
 import com.lp.trade.service.PaymentService;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -62,6 +63,8 @@ public class PaymentServiceImpl implements PaymentService {
 
     private final TransactionTemplate transactionTemplate;
 
+    private final AccountDeletionGuard accountDeletionGuard;
+
     /**
      * Creates the service with its dependencies.
      *
@@ -71,6 +74,7 @@ public class PaymentServiceImpl implements PaymentService {
      * @param signatureVerifier callback verification port
      * @param entitlementService ownership port
      * @param transactionTemplate transaction boundary around the attempt lock
+     * @param accountDeletionGuard cooling-off gate applied before an attempt is prepared
      * @author Caspian
      * @since 0.1.0
      */
@@ -80,13 +84,15 @@ public class PaymentServiceImpl implements PaymentService {
             PaymentGateway paymentGateway,
             SignatureVerifier signatureVerifier,
             EntitlementService entitlementService,
-            TransactionTemplate transactionTemplate) {
+            TransactionTemplate transactionTemplate,
+            AccountDeletionGuard accountDeletionGuard) {
         this.tradeOrderMapper = tradeOrderMapper;
         this.paymentMapper = paymentMapper;
         this.paymentGateway = paymentGateway;
         this.signatureVerifier = signatureVerifier;
         this.entitlementService = entitlementService;
         this.transactionTemplate = transactionTemplate;
+        this.accountDeletionGuard = accountDeletionGuard;
     }
 
     /**
@@ -102,6 +108,7 @@ public class PaymentServiceImpl implements PaymentService {
      */
     @Override
     public PayView initiate(long userId, String source, String orderNo) {
+        accountDeletionGuard.assertNotCoolingOff(userId);
         int channel = resolveChannel(source);
         String trimmedOrderNo = requireOrderNo(orderNo);
         PreparedPayment prepared =

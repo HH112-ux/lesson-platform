@@ -85,7 +85,7 @@
 | SPEC-PLAT-001 | 网关身份头剥离与注入 | 已完成 | — | 4/4 |
 | SPEC-PLAT-002 | 端来源识别 | 未开始 | L2-1 | 0/4 |
 | SPEC-PLAT-003 | 小程序登录与凭证防重放 | 已完成 | — | 5/5 |
-| SPEC-PLAT-004 | 账号注销冷静期 | 进行中 | L1-8 | 12/27 |
+| SPEC-PLAT-004 | 账号注销冷静期 | 进行中 | L1-8 | 21/33 |
 | SPEC-PLAT-005 | 服务间内部调用鉴权 | 已完成 | — | 4/4 |
 | SPEC-PLAT-006 | 视频上传校验与交付 | 未开始 | L1-11 | 0/6 |
 | SPEC-PLAT-007 | AI 模型接入（BYO） | 未开始 | 上线后首批 | 0/6 |
@@ -109,7 +109,7 @@
 | L1-5 | 教师入驻审核 | SPEC-COURSE-009（5/5） | 已完成 | 审核接口、权限码 `admin:teacher:audit` 与重新提交已通；运营与教师端无页面，档案未打 L1-5 层级标记 | 2026-11-10 |
 | L1-6 | 登录风控与网关边界 | SPEC-PLAT-011（8/8）、SPEC-PLAT-012（8/8）、SPEC-PLAT-013（7/7） | 已完成 | 小程序登录频控、网关限流与 CORS 白名单三项 AC 全满足 | 2026-11-10 |
 | L1-7 | 统一操作审计 | SPEC-PLAT-010（10/10） | 已完成 | 三类审核的统一审计已完成；原同层级的账号注销已按门槛编号移到 L1-8 | 2026-11-10 |
-| L1-8 | 账号注销 | SPEC-PLAT-004（12/27） | 进行中 | 2.4 与 `docs/specs/platform.md` 已把 SPEC-PLAT-004 改标 L1-8；视频上传已补为 L1-11。已完成 AC-1/2/3/5/6/7/8/10/13/14/19/20：申请与撤销接口、7×24 小时落库、重复申请幂等、阻塞失败关闭、员工账号拒绝、查询倒计时与状态门禁。剩余 AC-4/9/11/12/15/16/17/18/21/22/23/24/25/26/27 依赖 trade 冷静期守卫、执行任务与前端入口 | 2026-11-10 |
+| L1-8 | 账号注销 | SPEC-PLAT-004（21/33） | 进行中 | 2.4 与 `docs/specs/platform.md` 已把 SPEC-PLAT-004 改标 L1-8；视频上传已补为 L1-11。已完成 AC-1/2/3/4/5/6/7/8/10/13/14/19/20/21/23/24/28/29/30/31/32：申请与撤销接口、7×24 小时落库、重复申请幂等、阻塞失败关闭、员工账号拒绝、查询倒计时与状态门禁，以及 trade 冷静期守卫（200ms 探测、45s 缓存、提交后异步主动失效、失败关闭 50401）。剩余 AC-9/11/12/15/16/17/18/22/25/26/27/33 依赖执行任务、匿名化、告警规则与前端入口 | 2026-11-10 |
 | L1-9 | 支付对账 | SPEC-TRADE-014（0/4） | 未开始 | 「未完成对账能力不得开启真实收款」已写在 4.1「支付宝对账」行，并由 SPEC-TRADE-014 AC-4 约束；层级为「真实收款前置」 | 2026-11-10 |
 | L1-10 | 发布前工程化验证 | 无对应规格条目 | 未开始 | E2E 冒烟进 CI、备份恢复演练、依赖与镜像漏洞扫描三项均未做，见 3.5 与第 5 章 | 2026-11-10 |
 | L1-11 | 内容生产通路（上传→处理→播放链路，教师端或运营后台任一） | SPEC-PLAT-006（0/6） | 未开始 | 2026-11-10 补入，理由：缺少可用上传链路时课程内容无法生产 | 2026-11-10 |
@@ -122,7 +122,7 @@
 
 | 能力 | 完成程度与限制 | 证据 | 最后核对日期 |
 |---|---|---|---|
-| 账号与 JWT | 注册、密码登录、刷新、登出、`/me` 可用；密码 BCrypt 存储；注销已有申请、撤销与查询接口（冷静期 7 天，`effective_at` 申请时落库），执行任务、匿名化与前端入口未上线 | `lp-auth-service/.../controller/AuthController.java`、`controller/AccountCancellationController.java`、`service/impl/AccountCancellationServiceImpl.java` | 2026-11-10 |
+| 账号与 JWT | 注册、密码登录、刷新、登出、`/me` 可用；密码 BCrypt 存储；注销已有申请、撤销与查询接口（冷静期 7 天，`effective_at` 申请时落库），并已提供内部冷静期状态查询与提交后异步失效 trade 缓存；执行任务、匿名化与前端入口未上线 | `lp-auth-service/.../controller/AuthController.java`、`controller/AccountCancellationController.java`、`controller/InternalAccountCancellationController.java`、`service/impl/AccountCancellationServiceImpl.java`、`client/AccountDeletionCacheClient.java` | 2026-11-10 |
 | 小程序 code 登录 | 接口与真实 `jscode2session` 客户端均已实现，默认关闭；本地可用 mock 客户端；登录入口按真实 IP 与 `X-Device-Id` 双维度频控，Redis 故障放行并打点 | `AuthController.java`、`security/HttpWechatMiniappClient.java`、`security/MiniappLoginRateLimitFilter.java`、`config/MiniappProperties.java` | 2026-11-10 |
 | 网关 | 7 条服务路由、身份头剥离与注入、JWT 三态校验，默认 `hard`；`/api/v1/**` 按用户或真实客户端 IP 做每实例内存限流（默认 300 次/分钟/实例，集群容量 = 阈值 × 副本数），超限返回 429 + `Retry-After` + 统一信封；CORS 走显式来源白名单，预检在鉴权前处理，非 dev 未配置来源时启动失败；`/internal/**` 与 `/actuator/**` 不经路由 | `lp-gateway/src/main/resources/application.yml`、`application-dev.yml`、`filter/HeaderSanitizeFilter.java`、`filter/JwtAuthFilter.java`、`filter/GatewayRateLimitFilter.java`、`config/CorsConfig.java` | 2026-11-10 |
 | 课程浏览 | 已上架课程分页、分类、关键词（`LIKE` 标题/副标题）、详情、目录；下架课程对非持有者按 404 处理 | `lp-course-service/.../controller/CoursePublicController.java`、`mapper/CourseMapper.java` | 2026-11-09 |
@@ -212,7 +212,7 @@
 | 视频上传与 ffprobe 校验 | product-lifecycle F06；engineering-plan 15.2 D5 | 无上传接口；播放仅对已存在对象签名 | 未排期；存储与校验方案未落地 | 2026-11-09 |
 | 支付重付约束 | SPEC-TRADE-004 AC-3、AC-4；engineering-plan 2.3 | 重新发起支付时直接复用未关闭的支付单，未返回 62006；`ErrorCode` 中没有 62006，也不要求先关闭原单 | 未排期；属支付发起与重付的业务缺口（L2-2），不阻塞 L1 上线 | 2026-11-10 |
 | 全文搜索与多维筛选 | product-lifecycle F02；engineering-plan 1.3 | 仅 `LIKE` 标题/副标题；无难度、热度、上新排序；`ft_` 索引未被查询使用 | 未排期 | 2026-11-09 |
-| 资料维护与账号注销 | product-lifecycle F01；engineering-plan 15.2 D8；SPEC-PLAT-004 | 资料修改未实现；注销已有 `POST/DELETE/GET /api/v1/auth/account-cancellation`（冷静期 7 天、重复申请幂等、阻塞返回 67003、依赖失败返回 50401）；执行任务、匿名化、trade 冷静期守卫与 Web/小程序入口未实现 | 进行中（SPEC-PLAT-004 12/27） | 2026-11-10 |
+| 资料维护与账号注销 | product-lifecycle F01；engineering-plan 15.2 D8；SPEC-PLAT-004 | 资料修改未实现；注销已有 `POST/DELETE/GET /api/v1/auth/account-cancellation`（冷静期 7 天、重复申请幂等、阻塞返回 67003、依赖失败返回 50401），trade 冷静期守卫已实现（下单与支付返回 67005、200ms 探测、45s 缓存、提交后异步主动失效）；执行任务、匿名化、告警规则与 Web/小程序入口未实现 | 进行中（SPEC-PLAT-004 21/33） | 2026-11-10 |
 | 手动取消不释放优惠券 | SPEC-TRADE-006、SPEC-TRADE-007 AC-5 | 超时关单会释放订单占用的优惠券，手动取消（`OrderServiceImpl.cancel`）只关闭订单与支付单，券仍停留为已使用且绑定该订单，用户丢券且两种取消行为不一致 | 未排期；行为不一致 | 2026-11-09 |
 | 幂等层降级时同键换 body 无法识别 | SPEC-TRADE-001 AC-5、SPEC-TRADE-008 | Redis 不可用时幂等层记录 WARN 日志并累加 `lp.trade.idempotency.degraded` 指标后放行，该窗口内同键换请求体不会被识别为 `40901`，仅靠数据库唯一键（`uk_idempotency`、`uk_active_order`、支付单行锁）兜底 | 已接受；依赖监控告警 | 2026-11-09 |
 | 前端 `40901` 文案仍为「用户名已被占用」 | SPEC-TRADE-001 AC-5 | 下单与退款幂等冲突返回 `40901` 时，Web 端提示「用户名已被占用」，与「同一幂等键换请求体」语义不符，会误导用户；改文案需同步修改 `apps/web/src/utils/errors.spec.ts` 中对 `40901` 的断言 | 已知问题；非本 PR 引入 | 2026-11-09 |

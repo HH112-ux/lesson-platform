@@ -70,6 +70,9 @@ lp:
       # Fixed once per request: effective_at is stored, so changing this value never moves a
       # deletion date already promised to a user.
       cooling-off-period: ${LP_AUTH_CANCELLATION_COOLING_OFF:7d}
+      # Cache invalidation runs after commit on a background thread, so this timeout bounds a
+      # worker rather than the user's response. A failed call leaves trade on its 45 s ttl.
+      cache-invalidate-read-timeout: ${LP_AUTH_CANCELLATION_CACHE_INVALIDATE_TIMEOUT:200ms}
 
 management:
   endpoints:

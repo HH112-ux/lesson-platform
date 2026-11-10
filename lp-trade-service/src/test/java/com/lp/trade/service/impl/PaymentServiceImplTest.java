@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -14,6 +15,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.lp.common.exception.BizException;
+import com.lp.common.exception.ErrorCode;
 import com.lp.trade.domain.OrderStatus;
 import com.lp.trade.domain.PaymentChannel;
 import com.lp.trade.domain.PaymentStatus;
@@ -30,6 +32,7 @@ import com.lp.trade.payment.PaymentGateway;
 import com.lp.trade.payment.SignatureVerifier;
 import com.lp.trade.payment.UnconfiguredPaymentGateway;
 import com.lp.trade.payment.UnconfiguredSignatureVerifier;
+import com.lp.trade.service.AccountDeletionGuard;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.Map;
@@ -73,6 +76,8 @@ class PaymentServiceImplTest {
 
     @Mock private TransactionTemplate transactionTemplate;
 
+    @Mock private AccountDeletionGuard accountDeletionGuard;
+
     private PaymentServiceImpl paymentService;
 
     /**
@@ -99,7 +104,8 @@ class PaymentServiceImplTest {
                         paymentGateway,
                         signatureVerifier,
                         entitlementService,
-                        transactionTemplate);
+                        transactionTemplate,
+                        accountDeletionGuard);
     }
 
     /**
@@ -170,7 +176,8 @@ class PaymentServiceImplTest {
                         paymentGateway,
                         new UnconfiguredSignatureVerifier(),
                         entitlementService,
-                        transactionTemplate);
+                        transactionTemplate,
+                        accountDeletionGuard);
 
         BizException exception =
                 assertThrows(
@@ -254,6 +261,27 @@ class PaymentServiceImplTest {
     }
 
     /**
+     * A buyer inside the cooling-off period cannot start a payment, even for an existing order.
+     *
+     * @author Caspian
+     * @since 0.3.0
+     */
+    @Test
+    void rejectsInitiateDuringCoolingOff() {
+        doThrow(new BizException(ErrorCode.ACCOUNT_COOLING_OFF_RESTRICTED))
+                .when(accountDeletionGuard)
+                .assertNotCoolingOff(USER_ID);
+
+        BizException exception =
+                assertThrows(
+                        BizException.class,
+                        () -> paymentService.initiate(USER_ID, "web", ORDER_NO));
+
+        assertEquals(67005, exception.getCode());
+        verifyNoInteractions(tradeOrderMapper, paymentMapper, paymentGateway);
+    }
+
+    /**
      * Without configured credentials payment initiation fails explicitly, never with a payload.
      *
      * @author Caspian
@@ -268,7 +296,8 @@ class PaymentServiceImplTest {
                         new UnconfiguredPaymentGateway(),
                         signatureVerifier,
                         entitlementService,
-                        transactionTemplate);
+                        transactionTemplate,
+                        accountDeletionGuard);
         when(tradeOrderMapper.selectByOrderNoForUpdate(ORDER_NO)).thenReturn(order());
         when(paymentMapper.selectLatestByOrderId(ORDER_ID)).thenReturn(null);
         when(paymentMapper.insertPayment(any(PaymentRecord.class))).thenReturn(1);

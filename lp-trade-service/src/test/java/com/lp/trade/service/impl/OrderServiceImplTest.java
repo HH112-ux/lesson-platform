@@ -9,12 +9,15 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.lp.common.exception.BizException;
+import com.lp.common.exception.ErrorCode;
 import com.lp.trade.client.CourseInternalClient;
 import com.lp.trade.domain.OrderStatus;
 import com.lp.trade.domain.PaymentChannel;
@@ -33,6 +36,7 @@ import com.lp.trade.mapper.CouponMapper;
 import com.lp.trade.mapper.PaymentMapper;
 import com.lp.trade.mapper.RefundRequestMapper;
 import com.lp.trade.mapper.TradeOrderMapper;
+import com.lp.trade.service.AccountDeletionGuard;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -76,6 +80,8 @@ class OrderServiceImplTest {
 
     @Mock private TransactionTemplate transactionTemplate;
 
+    @Mock private AccountDeletionGuard accountDeletionGuard;
+
     private OrderServiceImpl orderService;
 
     /**
@@ -103,7 +109,8 @@ class OrderServiceImplTest {
                         entitlementService,
                         paymentMapper,
                         refundRequestMapper,
-                        transactionTemplate);
+                        transactionTemplate,
+                        accountDeletionGuard);
     }
 
     /**
@@ -154,6 +161,48 @@ class OrderServiceImplTest {
         assertEquals(COURSE_ID, view.getCourseId());
         verify(tradeOrderMapper, never()).insertOrder(any(TradeOrder.class));
         verify(courseInternalClient, never()).course(COURSE_ID);
+    }
+
+    /**
+     * A buyer inside the cooling-off period is refused before any row is read or written.
+     *
+     * @author Caspian
+     * @since 0.3.0
+     */
+    @Test
+    void rejectsNewOrderDuringCoolingOff() {
+        doThrow(new BizException(ErrorCode.ACCOUNT_COOLING_OFF_RESTRICTED))
+                .when(accountDeletionGuard)
+                .assertNotCoolingOff(USER_ID);
+
+        BizException exception =
+                assertThrows(
+                        BizException.class,
+                        () -> orderService.create(USER_ID, "web", request("key-10", null)));
+
+        assertEquals(67005, exception.getCode());
+        verify(tradeOrderMapper, never()).insertOrder(any(TradeOrder.class));
+        verifyNoInteractions(courseInternalClient);
+    }
+
+    /**
+     * Replaying an order created before the cooling-off period keeps working, so an idempotent
+     * retry never turns a held order into an error.
+     *
+     * @author Caspian
+     * @since 0.3.0
+     */
+    @Test
+    void replaysExistingOrderWithoutTheCoolingOffGate() {
+        TradeOrder existing = order(42L, "LP20260101000000001", OrderStatus.PENDING);
+        when(tradeOrderMapper.selectByUserAndIdempotencyKey(USER_ID, "key-11"))
+                .thenReturn(existing);
+        when(tradeOrderMapper.selectFirstItem(42L)).thenReturn(item());
+
+        OrderView view = orderService.create(USER_ID, "web", request("key-11", null));
+
+        assertEquals("LP20260101000000001", view.getOrderNo());
+        verifyNoInteractions(accountDeletionGuard);
     }
 
     /**

@@ -1,6 +1,7 @@
 package com.lp.auth.service;
 
 import com.lp.auth.dto.AccountCancellationView;
+import com.lp.auth.dto.AccountDeletionStateView;
 
 /**
  * Account cancellation requests made by the account owner.
@@ -43,4 +44,18 @@ public interface AccountCancellationService {
      * @since 0.2.0
      */
     AccountCancellationView get(long userId);
+
+    /**
+     * Reports whether a user is inside the cooling-off period for other services.
+     *
+     * <p>Only the active request row decides this, so the answer stays correct even when the
+     * deadline has passed but the execution job has not run yet; refusing a purchase longer than
+     * promised is the safe direction.
+     *
+     * @param userId account owner
+     * @return cooling-off decision plus the deadline when one is active
+     * @author Caspian
+     * @since 0.3.0
+     */
+    AccountDeletionStateView state(long userId);
 }

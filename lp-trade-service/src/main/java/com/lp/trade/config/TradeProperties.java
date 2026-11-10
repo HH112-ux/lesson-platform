@@ -29,6 +29,10 @@ public class TradeProperties {
 
     private String authBaseUrl = "http://127.0.0.1:8101";
 
+    private Duration authStateReadTimeout = Duration.ofMillis(200);
+
+    private Duration accountGuardCacheTtl = Duration.ofSeconds(45);
+
     /**
      * Returns the browser base URL used in purchase ticket links.
      *
@@ -71,6 +75,57 @@ public class TradeProperties {
      */
     public void setAuthBaseUrl(String authBaseUrl) {
         this.authBaseUrl = authBaseUrl;
+    }
+
+    /**
+     * Returns the read timeout applied to the cooling-off state query.
+     *
+     * <p>The query sits on the checkout path, so a slow auth-service must be reported quickly and
+     * fail closed rather than delay the buyer.
+     *
+     * @return read timeout, defaults to 200 milliseconds
+     * @author Caspian
+     * @since 0.3.0
+     */
+    public Duration getAuthStateReadTimeout() {
+        return authStateReadTimeout;
+    }
+
+    /**
+     * Sets the read timeout applied to the cooling-off state query.
+     *
+     * @param authStateReadTimeout read timeout, must be positive
+     * @author Caspian
+     * @since 0.3.0
+     */
+    public void setAuthStateReadTimeout(Duration authStateReadTimeout) {
+        this.authStateReadTimeout = authStateReadTimeout;
+    }
+
+    /**
+     * Returns how long a cooling-off answer stays cached per user.
+     *
+     * <p>This is also the worst case window when the active invalidation call fails, which is why
+     * it is short enough to bound a mistake but long enough that a repeated failure does not turn
+     * into four probes per minute per buyer.
+     *
+     * @return cache TTL, defaults to 45 seconds
+     * @author Caspian
+     * @since 0.3.0
+     */
+    public Duration getAccountGuardCacheTtl() {
+        return accountGuardCacheTtl;
+    }
+
+    /**
+     * Sets how long a cooling-off answer stays cached per user.
+     *
+     * @param accountGuardCacheTtl cache TTL, must be positive
+     * @author Caspian
+     * @since 0.3.0
+     */
+    public void setAccountGuardCacheTtl(Duration accountGuardCacheTtl) {
+        this.accountGuardCacheTtl = accountGuardCacheTtl;
     }
 
     /**
