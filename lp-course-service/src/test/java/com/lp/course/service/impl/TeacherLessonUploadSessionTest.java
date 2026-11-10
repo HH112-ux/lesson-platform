@@ -171,6 +171,12 @@ class TeacherLessonUploadSessionTest {
         TeacherLessonView view = confirm(501L);
 
         assertEquals(77L, view.lessonId());
+        assertEquals(OBJECT_KEY, view.videoUrl());
+        assertEquals(90, view.durationSec());
+        assertEquals("h264", view.videoCodec());
+        assertEquals(1280, view.videoWidth());
+        assertEquals(720, view.videoHeight());
+        assertEquals(1024L, view.videoSizeBytes());
         verify(videoValidator).validate(any(LessonVideoMetadata.class));
         verify(lessonUploadMapper)
                 .confirm(
@@ -299,6 +305,10 @@ class TeacherLessonUploadSessionTest {
         lesson.setChapterId(3L);
         lesson.setVideoUrl(OBJECT_KEY);
         lesson.setVideoDurationSec(90);
+        lesson.setVideoCodec("h264");
+        lesson.setVideoWidth(1280);
+        lesson.setVideoHeight(720);
+        lesson.setVideoSizeBytes(1024L);
         return lesson;
     }
 

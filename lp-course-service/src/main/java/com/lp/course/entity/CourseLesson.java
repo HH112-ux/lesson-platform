@@ -3,7 +3,8 @@ package com.lp.course.entity;
 /**
  * Lesson row read from the {@code course_lesson} table.
  *
- * <p>Trade only needs the outline plus the trial flag, so video metadata is not projected.
+ * <p>Each query projects only the columns it needs, so video metadata stays {@code null} for
+ * consumers that select the outline only.
  *
  * @author Caspian
  * @since 0.1.0
@@ -25,6 +26,14 @@ public class CourseLesson {
     private String videoUrl;
 
     private Integer videoDurationSec;
+
+    private String videoCodec;
+
+    private Integer videoWidth;
+
+    private Integer videoHeight;
+
+    private Long videoSizeBytes;
 
     private Integer status;
 
@@ -204,6 +213,94 @@ public class CourseLesson {
      */
     public void setVideoDurationSec(Integer videoDurationSec) {
         this.videoDurationSec = videoDurationSec;
+    }
+
+    /**
+     * Returns the video codec recorded when the upload was confirmed.
+     *
+     * @return codec name such as {@code h264}; {@code null} when not selected
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public String getVideoCodec() {
+        return videoCodec;
+    }
+
+    /**
+     * Sets the video codec.
+     *
+     * @param videoCodec codec name such as {@code h264}
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public void setVideoCodec(String videoCodec) {
+        this.videoCodec = videoCodec;
+    }
+
+    /**
+     * Returns the video width recorded when the upload was confirmed.
+     *
+     * @return width in pixels; {@code null} when not selected
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public Integer getVideoWidth() {
+        return videoWidth;
+    }
+
+    /**
+     * Sets the video width.
+     *
+     * @param videoWidth width in pixels
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public void setVideoWidth(Integer videoWidth) {
+        this.videoWidth = videoWidth;
+    }
+
+    /**
+     * Returns the video height recorded when the upload was confirmed.
+     *
+     * @return height in pixels; {@code null} when not selected
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public Integer getVideoHeight() {
+        return videoHeight;
+    }
+
+    /**
+     * Sets the video height.
+     *
+     * @param videoHeight height in pixels
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public void setVideoHeight(Integer videoHeight) {
+        this.videoHeight = videoHeight;
+    }
+
+    /**
+     * Returns the video size recorded when the upload was confirmed.
+     *
+     * @return size in bytes; {@code null} when not selected
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public Long getVideoSizeBytes() {
+        return videoSizeBytes;
+    }
+
+    /**
+     * Sets the video size.
+     *
+     * @param videoSizeBytes size in bytes
+     * @author Caspian
+     * @since 0.1.0
+     */
+    public void setVideoSizeBytes(Long videoSizeBytes) {
+        this.videoSizeBytes = videoSizeBytes;
     }
 
     /**

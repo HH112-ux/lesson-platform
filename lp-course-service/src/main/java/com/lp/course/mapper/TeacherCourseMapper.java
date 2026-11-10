@@ -247,6 +247,8 @@ public interface TeacherCourseMapper {
     @Select(
             "SELECT id, course_id AS courseId, chapter_id AS chapterId, title, "
                     + "video_url AS videoUrl, video_duration_sec AS videoDurationSec, "
+                    + "video_codec AS videoCodec, video_width AS videoWidth, "
+                    + "video_height AS videoHeight, video_size_bytes AS videoSizeBytes, "
                     + "is_free AS isFree, sort, status FROM course_lesson "
                     + "WHERE course_id = #{courseId} AND deleted = 0 "
                     + "ORDER BY chapter_id, sort, id")
@@ -337,6 +339,8 @@ public interface TeacherCourseMapper {
     @Select(
             "SELECT id, course_id AS courseId, chapter_id AS chapterId, title, "
                     + "video_url AS videoUrl, video_duration_sec AS videoDurationSec, "
+                    + "video_codec AS videoCodec, video_width AS videoWidth, "
+                    + "video_height AS videoHeight, video_size_bytes AS videoSizeBytes, "
                     + "is_free AS isFree, sort, status FROM course_lesson "
                     + "WHERE id = #{lessonId} AND chapter_id = #{chapterId} "
                     + "AND course_id = #{courseId} AND deleted = 0 LIMIT 1")
