@@ -91,6 +91,20 @@ jobs:
       - name: Install pnpm
         uses: pnpm/action-setup@v4
 
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Warm the Maven repository
+        # Trivy resolves pom.xml over the network. Maven Central answered the runner with
+        # 429 and Retry-After 1800s on the first attempt, which is what Trivy's own error
+        # message tells you to prevent by populating ~/.m2 first. Same cache key as the
+        # backend jobs, so a warm run only re-confirms what is already there.
+        run: ./mvnw -B -q -DskipTests dependency:resolve
+
       - name: Scan Maven and pnpm dependencies
         run: |
           set -euo pipefail
