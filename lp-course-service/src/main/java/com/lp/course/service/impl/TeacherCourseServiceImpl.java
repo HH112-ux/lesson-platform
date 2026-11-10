@@ -76,9 +76,6 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
     /** Maximum cover URL length, matching {@code course.cover_url}. */
     private static final int MAX_COVER_LENGTH = 255;
 
-    /** Maximum video object key length, matching {@code course_lesson.video_url}. */
-    private static final int MAX_VIDEO_URL_LENGTH = 500;
-
     /** Content type fixed for the current upload path by {@code lesson_upload.content_type}. */
     private static final String UPLOAD_CONTENT_TYPE = "video/mp4";
 
@@ -265,8 +262,9 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
     /**
      * Moves a draft or offline course into the review queue.
      *
-     * <p>A course is submittable only when at least one lesson carries a video object key and a
-     * positive duration, otherwise operations would have nothing to review.
+     * <p>A course is submittable only when it has at least one visible lesson and every visible
+     * lesson carries a confirmed video, otherwise operations would review content that cannot be
+     * played.
      *
      * @param userId authenticated user id
      * @param roles comma separated gateway roles
@@ -280,10 +278,11 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
         Actor actor = resolveActor(userId, roles);
         Course course = requireAccessible(actor, courseId);
         requireEditable(course);
-        if (teacherCourseMapper.countSubmittableLessons(courseId) == 0) {
+        long withVideo = teacherCourseMapper.countSubmittableLessons(courseId);
+        if (withVideo == 0 || teacherCourseMapper.countLessonsMissingVideo(courseId) > 0) {
             throw new BizException(
                     ErrorCode.PARAM_INVALID,
-                    "at least one lesson with video and duration is required");
+                    "every visible lesson needs a confirmed video before submission");
         }
         if (teacherCourseMapper.submit(courseId, LocalDateTime.now()) == 0) {
             throw new BizException(ErrorCode.STATE_CONFLICT, "course is no longer submittable");
@@ -410,6 +409,9 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
     /**
      * Creates a lesson under a chapter of a draft or offline course.
      *
+     * <p>The lesson starts without a video; the object key and duration are written by the upload
+     * confirm endpoint, and requests carrying them are rejected.
+     *
      * @param userId authenticated user id
      * @param roles comma separated gateway roles
      * @param courseId course primary key
@@ -428,12 +430,14 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
             TeacherLessonRequest request) {
         Course course = requireContentEditable(userId, roles, courseId);
         requireChapter(courseId, chapterId);
+        rejectClientVideoFields(request);
         CourseLesson lesson = new CourseLesson();
         lesson.setCourseId(courseId);
         lesson.setChapterId(chapterId);
         lesson.setTitle(requireText(request.title(), "title", MAX_TITLE_LENGTH));
-        lesson.setVideoUrl(requireText(request.videoUrl(), "videoUrl", MAX_VIDEO_URL_LENGTH));
-        lesson.setVideoDurationSec(requireDuration(request.durationSec()));
+        // Video facts stay empty until the upload confirm endpoint writes them.
+        lesson.setVideoUrl("");
+        lesson.setVideoDurationSec(0);
         lesson.setIsFree(requireFreeFlag(request.isFree()));
         lesson.setSort(requireSort(request.sort()));
         lesson.setStatus(requireFlag(request.status()));
@@ -465,18 +469,13 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
             TeacherLessonRequest request) {
         Course course = requireContentEditable(userId, roles, courseId);
         requireChapter(courseId, chapterId);
+        rejectClientVideoFields(request);
         CourseLesson lesson = teacherCourseMapper.selectLesson(courseId, chapterId, lessonId);
         if (lesson == null) {
             throw new BizException(ErrorCode.NOT_FOUND);
         }
         if (request.title() != null) {
             lesson.setTitle(requireText(request.title(), "title", MAX_TITLE_LENGTH));
-        }
-        if (request.videoUrl() != null) {
-            lesson.setVideoUrl(requireText(request.videoUrl(), "videoUrl", MAX_VIDEO_URL_LENGTH));
-        }
-        if (request.durationSec() != null) {
-            lesson.setVideoDurationSec(requireDuration(request.durationSec()));
         }
         if (request.isFree() != null) {
             lesson.setIsFree(requireFreeFlag(request.isFree()));
@@ -797,18 +796,23 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
     }
 
     /**
-     * Validates a lesson duration.
+     * Rejects video fields sent by the client.
      *
-     * @param durationSec duration in seconds
-     * @return the duration
+     * <p>The object key and duration are written only by the upload confirm endpoint; accepting
+     * them here would let a teacher point {@code video_url} at any external address that the player
+     * would later trust.
+     *
+     * @param request lesson form
+     * @throws BizException with {@code 40001} when either video field is present
      * @author Caspian
      * @since 0.1.0
      */
-    private int requireDuration(Integer durationSec) {
-        if (durationSec == null || durationSec <= 0) {
-            throw new BizException(ErrorCode.PARAM_INVALID, "durationSec must be positive");
+    private void rejectClientVideoFields(TeacherLessonRequest request) {
+        if (request.videoUrl() != null || request.durationSec() != null) {
+            throw new BizException(
+                    ErrorCode.PARAM_INVALID,
+                    "videoUrl and durationSec are written by the upload confirmation endpoint");
         }
-        return durationSec;
     }
 
     /**

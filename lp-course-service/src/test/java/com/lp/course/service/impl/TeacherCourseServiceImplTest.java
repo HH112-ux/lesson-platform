@@ -241,6 +241,26 @@ class TeacherCourseServiceImplTest {
     }
 
     /**
+     * Submission is refused when a visible lesson still has no confirmed video.
+     *
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Test
+    void rejectsSubmissionWhenAnyVisibleLessonHasNoVideo() {
+        when(teacherCourseMapper.selectTeacherIdByUser(1001L)).thenReturn(55L);
+        when(teacherCourseMapper.selectById(9L)).thenReturn(draft(9L, 55L, 0));
+        when(teacherCourseMapper.countSubmittableLessons(9L)).thenReturn(2L);
+        when(teacherCourseMapper.countLessonsMissingVideo(9L)).thenReturn(1L);
+
+        BizException exception =
+                assertThrows(BizException.class, () -> service.submit(1001L, "TEACHER", 9L));
+
+        assertEquals(40001, exception.getCode());
+        verify(teacherCourseMapper, never()).submit(anyLong(), any());
+    }
+
+    /**
      * A draft with playable lessons moves to pending review.
      *
      * @author Caspian

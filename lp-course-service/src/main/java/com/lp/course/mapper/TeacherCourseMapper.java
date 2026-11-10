@@ -207,6 +207,23 @@ public interface TeacherCourseMapper {
     long countSubmittableLessons(@Param("courseId") long courseId);
 
     /**
+     * Counts the visible lessons of a course that have no confirmed video yet.
+     *
+     * <p>Complements {@link #countSubmittableLessons(long)} so submission can require every visible
+     * lesson to be playable instead of only one.
+     *
+     * @param courseId course primary key
+     * @return number of visible lessons with an empty object key or a non-positive duration
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Select(
+            "SELECT COUNT(*) FROM course_lesson WHERE course_id = #{courseId} "
+                    + "AND deleted = 0 AND status = 1 "
+                    + "AND (video_url = '' OR video_duration_sec <= 0)")
+    long countLessonsMissingVideo(@Param("courseId") long courseId);
+
+    /**
      * Lists every live chapter of a course, including hidden ones.
      *
      * @param courseId course primary key
