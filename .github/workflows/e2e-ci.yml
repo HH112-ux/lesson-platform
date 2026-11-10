@@ -31,7 +31,7 @@ concurrency:
 env:
   # The suite drives the local mock channel end to end. The switch is written here on
   # purpose: infra/.env is gitignored, so CI must never inherit it from a developer file.
-  LP_PAY_MOCK_ENABLED: 'false'
+  LP_PAY_MOCK_ENABLED: 'true'
 
 jobs:
   e2e:
