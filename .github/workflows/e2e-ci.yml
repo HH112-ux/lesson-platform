@@ -1,0 +1,80 @@
+name: e2e-ci
+
+on:
+  # Deliberately not one of the five required checks: the suite builds images and the whole
+  # stack, so it runs on integration branches, nightly and on demand. Pull requests only run
+  # it when a path that could change runtime behaviour is touched. merge_group is omitted.
+  push:
+    branches:
+      - develop
+      - main
+  pull_request:
+    paths:
+      - 'infra/**'
+      - 'scripts/**'
+      - 'docker/**'
+      - 'lp-*/**'
+      - 'db/migration/**'
+      - 'pom.xml'
+      - '.github/workflows/e2e-ci.yml'
+  schedule:
+    - cron: '0 19 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The suite drives the local mock channel end to end. The switch is written here on
+  # purpose: infra/.env is gitignored, so CI must never inherit it from a developer file.
+  LP_PAY_MOCK_ENABLED: 'false'
+
+jobs:
+  e2e:
+    name: e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: 安装 pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: 安装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: 准备本地环境变量
+        run: |
+          cp infra/.env.example infra/.env
+          sed -i "s/^LP_PAY_MOCK_ENABLED=.*/LP_PAY_MOCK_ENABLED=${LP_PAY_MOCK_ENABLED}/" infra/.env
+          grep '^LP_PAY_MOCK_ENABLED=' infra/.env
+
+      - name: 启动栈并跑冒烟与演练
+        run: bash scripts/verify-all.sh
+
+      - name: 收集失败取证
+        if: failure()
+        run: bash scripts/e2e-forensics.sh
+
+      - name: 上传失败取证
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-forensics
+          path: forensics/
+          retention-days: 7
