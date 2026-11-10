@@ -1,0 +1,11 @@
+# Local Alertmanager. Routing and receivers outside this file do not belong to this repository;
+# the empty receiver only proves that a firing rule reaches Alertmanager through Prometheus.
+route:
+  receiver: local-sink
+  group_by: [alertname, service, domain]
+  group_wait: 10s
+  group_interval: 30s
+  repeat_interval: 4h
+
+receivers:
+  - name: local-sink

@@ -1,0 +1,54 @@
+# Local scrape configuration for the stack started by infra/docker-compose.yml (M0-40).
+# Every service exposes /actuator/prometheus; targets resolve by compose service name on lp-dev_default.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - /etc/prometheus/rules/prometheus-rules.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
+scrape_configs:
+  - job_name: lp-service
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["auth-service:8101"]
+        labels:
+          service: auth-service
+          domain: auth
+      - targets: ["course-service:8102"]
+        labels:
+          service: course-service
+          domain: course
+      - targets: ["trade-service:8103"]
+        labels:
+          service: trade-service
+          domain: trade
+      - targets: ["learn-service:8104"]
+        labels:
+          service: learn-service
+          domain: learn
+      - targets: ["ugc-service:8105"]
+        labels:
+          service: ugc-service
+          domain: ugc
+      - targets: ["admin-service:8106"]
+        labels:
+          service: admin-service
+          domain: admin
+      - targets: ["ai-service:8107"]
+        labels:
+          service: ai-service
+          domain: ai
+      - targets: ["gateway:8080"]
+        labels:
+          service: gateway
+          domain: gateway
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

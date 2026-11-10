@@ -6,9 +6,11 @@
 
 | 文件 | 用途 |
 |---|---|
-| `prometheus-rules.yml` | 两条告警：执行持续失败、执行持续跳过 |
-
-抓取配置（`prometheus.yml`）与监控栈编排属于 M0-40、M0-41，尚未落地；本目录不提供，部署侧按服务 `/actuator/prometheus` 自行接入。
+| `prometheus-rules.yml` | 三条告警：执行持续失败、执行持续跳过、缓存失效持续失败 |
+| `prometheus.yml` | 本地抓取配置：8 个服务的 `/actuator/prometheus`，并挂载上面的规则文件 |
+| `alertmanager.yml` | 本地空 receiver，仅验证规则触发后能送达 Alertmanager |
+| `docker-compose.yml` | Prometheus / Alertmanager / Grafana 编排（M0-41），接入主栈的 `lp-dev_default` 网络 |
+| `grafana/provisioning/datasources/prometheus.yml` | Grafana 只配 Prometheus 数据源，不铺面板 |
 
 ## 2. 指标契约
 
@@ -40,14 +42,23 @@ Micrometer 计数器经 `/actuator/prometheus` 暴露时统一带 `_total` 后�
 
 ## 4. 接入方式
 
-Prometheus 加载本文件即可，路径按部署环境挂载：
+本地栈先起应用、再起监控；`prometheus.yml` 通过卷挂载**现有**规则文件，不复制、不改规则：
+
+```bash
+docker compose -f infra/docker-compose.yml up -d
+docker compose -f infra/observability/docker-compose.yml up -d
+curl -s http://127.0.0.1:9090/-/healthy
+curl -s http://127.0.0.1:9090/api/v1/targets | python3 -c "import json,sys;d=json.load(sys.stdin);a=d['data']['activeTargets'];print(len(a),'targets',sum(1 for t in a if t['health']=='up'),'up')"
+```
+
+部署环境同样只需给 Prometheus 挂载规则文件：
 
 ```yaml
 rule_files:
   - /etc/prometheus/rules/prometheus-rules.yml
 ```
 
-Alertmanager 的接收人、静默与升级策略不在本仓库范围内；规则只负责触发，`severity` 与 `service`、`domain` 标签供路由使用。
+Alertmanager 的接收人、静默与升级策略不在本仓库范围内，本地 `alertmanager.yml` 只有空 receiver；规则只负责触发，`severity` 与 `service`、`domain` 标签供路由使用。
 
 ## 5. 本地校验
 
@@ -60,6 +71,10 @@ python3 -c "import yaml;yaml.safe_load(open('infra/observability/prometheus-rule
 
 # 指标形状：打开执行任务后观察四类计数
 curl -s http://127.0.0.1:8101/actuator/prometheus | grep lp_auth_account_cancellation
+
+# 抓取健康与规则加载：8/8 UP，且规则组 health=ok、lastEvaluation 持续更新
+curl -s http://127.0.0.1:9090/api/v1/targets | grep -o '"health":"[a-z]*"' | sort | uniq -c
+curl -s http://127.0.0.1:9090/api/v1/rules | grep -o '"health":"[a-z]*"'
 ```
 
 ## 6. 边界
