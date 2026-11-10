@@ -7,6 +7,8 @@ import com.lp.course.dto.TeacherCourseRequest;
 import com.lp.course.dto.TeacherCourseView;
 import com.lp.course.dto.TeacherLessonRequest;
 import com.lp.course.dto.TeacherLessonView;
+import com.lp.course.dto.TeacherUploadSessionRequest;
+import com.lp.course.dto.TeacherUploadSessionView;
 import java.util.List;
 
 /**
@@ -189,4 +191,25 @@ public interface TeacherCourseService {
      * @since 0.1.0
      */
     void deleteLesson(long userId, String roles, long courseId, long chapterId, long lessonId);
+
+    /**
+     * Creates or reuses the pending upload session of a lesson and signs a PUT credential.
+     *
+     * @param userId authenticated user id
+     * @param roles comma separated gateway roles
+     * @param courseId course primary key
+     * @param chapterId chapter primary key
+     * @param lessonId lesson primary key
+     * @param request declared file size, may be {@code null}
+     * @return session and presigned PUT URL
+     * @author Caspian
+     * @since 0.7.0
+     */
+    TeacherUploadSessionView createUploadSession(
+            long userId,
+            String roles,
+            long courseId,
+            long chapterId,
+            long lessonId,
+            TeacherUploadSessionRequest request);
 }
