@@ -111,8 +111,9 @@ class TeacherLessonUploadSessionTest {
         givenEditableLesson();
         when(lessonUploadMapper.insert(any(LessonUpload.class)))
                 .thenThrow(new DuplicateKeyException("uk_lesson_pending"));
-        when(lessonUploadMapper.selectPendingByLessonId(77L))
-                .thenReturn(session(800L, LocalDateTime.now().plusMinutes(10)));
+        LessonUpload live = session(800L, LocalDateTime.now().plusMinutes(10));
+        live.setExpectedSizeBytes(1024L);
+        when(lessonUploadMapper.selectPendingByLessonId(77L)).thenReturn(live);
         when(uploadSigner.presignPut(any(), any())).thenReturn("https://minio/reused");
 
         TeacherUploadSessionView view = create(1024L);
@@ -121,6 +122,21 @@ class TeacherLessonUploadSessionTest {
         assertEquals("lesson-videos/77/800.mp4", view.objectKey());
         verify(lessonUploadMapper, never()).markExpired(anyLong());
         verify(lessonUploadMapper, never()).updateObjectKey(anyLong(), any());
+    }
+
+    @Test
+    void reportsPersistedSizeWhenTheDeclarationDiffersOnReuse() {
+        givenEditableLesson();
+        when(lessonUploadMapper.insert(any(LessonUpload.class)))
+                .thenThrow(new DuplicateKeyException("uk_lesson_pending"));
+        LessonUpload live = session(800L, LocalDateTime.now().plusMinutes(10));
+        live.setExpectedSizeBytes(1024L);
+        when(lessonUploadMapper.selectPendingByLessonId(77L)).thenReturn(live);
+        when(uploadSigner.presignPut(any(), any())).thenReturn("https://minio/reused");
+
+        TeacherUploadSessionView view = create(2048L);
+
+        assertEquals(1024L, view.expectedSizeBytes());
     }
 
     @Test

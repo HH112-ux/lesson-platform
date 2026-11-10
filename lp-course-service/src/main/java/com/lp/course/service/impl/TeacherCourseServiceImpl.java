@@ -518,7 +518,9 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
      * Creates or reuses the pending upload session of a lesson and signs a PUT credential.
      *
      * <p>A pending session already holding {@code uk_lesson_pending} is returned instead of
-     * failing; an expired one is released and the insert retried once.
+     * failing, and it keeps the size persisted on creation so the response never advertises a
+     * declaration that confirmation would reject; an expired one is released and the insert retried
+     * once.
      *
      * @param userId authenticated user id
      * @param roles comma separated gateway roles
@@ -694,6 +696,7 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
                 session.setId(existing.getId());
                 session.setObjectKey(existing.getObjectKey());
                 session.setSessionExpiresAt(existing.getSessionExpiresAt());
+                session.setExpectedSizeBytes(existing.getExpectedSizeBytes());
                 return false;
             }
             lessonUploadMapper.markExpired(existing.getId());
