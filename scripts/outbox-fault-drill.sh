@@ -56,6 +56,11 @@ req() {
   local method="$1" path="$2" token="${3:-}" data="${4:-}"
   local args=(-sS -X "$method" "$BASE$path" -w $'\n%{http_code}')
   [ -n "$token" ] && args+=(-H "Authorization: Bearer $token")
+  # Payment initiation enforces the idempotency header contract; the key carries the
+  # order number so repeated drill runs never replay each other's result.
+  case "$path" in
+    */pay) args+=(-H "Idempotency-Key: pay-$RUN_ID-$(printf '%s' "$path" | tr '/' '-')") ;;
+  esac
   [ -n "$data" ] && args+=(-H 'Content-Type: application/json' -d "$data")
   local raw
   raw="$(curl "${args[@]}")" || die "curl $method $path failed"
