@@ -13,6 +13,7 @@ import com.lp.course.dto.TeacherCourseStatusCounts;
 import com.lp.course.dto.TeacherCourseView;
 import com.lp.course.dto.TeacherLessonRequest;
 import com.lp.course.dto.TeacherLessonView;
+import com.lp.course.dto.TeacherPlayUrlView;
 import com.lp.course.dto.TeacherUploadSessionRequest;
 import com.lp.course.dto.TeacherUploadSessionView;
 import com.lp.course.entity.Course;
@@ -31,6 +32,7 @@ import com.lp.course.upload.LessonVideoProbe;
 import com.lp.course.upload.LessonVideoValidator;
 import java.math.BigDecimal;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -623,6 +625,38 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
     }
 
     /**
+     * Signs a short lived playback URL for a lesson video the caller may see.
+     *
+     * <p>Ownership is checked before signing; only a confirmed video is signable and the object key
+     * never leaves the service.
+     *
+     * @param userId authenticated user id
+     * @param roles comma separated gateway roles
+     * @param courseId course primary key
+     * @param chapterId chapter primary key
+     * @param lessonId lesson primary key
+     * @return presigned GET URL with its lifetime and expiry
+     * @throws BizException {@code 40301} when the caller does not own the course, {@code 40401}
+     *     when the lesson is outside the course or has no confirmed video, {@code 50206} when
+     *     storage is unconfigured
+     * @author Caspian
+     * @since 0.10.0
+     */
+    @Override
+    public TeacherPlayUrlView playUrl(
+            long userId, String roles, long courseId, long chapterId, long lessonId) {
+        requireAccessible(resolveActor(userId, roles), courseId);
+        CourseLesson lesson = teacherCourseMapper.selectLesson(courseId, chapterId, lessonId);
+        if (lesson == null || lesson.getVideoUrl() == null || lesson.getVideoUrl().isBlank()) {
+            throw new BizException(ErrorCode.NOT_FOUND, "lesson has no confirmed video");
+        }
+        Duration ttl = uploadProperties.playUrlTtl();
+        String playUrl = uploadSigner.presignGet(lesson.getVideoUrl(), ttl);
+        return new TeacherPlayUrlView(
+                playUrl, ttl.toSeconds(), Instant.now().plus(ttl).getEpochSecond());
+    }
+
+    /**
      * Checks the stored object and claims the session for the caller.
      *
      * <p>The size is compared against the declaration and the configured ceiling; the probe and the
@@ -1090,7 +1124,7 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
                 lesson.getId(),
                 lesson.getChapterId() == null ? 0L : lesson.getChapterId(),
                 lesson.getTitle(),
-                lesson.getVideoUrl(),
+                lesson.getVideoUrl() != null && !lesson.getVideoUrl().isBlank(),
                 lesson.getVideoDurationSec() == null ? 0 : lesson.getVideoDurationSec(),
                 lesson.getVideoCodec() == null ? "" : lesson.getVideoCodec(),
                 lesson.getVideoWidth() == null ? 0 : lesson.getVideoWidth(),

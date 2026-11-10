@@ -11,6 +11,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * out unusable URLs.
  *
  * @param sessionTtl lifetime of one presigned PUT credential, thirty minutes by default
+ * @param playUrlTtl lifetime of a presigned GET credential for teacher preview, ten minutes by
+ *     default
  * @param maxSizeBytes largest accepted declared size, the sole runtime ceiling
  * @param minioEndpoint endpoint used for signing, reachable from the browser
  * @param minioRegion signing region, set explicitly to avoid a bucket location probe
@@ -23,6 +25,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "lp.course.upload")
 public record CourseUploadProperties(
         Duration sessionTtl,
+        Duration playUrlTtl,
         long maxSizeBytes,
         String minioEndpoint,
         String minioRegion,

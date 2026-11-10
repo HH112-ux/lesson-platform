@@ -12,6 +12,7 @@ import { onMounted, ref, shallowRef } from 'vue'
 import {
   confirmLessonUpload,
   createLessonUploadSession,
+  getLessonPlayUrl,
   listTeacherChapters,
   listTeacherCourses,
   type TeacherChapter,
@@ -44,6 +45,9 @@ const busy = ref(false)
 const phase = ref('')
 const progress = ref(0)
 const failure = ref('')
+
+/** Lesson currently open in the preview player, holding only the signed URL and its title. */
+const preview = shallowRef<{ title: string; playUrl: string } | null>(null)
 
 async function loadCourses(): Promise<void> {
   loading.value = true
@@ -90,6 +94,28 @@ function pickVideo(chapterId: number, lesson: TeacherLesson): void {
   failure.value = ''
   notice.value = ''
   fileInput.value?.click()
+}
+
+/**
+ * Asks the server for a fresh signed playback URL and opens it; the list only carries {@code hasVideo}.
+ */
+async function previewLesson(chapterId: number, lesson: TeacherLesson): Promise<void> {
+  const id = courseId.value
+  if (id === null) {
+    return
+  }
+  failure.value = ''
+  notice.value = ''
+  try {
+    const credential = await getLessonPlayUrl(id, chapterId, lesson.lessonId)
+    preview.value = { title: lesson.title, playUrl: credential.playUrl }
+  } catch (error) {
+    failure.value = describeTeacherError(error, '预览地址获取失败，请稍后重试')
+  }
+}
+
+function closePreview(): void {
+  preview.value = null
 }
 
 function onFilePicked(event: Event): void {
@@ -359,14 +385,22 @@ onMounted(loadCourses)
                 {{ lesson.videoWidth > 0 ? `${lesson.videoWidth}×${lesson.videoHeight}` : '--' }}
               </td>
               <td>{{ lesson.videoSizeBytes > 0 ? formatBytes(lesson.videoSizeBytes) : '--' }}</td>
-              <td>{{ lesson.videoUrl ? '已上传' : '未上传' }}</td>
+              <td>{{ lesson.hasVideo ? '已上传' : '未上传' }}</td>
               <td>
+                <button
+                  v-if="lesson.hasVideo"
+                  class="lp-btn"
+                  :disabled="busy"
+                  @click="previewLesson(chapter.chapterId, lesson)"
+                >
+                  预览
+                </button>
                 <button
                   class="lp-btn"
                   :disabled="busy"
                   @click="pickVideo(chapter.chapterId, lesson)"
                 >
-                  {{ lesson.videoUrl ? '替换视频' : '上传视频' }}
+                  {{ lesson.hasVideo ? '替换视频' : '上传视频' }}
                 </button>
               </td>
             </tr>
@@ -382,6 +416,29 @@ onMounted(loadCourses)
       hidden
       @change="onFilePicked"
     >
+
+    <div
+      v-if="preview"
+      class="preview-mask"
+      @click.self="closePreview"
+    >
+      <div class="preview-card">
+        <header>
+          <h2>{{ preview.title }}</h2>
+          <button
+            class="lp-btn"
+            @click="closePreview"
+          >
+            关闭
+          </button>
+        </header>
+        <video
+          :src="preview.playUrl"
+          controls
+          autoplay
+        />
+      </div>
+    </div>
   </section>
 </template>
 
@@ -394,4 +451,9 @@ h1 { margin: 0; font-size: 20px; }
 .chapter h2 { margin: 16px 0 8px; font-size: 15px; }
 .progress-card { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
 .progress-card progress { flex: 1; }
+.preview-mask { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.55); z-index: 20; }
+.preview-card { width: min(880px, 92vw); padding: 16px; border-radius: 8px; background: #fff; }
+.preview-card header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.preview-card h2 { margin: 0; font-size: 16px; }
+.preview-card video { width: 100%; max-height: 70vh; margin-top: 12px; background: #000; }
 </style>

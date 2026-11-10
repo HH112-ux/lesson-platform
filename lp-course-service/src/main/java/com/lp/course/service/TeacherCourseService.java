@@ -7,6 +7,7 @@ import com.lp.course.dto.TeacherCourseRequest;
 import com.lp.course.dto.TeacherCourseView;
 import com.lp.course.dto.TeacherLessonRequest;
 import com.lp.course.dto.TeacherLessonView;
+import com.lp.course.dto.TeacherPlayUrlView;
 import com.lp.course.dto.TeacherUploadSessionRequest;
 import com.lp.course.dto.TeacherUploadSessionView;
 import java.util.List;
@@ -228,4 +229,19 @@ public interface TeacherCourseService {
      */
     TeacherLessonView confirmUpload(
             long userId, String roles, long courseId, long chapterId, long lessonId, long uploadId);
+
+    /**
+     * Signs a short lived playback URL for a lesson video the caller may see.
+     *
+     * @param userId authenticated user id
+     * @param roles comma separated gateway roles
+     * @param courseId course primary key
+     * @param chapterId chapter primary key
+     * @param lessonId lesson primary key
+     * @return presigned GET URL with its lifetime and expiry
+     * @author Caspian
+     * @since 0.10.0
+     */
+    TeacherPlayUrlView playUrl(
+            long userId, String roles, long courseId, long chapterId, long lessonId);
 }

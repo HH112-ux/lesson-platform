@@ -6,7 +6,7 @@ package com.lp.course.dto;
  * @param lessonId lesson primary key
  * @param chapterId owning chapter
  * @param title lesson title
- * @param videoUrl video object key, empty until the upload is confirmed
+ * @param hasVideo whether a confirmed video exists, the object key never leaves the server
  * @param durationSec video duration in seconds, zero until the upload is confirmed
  * @param videoCodec video codec written by the confirm endpoint
  * @param videoWidth video width in pixels, zero until confirmed
@@ -22,7 +22,7 @@ public record TeacherLessonView(
         long lessonId,
         long chapterId,
         String title,
-        String videoUrl,
+        boolean hasVideo,
         int durationSec,
         String videoCodec,
         int videoWidth,

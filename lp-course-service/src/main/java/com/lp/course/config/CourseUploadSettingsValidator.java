@@ -1,5 +1,6 @@
 package com.lp.course.config;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Set;
 import org.springframework.beans.factory.InitializingBean;
@@ -30,6 +31,12 @@ public class CourseUploadSettingsValidator implements InitializingBean {
      */
     private static final long MAX_VIDEO_BYTES = 2_147_483_648L;
 
+    /**
+     * Upper bound of a presigned playback credential. A longer lifetime turns the signed URL into a
+     * reusable handle, which defeats the point of signing on every preview.
+     */
+    private static final Duration MAX_PLAY_URL_TTL = Duration.ofHours(1);
+
     private final CourseUploadProperties properties;
 
     private final Environment environment;
@@ -49,10 +56,10 @@ public class CourseUploadSettingsValidator implements InitializingBean {
     }
 
     /**
-     * Fails startup when the size ceiling or the credentials are unusable.
+     * Fails startup when the size ceiling, the playback lifetime or the credentials are unusable.
      *
-     * @throws IllegalStateException when the size exceeds the database constraint or a non-dev
-     *     profile lacks real credentials
+     * @throws IllegalStateException when the size exceeds the database constraint, the playback
+     *     lifetime is outside the accepted range, or a non-dev profile lacks real credentials
      * @author Caspian
      * @since 0.7.0
      */
@@ -64,6 +71,16 @@ public class CourseUploadSettingsValidator implements InitializingBean {
                     "lp.course.upload.max-size-bytes must be between 1 and "
                             + MAX_VIDEO_BYTES
                             + " to match chk_lesson_upload_size");
+        }
+        Duration playUrlTtl = properties.playUrlTtl();
+        if (playUrlTtl == null
+                || playUrlTtl.isZero()
+                || playUrlTtl.isNegative()
+                || playUrlTtl.compareTo(MAX_PLAY_URL_TTL) > 0) {
+            throw new IllegalStateException(
+                    "lp.course.upload.play-url-ttl must be between 1s and "
+                            + MAX_PLAY_URL_TTL
+                            + " so a signed playback URL stays short lived");
         }
         if (List.of(environment.getActiveProfiles()).contains("dev")) {
             return;
