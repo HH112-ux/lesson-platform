@@ -32,7 +32,7 @@ trade 判定买家是否处于冷静期时固定三项口径，避免实现漂�
 1. **超时**：`GET /internal/v1/account-deletion/state` 读超时 200 毫秒；超时、连接失败、非零信封或不可解析响应一律按依赖不可用处理，返回 50401 并拒绝下单（AC-28）。
 2. **缓存**：键为 `userId`，TTL 45 秒，只缓存成功结果；auth 在申请/撤销事务提交后由后台线程异步调用 `DELETE /internal/v1/account-deletion/state?userId={userId}` 主动失效，该调用不进入用户响应路径（AC-29、AC-30）。
 3. **窗口语义**：正常情况下申请与撤销在响应返回时即对下单与支付生效；主动失效失败时最坏窗口等于缓存 TTL 45 秒（AC-32）。不采用「只保留主动失效 + TTL 降到 10 秒」：TTL 是兜底而非主机制，45 秒更能扛住失效调用连续失败，同时避免把 trade 的探测调用量放大四倍。
-4. **fail-closed 论证**：auth 不可用等于下单不可用。代价是 auth 故障放大为交易不可用，接受该代价的理由是：无法确认买家是否处于冷静期时放行下单，可能在注销窗口内产生新订单与退款，破坏注销的可完成性；而同一时刻未登录用户本来也无法下单，该故障面与既有登录依赖高度重叠，不构成全新的交易故障类型。观测入口为 `lp.trade.order.account_guard.degraded` 持续大于 0，以及 `lp.auth.account_cancellation.cache_invalidate.failed` 任意 5 分钟窗口累计达到 3 次（AC-33）。
+4. **fail-closed 论证**：auth 不可用等于下单不可用。代价是 auth 故障放大为交易不可用，接受该代价的理由是：无法确认买家是否处于冷静期时放行下单，可能在注销窗口内产生新订单与退款，破坏注销的可完成性；而同一时刻未登录用户本来也无法下单，该故障面与既有登录依赖高度重叠，不构成全新的交易故障类型。观测入口为 `lp.trade.order.account_guard.degraded` 持续大于 0，以及 `lp.auth.account_cancellation.cache_invalidate.failed` 15 分钟窗口累计达到 3 次且持续 5 分钟（AC-33）。
 5. **守卫位置**：下单守卫位于「幂等重放命中直接返回」之后、创建事务之前；发起支付守卫位于 `initiate` 首行，先于订单加锁与渠道 `prepay`；支付的重放由 controller 层的 `IdempotencyService` 拦截，命中后不进入 `initiate`，因此重放不会被拦成 67005（AC-23）。
 6. **文案口径**：67005 的接口 `message` 为 `account is inside the cancellation cooling-off period`，前端统一展示「注销冷静期中，暂不可购买」；该文案同时覆盖新建订单与发起支付，不使用「暂不可下单」（AC-4）。
 
