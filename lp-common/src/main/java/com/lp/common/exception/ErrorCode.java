@@ -93,6 +93,12 @@ public enum ErrorCode {
      */
     COURSE_TEACHER_NOT_APPROVED(61006, "teacher audit is not approved"),
 
+    /** The lesson upload session does not exist or has already expired. */
+    LESSON_UPLOAD_NOT_FOUND(61007, "upload session not found or expired"),
+
+    /** The lesson or its course is not in a state that accepts a new upload session. */
+    LESSON_UPLOAD_STATE_INVALID(61008, "lesson does not accept an upload session"),
+
     /** Trade domain failure. */
     TRADE_BIZ_ERROR(62001, "trade operation failed"),
 

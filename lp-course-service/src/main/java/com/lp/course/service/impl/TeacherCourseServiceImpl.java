@@ -3,6 +3,8 @@ package com.lp.course.service.impl;
 import com.lp.common.exception.BizException;
 import com.lp.common.exception.ErrorCode;
 import com.lp.common.money.Money;
+import com.lp.course.config.CourseUploadProperties;
+import com.lp.course.domain.LessonUploadStatus;
 import com.lp.course.dto.TeacherChapterRequest;
 import com.lp.course.dto.TeacherChapterView;
 import com.lp.course.dto.TeacherCoursePageView;
@@ -11,19 +13,26 @@ import com.lp.course.dto.TeacherCourseStatusCounts;
 import com.lp.course.dto.TeacherCourseView;
 import com.lp.course.dto.TeacherLessonRequest;
 import com.lp.course.dto.TeacherLessonView;
+import com.lp.course.dto.TeacherUploadSessionRequest;
+import com.lp.course.dto.TeacherUploadSessionView;
 import com.lp.course.entity.Course;
 import com.lp.course.entity.CourseChapter;
 import com.lp.course.entity.CourseLesson;
+import com.lp.course.entity.LessonUpload;
 import com.lp.course.entity.TeacherCourseStatusRow;
+import com.lp.course.mapper.LessonUploadMapper;
 import com.lp.course.mapper.TeacherCourseMapper;
 import com.lp.course.service.TeacherCourseService;
+import com.lp.course.upload.LessonUploadUrlSigner;
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -65,17 +74,33 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
     /** Maximum video object key length, matching {@code course_lesson.video_url}. */
     private static final int MAX_VIDEO_URL_LENGTH = 500;
 
+    /** Content type fixed for the current upload path by {@code lesson_upload.content_type}. */
+    private static final String UPLOAD_CONTENT_TYPE = "video/mp4";
+
     private final TeacherCourseMapper teacherCourseMapper;
+    private final LessonUploadMapper lessonUploadMapper;
+    private final LessonUploadUrlSigner uploadUrlSigner;
+    private final CourseUploadProperties uploadProperties;
 
     /**
-     * Creates the service with its mapper dependency.
+     * Creates the service with its mapper, upload session and signing dependencies.
      *
      * @param teacherCourseMapper teacher scoped course statements
+     * @param lessonUploadMapper upload session statements
+     * @param uploadUrlSigner presigned PUT signer
+     * @param uploadProperties upload limits and credential lifetime
      * @author Caspian
      * @since 0.1.0
      */
-    public TeacherCourseServiceImpl(TeacherCourseMapper teacherCourseMapper) {
+    public TeacherCourseServiceImpl(
+            TeacherCourseMapper teacherCourseMapper,
+            LessonUploadMapper lessonUploadMapper,
+            LessonUploadUrlSigner uploadUrlSigner,
+            CourseUploadProperties uploadProperties) {
         this.teacherCourseMapper = teacherCourseMapper;
+        this.lessonUploadMapper = lessonUploadMapper;
+        this.uploadUrlSigner = uploadUrlSigner;
+        this.uploadProperties = uploadProperties;
     }
 
     /**
@@ -470,6 +495,107 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
             throw new BizException(ErrorCode.NOT_FOUND);
         }
         afterContentChange(course);
+    }
+
+    /**
+     * Creates or reuses the pending upload session of a lesson and signs a PUT credential.
+     *
+     * <p>A pending session already holding {@code uk_lesson_pending} is returned instead of
+     * failing; an expired one is released and the insert retried once.
+     *
+     * @param userId authenticated user id
+     * @param roles comma separated gateway roles
+     * @param courseId course primary key
+     * @param chapterId chapter primary key
+     * @param lessonId lesson primary key
+     * @param request declared file size, may be {@code null}
+     * @return session and presigned PUT URL
+     * @throws BizException {@code 40001} unusable size, {@code 61008} course not editable, {@code
+     *     50206} storage unconfigured
+     * @author Caspian
+     * @since 0.7.0
+     */
+    @Override
+    @Transactional
+    public TeacherUploadSessionView createUploadSession(
+            long userId,
+            String roles,
+            long courseId,
+            long chapterId,
+            long lessonId,
+            TeacherUploadSessionRequest request) {
+        long size = requireUploadSize(request == null ? null : request.expectedSizeBytes());
+        Course course = requireAccessible(resolveActor(userId, roles), courseId);
+        if (course.getStatus() != STATUS_DRAFT && course.getStatus() != STATUS_OFFLINE) {
+            throw new BizException(ErrorCode.LESSON_UPLOAD_STATE_INVALID);
+        }
+        if (teacherCourseMapper.selectLesson(courseId, chapterId, lessonId) == null) {
+            throw new BizException(ErrorCode.NOT_FOUND);
+        }
+
+        LessonUpload session = new LessonUpload();
+        session.setCourseId(courseId);
+        session.setChapterId(chapterId);
+        session.setLessonId(lessonId);
+        session.setUploaderId(userId);
+        session.setObjectKey("lesson-videos/" + lessonId + "/pending");
+        session.setContentType(UPLOAD_CONTENT_TYPE);
+        session.setExpectedSizeBytes(size);
+        session.setStatus(LessonUploadStatus.PENDING);
+        session.setSessionExpiresAt(LocalDateTime.now().plus(uploadProperties.sessionTtl()));
+
+        boolean inserted = insertUploadSession(session);
+        if (inserted) {
+            session.setObjectKey("lesson-videos/" + lessonId + "/" + session.getId() + ".mp4");
+            lessonUploadMapper.updateObjectKey(session.getId(), session.getObjectKey());
+        }
+        Duration ttl =
+                inserted
+                        ? uploadProperties.sessionTtl()
+                        : Duration.between(LocalDateTime.now(), session.getSessionExpiresAt());
+        return new TeacherUploadSessionView(
+                session.getId(),
+                lessonId,
+                session.getObjectKey(),
+                uploadUrlSigner.presignPut(session.getObjectKey(), ttl),
+                session.getSessionExpiresAt(),
+                session.getExpectedSizeBytes());
+    }
+
+    private long requireUploadSize(Long size) {
+        long max = uploadProperties.maxSizeBytes();
+        if (size == null || size <= 0 || size > max) {
+            throw new BizException(
+                    ErrorCode.PARAM_INVALID, "expectedSizeBytes must be between 1 and " + max);
+        }
+        return size;
+    }
+
+    private boolean insertUploadSession(LessonUpload session) {
+        try {
+            lessonUploadMapper.insert(session);
+            return true;
+        } catch (DuplicateKeyException conflict) {
+            LessonUpload existing =
+                    lessonUploadMapper.selectPendingByLessonId(session.getLessonId());
+            if (existing == null) {
+                throw new BizException(ErrorCode.LESSON_UPLOAD_NOT_FOUND);
+            }
+            if (existing.getSessionExpiresAt().isAfter(LocalDateTime.now())) {
+                session.setId(existing.getId());
+                session.setObjectKey(existing.getObjectKey());
+                session.setSessionExpiresAt(existing.getSessionExpiresAt());
+                return false;
+            }
+            lessonUploadMapper.markExpired(existing.getId());
+            try {
+                lessonUploadMapper.insert(session);
+                return true;
+            } catch (DuplicateKeyException retried) {
+                throw new BizException(
+                        ErrorCode.STATE_CONFLICT, "upload session is being renewed, retry later");
+            }
+        }
     }
 
     /**

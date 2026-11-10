@@ -12,6 +12,8 @@ import com.lp.course.dto.TeacherCourseRequest;
 import com.lp.course.dto.TeacherCourseView;
 import com.lp.course.dto.TeacherLessonRequest;
 import com.lp.course.dto.TeacherLessonView;
+import com.lp.course.dto.TeacherUploadSessionRequest;
+import com.lp.course.dto.TeacherUploadSessionView;
 import com.lp.course.service.TeacherCourseService;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
@@ -345,6 +347,35 @@ public class TeacherCourseController {
         teacherCourseService.deleteLesson(
                 requireUser(userId), roles, courseId, chapterId, lessonId);
         return Result.ok(null, TraceIds.resolve(request));
+    }
+
+    /**
+     * Issues a presigned PUT credential for the video of a lesson.
+     *
+     * @param userId gateway injected user id
+     * @param roles gateway injected roles, comma separated
+     * @param courseId course primary key
+     * @param chapterId chapter primary key
+     * @param lessonId lesson primary key
+     * @param body declared file size, omitted when the client sends no body
+     * @param request current request, used to resolve the trace id
+     * @return session and presigned PUT URL
+     * @author Caspian
+     * @since 0.7.0
+     */
+    @PostMapping("/{courseId}/chapters/{chapterId}/lessons/{lessonId}/upload-sessions")
+    public Result<TeacherUploadSessionView> createUploadSession(
+            @RequestHeader(value = IdentityHeaders.USER_ID, required = false) Long userId,
+            @RequestHeader(value = IdentityHeaders.USER_ROLES, required = false) String roles,
+            @PathVariable("courseId") long courseId,
+            @PathVariable("chapterId") long chapterId,
+            @PathVariable("lessonId") long lessonId,
+            @RequestBody(required = false) TeacherUploadSessionRequest body,
+            HttpServletRequest request) {
+        return Result.ok(
+                teacherCourseService.createUploadSession(
+                        requireUser(userId), roles, courseId, chapterId, lessonId, body),
+                TraceIds.resolve(request));
     }
 
     /**
