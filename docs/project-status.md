@@ -212,7 +212,8 @@
 | 教师审核驳回原因超 300 字静默截断 | SPEC-PLAT-010、`AdminAuditService.record` | 驳回原因写入审计前按 300 字截断，接口不报错也不提示；超过 300 字时审计备注与实际驳回原因不一致 | 已知问题；处置方向：接口校验拒绝，超过 300 字返回 `40001` 并说明上限，不静默截断；不放宽 `remark` 字段 | 2026-11-10 |
 | 教师工作台界面与数据看板 | engineering-plan 1.2、2.1；product-lifecycle F13；SPEC-COURSE-011 | 仅有课程 CRUD 接口；后台无教师页面，无销售/学习/评论统计接口 | 未排期；缺 `course_daily_stat` 等汇总表 | 2026-11-09 |
 | 教师提交拟定价（前端入口） | SPEC-COURSE-011 AC-1 | 接口接受教师价格，运营审核可覆盖；后台无教师建课页面，教师无法实际提交拟定价 | 未排期；依赖教师工作台界面 | 2026-11-09 |
-| 视频上传与 ffprobe 校验 | product-lifecycle F06；engineering-plan 15.2 D5 | 上传会话（`upload-sessions`）、MinIO 直传与确认（`confirm`）接口已通（1c-1/1c-2）；教师端无上传入口界面 | 教师工作台界面未排期（1c-3b） | 2026-11-10 |
+| 视频上传与 ffprobe 校验 | product-lifecycle F06；engineering-plan 15.2 D5 | 上传会话（`upload-sessions`）、MinIO 直传与确认（`confirm`）接口已通（1c-1/1c-2）；运营后台已提供按 TEACHER 角色显示的课时视频上传页（1c-3b-2） | 教师独立工作台界面未排期，当前入口寄居运营后台 | 2026-11-10 |
+| 前端上传上限是服务端配置的镜像常量 | `CourseUploadProperties#maxSizeBytes`、V9 `chk_lesson_upload_size`、`apps/admin` `MAX_VIDEO_BYTES` | `apps/admin` 以 `2_147_483_648` 镜像 `lp.course.upload.max-size-bytes`，只用于上传前快速失败；权威判定仍只有服务端一处，两侧靠注释约束同步 | 技术债：将来应由服务端下发（会话响应或配置接口返回上限），前端不再持有常量。现阶段可接受，因为客户端只做快速失败、服务端才是权威 | 2026-11-10 |
 | 教师端无法预览已上传课时视频 | SPEC-COURSE-007；engineering-plan 1297 | 课时目录只下发 `videoUrl` 对象键，教师端没有播放入口 | 需要教师归属域内的**签名 GET**（不是公开 URL）才能播放，属鉴权面新增，1c 未做；仅加前端播放器无法绕过 | 2026-11-10 |
 | 支付重付约束 | SPEC-TRADE-004 AC-3、AC-4；engineering-plan 2.3 | 重新发起支付时直接复用未关闭的支付单，未返回 62006；`ErrorCode` 中没有 62006，也不要求先关闭原单 | 未排期；属支付发起与重付的业务缺口（L2-2），不阻塞 L1 上线 | 2026-11-10 |
 | 全文搜索与多维筛选 | product-lifecycle F02；engineering-plan 1.3 | 仅 `LIKE` 标题/副标题；无难度、热度、上新排序；`ft_` 索引未被查询使用 | 未排期 | 2026-11-09 |
