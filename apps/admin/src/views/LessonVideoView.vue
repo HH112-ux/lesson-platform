@@ -1,0 +1,384 @@
+<script setup lang="ts">
+/**
+ * Lesson video screen of the operations console.
+ *
+ * <p>Menu visibility is role based convenience only; the backend still checks course ownership on
+ * every call, so this screen is not an isolation boundary.</p>
+ *
+ * @author Caspian
+ * @since 0.9.0
+ */
+import { onMounted, ref, shallowRef } from 'vue'
+import {
+  confirmLessonUpload,
+  createLessonUploadSession,
+  listTeacherChapters,
+  listTeacherCourses,
+  type TeacherChapter,
+  type TeacherCourse,
+  type TeacherLesson,
+  type TeacherUploadSession,
+} from '../api/teacher'
+import { ApiError } from '../api/client'
+import { describeError } from '../utils/errors'
+import { checkLocalVideo, formatBytes, isSlowUpload } from '../utils/lessonUpload'
+
+const PAGE_SIZE = 50
+
+const STATUS_TEXT: Record<number, string> = { 0: '草稿', 1: '待审核', 2: '已上架', 3: '已下架' }
+
+const courses = ref<TeacherCourse[]>([])
+const courseId = ref<number | null>(null)
+const chapters = ref<TeacherChapter[]>([])
+const loading = ref(false)
+const errorText = ref('')
+const notice = ref('')
+
+const target = shallowRef<{ courseId: number; chapterId: number; lesson: TeacherLesson } | null>(
+  null,
+)
+const fileInput = ref<HTMLInputElement | null>(null)
+const session = shallowRef<TeacherUploadSession | null>(null)
+const file = shallowRef<File | null>(null)
+const busy = ref(false)
+const phase = ref('')
+const progress = ref(0)
+const failure = ref('')
+
+async function loadCourses(): Promise<void> {
+  loading.value = true
+  errorText.value = ''
+  try {
+    const page = await listTeacherCourses(undefined, 1, PAGE_SIZE)
+    courses.value = page.items
+  } catch (error) {
+    courses.value = []
+    errorText.value = describeError(error, '课程列表加载失败')
+  } finally {
+    loading.value = false
+  }
+}
+
+async function loadChapters(): Promise<void> {
+  const id = courseId.value
+  chapters.value = []
+  if (id === null) {
+    return
+  }
+  loading.value = true
+  errorText.value = ''
+  try {
+    chapters.value = await listTeacherChapters(id)
+  } catch (error) {
+    errorText.value = describeError(error, '课时列表加载失败')
+  } finally {
+    loading.value = false
+  }
+}
+
+function selectCourse(): void {
+  notice.value = ''
+  failure.value = ''
+  void loadChapters()
+}
+
+function pickVideo(chapterId: number, lesson: TeacherLesson): void {
+  if (courseId.value === null || busy.value) {
+    return
+  }
+  target.value = { courseId: courseId.value, chapterId, lesson }
+  failure.value = ''
+  notice.value = ''
+  fileInput.value?.click()
+}
+
+function onFilePicked(event: Event): void {
+  const input = event.target as HTMLInputElement
+  const picked = input.files?.[0] ?? null
+  input.value = ''
+  if (!picked) {
+    return
+  }
+  if (!target.value) {
+    return
+  }
+  file.value = picked
+  void openSessionAndUpload()
+}
+
+/**
+ * Creates a fresh session for the picked file, then uploads and confirms it.
+ *
+ * <p>A session is never reused once it failed with {@code 61007} or {@code 61008}; the next
+ * attempt always starts from a new credential.</p>
+ */
+async function openSessionAndUpload(): Promise<void> {
+  const current = target.value
+  const picked = file.value
+  if (!current || !picked) {
+    return
+  }
+  failure.value = ''
+  notice.value = ''
+  const duration = await readDuration(picked)
+  const reason = checkLocalVideo(picked, duration)
+  if (reason) {
+    failure.value = reason
+    return
+  }
+  if (isSlowUpload(picked.size)) {
+    notice.value = '文件超过 500 MiB：上传较慢，且不支持断点续传，请保持页面打开。'
+  }
+  busy.value = true
+  progress.value = 0
+  phase.value = '创建上传会话'
+  try {
+    const created = await createLessonUploadSession(
+      current.courseId,
+      current.chapterId,
+      current.lesson.lessonId,
+      picked.size,
+    )
+    if (created.expectedSizeBytes !== picked.size) {
+      failure.value = `服务端会话期望 ${created.expectedSizeBytes} 字节，所选文件为 ${picked.size} 字节，请重新选择文件`
+      return
+    }
+    session.value = created
+    await putAndConfirm()
+  } catch (error) {
+    fail(error)
+  } finally {
+    busy.value = false
+  }
+}
+
+/** Uploads the bytes of the held session and confirms it; retries reuse the same session. */
+async function putAndConfirm(): Promise<void> {
+  const current = target.value
+  const picked = file.value
+  const held = session.value
+  if (!current || !picked || !held) {
+    return
+  }
+  busy.value = true
+  failure.value = ''
+  try {
+    phase.value = '上传中'
+    await putObject(held, picked)
+    phase.value = '确认中'
+    const lesson = await confirmLessonUpload(
+      current.courseId,
+      current.chapterId,
+      current.lesson.lessonId,
+      held.uploadId,
+    )
+    notice.value = `《${lesson.title}》已确认：${lesson.videoCodec.toUpperCase()} ${lesson.videoWidth}×${lesson.videoHeight}，${formatBytes(lesson.videoSizeBytes)}`
+    session.value = null
+    file.value = null
+    target.value = null
+    phase.value = ''
+    await loadChapters()
+  } catch (error) {
+    fail(error)
+  } finally {
+    busy.value = false
+  }
+}
+
+function fail(error: unknown): void {
+  const code = error instanceof ApiError ? error.code : 0
+  if (code === 61007 || code === 61008) {
+    session.value = null
+    file.value = null
+    target.value = null
+  }
+  phase.value = ''
+  failure.value = describeError(error, '上传失败，请重试')
+}
+
+/** Reads the duration locally so a wrong file fails before a session is created. */
+function readDuration(picked: File): Promise<number | null> {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(picked)
+    const video = document.createElement('video')
+    const finish = (value: number | null): void => {
+      URL.revokeObjectURL(url)
+      resolve(value)
+    }
+    video.preload = 'metadata'
+    video.onloadedmetadata = () =>
+      finish(Number.isFinite(video.duration) && video.duration > 0 ? video.duration : null)
+    video.onerror = () => finish(null)
+    video.src = url
+  })
+}
+
+/** Single presigned PUT, no multipart and no resume; progress comes from XHR. */
+function putObject(held: TeacherUploadSession, picked: File): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open('PUT', held.uploadUrl)
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) {
+        progress.value = Math.round((event.loaded / event.total) * 100)
+      }
+    }
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        progress.value = 100
+        resolve()
+      } else {
+        reject(new Error(`视频上传失败（HTTP ${xhr.status}）`))
+      }
+    }
+    xhr.onerror = () => reject(new Error('视频上传中断，请检查网络后重试'))
+    xhr.send(picked)
+  })
+}
+
+onMounted(loadCourses)
+</script>
+
+<template>
+  <section>
+    <header class="page-head">
+      <h1>课时视频</h1>
+      <div class="search">
+        <select
+          v-model.number="courseId"
+          class="lp-input"
+          :disabled="busy"
+          @change="selectCourse"
+        >
+          <option :value="null">
+            请选择课程
+          </option>
+          <option
+            v-for="course in courses"
+            :key="course.courseId"
+            :value="course.courseId"
+          >
+            {{ course.title }}（{{ STATUS_TEXT[course.status] ?? '未知' }}）
+          </option>
+        </select>
+        <button
+          class="lp-btn"
+          :disabled="busy || courseId === null"
+          @click="loadChapters"
+        >
+          刷新
+        </button>
+      </div>
+    </header>
+
+    <p
+      v-if="notice || failure"
+      :class="failure ? 'lp-error' : 'lp-notice'"
+    >
+      {{ failure || notice }}
+      <button
+        v-if="session && !busy"
+        class="lp-btn"
+        @click="putAndConfirm"
+      >
+        重试上传
+      </button>
+    </p>
+
+    <div
+      v-if="busy"
+      class="lp-card progress-card"
+    >
+      <span>{{ phase }}：{{ target?.lesson.title }}（{{ progress }}%）</span>
+      <progress
+        :value="progress"
+        max="100"
+      />
+    </div>
+
+    <div class="lp-card table-card">
+      <p
+        v-if="loading"
+        class="lp-empty"
+      >
+        加载中…
+      </p>
+      <p
+        v-else-if="errorText"
+        class="lp-empty"
+      >
+        {{ errorText }}
+      </p>
+      <p
+        v-else-if="chapters.length === 0"
+        class="lp-empty"
+      >
+        请选择课程查看课时
+      </p>
+      <div
+        v-for="chapter in chapters"
+        v-else
+        :key="chapter.chapterId"
+        class="chapter"
+      >
+        <h2>{{ chapter.sort }}. {{ chapter.title }}</h2>
+        <table class="lp-table">
+          <thead>
+            <tr>
+              <th>课时</th>
+              <th>时长</th>
+              <th>编码</th>
+              <th>分辨率</th>
+              <th>大小</th>
+              <th>状态</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              v-for="lesson in chapter.lessons"
+              :key="lesson.lessonId"
+            >
+              <td>{{ lesson.title }}</td>
+              <td>{{ lesson.durationSec > 0 ? `${lesson.durationSec} 秒` : '--' }}</td>
+              <td>{{ lesson.videoCodec ? lesson.videoCodec.toUpperCase() : '--' }}</td>
+              <td>
+                {{ lesson.videoWidth > 0 ? `${lesson.videoWidth}×${lesson.videoHeight}` : '--' }}
+              </td>
+              <td>{{ lesson.videoSizeBytes > 0 ? formatBytes(lesson.videoSizeBytes) : '--' }}</td>
+              <td>{{ lesson.videoUrl ? '已上传' : '未上传' }}</td>
+              <td>
+                <button
+                  class="lp-btn"
+                  :disabled="busy"
+                  @click="pickVideo(chapter.chapterId, lesson)"
+                >
+                  {{ lesson.videoUrl ? '替换视频' : '上传视频' }}
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <input
+      ref="fileInput"
+      type="file"
+      accept="video/mp4"
+      hidden
+      @change="onFilePicked"
+    >
+  </section>
+</template>
+
+<style scoped>
+.page-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+h1 { margin: 0; font-size: 20px; }
+.search { display: flex; gap: 8px; }
+.search .lp-input { width: 280px; }
+.table-card { padding: 0 16px 16px; overflow: hidden; }
+.chapter h2 { margin: 16px 0 8px; font-size: 15px; }
+.progress-card { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.progress-card progress { flex: 1; }
+</style>
