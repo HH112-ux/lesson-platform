@@ -42,6 +42,9 @@ lp:
     upload:
       # Presigned PUT credentials are short lived on purpose: they are issued per session.
       session-ttl: ${LP_COURSE_UPLOAD_SESSION_TTL:30m}
+      # Lifetime of a presigned GET credential handed to the owning teacher for preview. Capped at
+      # one hour by CourseUploadSettingsValidator so a copied URL is not a reusable handle.
+      play-url-ttl: ${LP_COURSE_UPLOAD_PLAY_URL_TTL:10m}
       # Sole runtime ceiling; the API rejects larger files before insert. Mirrors
       # chk_lesson_upload_size in db/migration/course/V9__lesson_upload_size_limit.sql.
       # Change both together, the constraint needs a new migration.

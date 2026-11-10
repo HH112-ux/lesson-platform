@@ -1,6 +1,7 @@
 package com.lp.course.service.impl;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -70,7 +71,14 @@ class TeacherChapterLessonServiceImplTest {
                         uploadSigner,
                         uploadReader,
                         new CourseUploadProperties(
-                                Duration.ofMinutes(30), 209_715_200L, "", "", "", "", ""),
+                                Duration.ofMinutes(30),
+                                Duration.ofMinutes(10),
+                                209_715_200L,
+                                "",
+                                "",
+                                "",
+                                "",
+                                ""),
                         videoProbe,
                         videoValidator);
     }
@@ -198,7 +206,7 @@ class TeacherChapterLessonServiceImplTest {
                         71L,
                         new TeacherLessonRequest("Intro", null, null, 0, 1, 1));
 
-        assertEquals("", view.videoUrl());
+        assertFalse(view.hasVideo());
         assertEquals(0, view.durationSec());
         assertEquals("", view.videoCodec());
         assertEquals(0, view.videoWidth());

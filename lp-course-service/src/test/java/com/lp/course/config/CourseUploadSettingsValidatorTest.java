@@ -61,6 +61,24 @@ class CourseUploadSettingsValidatorTest {
                                 .afterPropertiesSet());
     }
 
+    @Test
+    void rejectsPlayUrlTtlAboveOneHour() {
+        IllegalStateException exception =
+                assertThrows(
+                        IllegalStateException.class,
+                        () ->
+                                new CourseUploadSettingsValidator(
+                                                properties(
+                                                        209_715_200L,
+                                                        "real-key",
+                                                        "real-secret",
+                                                        Duration.ofHours(2)),
+                                                environment("dev"))
+                                        .afterPropertiesSet());
+
+        assertTrue(exception.getMessage().contains("play-url-ttl"));
+    }
+
     private MockEnvironment environment(String profile) {
         MockEnvironment environment = new MockEnvironment();
         environment.setActiveProfiles(profile);
@@ -68,8 +86,14 @@ class CourseUploadSettingsValidatorTest {
     }
 
     private CourseUploadProperties properties(long maxSize, String accessKey, String secretKey) {
+        return properties(maxSize, accessKey, secretKey, Duration.ofMinutes(10));
+    }
+
+    private CourseUploadProperties properties(
+            long maxSize, String accessKey, String secretKey, Duration playUrlTtl) {
         return new CourseUploadProperties(
                 Duration.ofMinutes(30),
+                playUrlTtl,
                 maxSize,
                 "http://127.0.0.1:9000",
                 "us-east-1",

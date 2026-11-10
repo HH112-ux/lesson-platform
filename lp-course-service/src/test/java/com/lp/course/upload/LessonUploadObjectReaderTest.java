@@ -18,7 +18,14 @@ class LessonUploadObjectReaderTest {
 
     private static final CourseUploadProperties BLANK =
             new CourseUploadProperties(
-                    Duration.ofMinutes(30), 209_715_200L, "", "", "", "", "lp-media");
+                    Duration.ofMinutes(30),
+                    Duration.ofMinutes(10),
+                    209_715_200L,
+                    "",
+                    "",
+                    "",
+                    "",
+                    "lp-media");
 
     @Test
     void rejectsReadsWhenCredentialsAreMissing() {

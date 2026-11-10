@@ -1317,13 +1317,14 @@ spec:
 | POST | `/api/v1/teacher/courses/{courseId}/submit` | 提交审核（`0→1` 或 `3→1`；至少 1 个带视频与有效时长的课时；待审核期间只读） | `{}` | 课程详情，`status:1` | 40001,40301,40401,40901 |
 | POST | `/api/v1/teacher/courses/{courseId}/publish` | 本人课程再上架（`3→2`；仅内容未变更可直接上架，编辑过须回草稿复审） | `{}` | `{status:2}` | 40301,40901 |
 | POST | `/api/v1/teacher/courses/{courseId}/unpublish` | 本人课程下架（`2→3`） | `{reason}` | `{status:3}` | 40301,40901 |
-| GET | `/api/v1/teacher/courses/{courseId}/chapters` | 章节+课时目录（含隐藏项） | — | `[{chapterId,title,sort,status,lessons:[{lessonId,chapterId,title,videoUrl,durationSec,free,sort,status}]}]` | 40301,40401 |
+| GET | `/api/v1/teacher/courses/{courseId}/chapters` | 章节+课时目录（含隐藏项；`hasVideo` 表示是否已确认视频，不下发对象键） | — | `[{chapterId,title,sort,status,lessons:[{lessonId,chapterId,title,hasVideo,durationSec,free,sort,status}]}]` | 40301,40401 |
 | POST | `/api/v1/teacher/courses/{courseId}/chapters` | 建章节（草稿/已下架课程；已下架改动回草稿） | `{title,sort?,status?}` | 章节详情 | 40001,40301,40401,40901 |
 | PUT | `/api/v1/teacher/courses/{courseId}/chapters/{chapterId}` | 改章节（字段可选） | `{title?,sort?,status?}` | 章节详情 | 40001,40301,40401,40901 |
 | DELETE | `/api/v1/teacher/courses/{courseId}/chapters/{chapterId}` | 删章节（逻辑删，级联隐藏课时） | — | `data:null` | 40301,40401,40901 |
 | POST | `/api/v1/teacher/courses/{courseId}/chapters/{chapterId}/lessons` | 建课时（视频字段由上传确认写入；传 `videoUrl`/`durationSec` 返回 `40001`） | `{title,isFree?,sort?,status?}` | 课时详情 | 40001,40301,40401,40901 |
 | PUT | `/api/v1/teacher/courses/{courseId}/chapters/{chapterId}/lessons/{lessonId}` | 改课时（字段可选；同样拒绝视频字段） | `{title?,isFree?,sort?,status?}` | 课时详情 | 40001,40301,40401,40901 |
 | DELETE | `/api/v1/teacher/courses/{courseId}/chapters/{chapterId}/lessons/{lessonId}` | 删课时（逻辑删） | — | `data:null` | 40301,40401,40901 |
+| GET | `/api/v1/teacher/courses/{courseId}/chapters/{chapterId}/lessons/{lessonId}/play-url` | 教师预览本人课程视频的签名播放地址（教师只能签自己课程，`ADMIN` 例外；默认 10 分钟，只回签名地址不回对象键） | — | `{playUrl,expiresIn,expiresAt}` | 40301,40401,50206 |
 | POST | `/api/v1/teacher/lessons/{lessonId}/video` | 上传视频（multipart，服务端校验项见 SPEC-PLAT-006，当前未实现） | form-data `file` | `{videoUrl,durationSec,codec,width,height,sizeBytes}` | 40301,40002,50001,61003 |
 | GET | `/api/v1/teacher/courses/{courseId}/dashboard` | **课程数据看板**（`revenue`、`refundAmount` 与趋势内 `revenue` 单位分） | query:`dateFrom,dateTo`（≤90 天） | `{summary:{salesCount,revenue,refundAmount,newLearnerCount,avgProgressPercent,commentCount},trend:[{date,paidOrderCount,revenue,newLearnerCount}]}` | 40301,40401 |
 | GET | `/api/v1/teacher/courses/{courseId}/comments` | 本人课程评论查看（只读，不能处置） | query:`status,pageNum` | 分页 `{records:[{id,content,status,createdAt}]}` | 40301,40401 |

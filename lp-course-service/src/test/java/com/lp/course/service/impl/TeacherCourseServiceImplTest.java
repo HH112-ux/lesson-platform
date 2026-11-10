@@ -72,7 +72,14 @@ class TeacherCourseServiceImplTest {
                         uploadSigner,
                         uploadReader,
                         new CourseUploadProperties(
-                                Duration.ofMinutes(30), 209_715_200L, "", "", "", "", ""),
+                                Duration.ofMinutes(30),
+                                Duration.ofMinutes(10),
+                                209_715_200L,
+                                "",
+                                "",
+                                "",
+                                "",
+                                ""),
                         videoProbe,
                         videoValidator);
     }
