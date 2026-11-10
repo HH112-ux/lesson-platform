@@ -1,6 +1,7 @@
 package com.lp.course.mapper;
 
 import com.lp.course.entity.LessonUpload;
+import java.time.LocalDateTime;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Options;
@@ -99,4 +100,43 @@ public interface LessonUploadMapper {
      */
     @Update("UPDATE lesson_upload SET status = 2 WHERE id = #{id} AND status = 0")
     int markExpired(@Param("id") long id);
+
+    /**
+     * Confirms a pending session and writes the lesson video facts in one statement.
+     *
+     * <p>The {@code u.status = 0} predicate makes this update the point where concurrent
+     * confirmations race: exactly one caller claims the session, the others match no row and read
+     * the winning state instead. A missing or deleted lesson also matches no row.
+     *
+     * @param uploadId session primary key
+     * @param confirmedAt confirmation timestamp
+     * @param videoUrl stored object key
+     * @param durationSec probed duration in seconds
+     * @param codec probed video codec
+     * @param width probed width in pixels
+     * @param height probed height in pixels
+     * @param sizeBytes stored object size in bytes
+     * @param sha256 lower case hex digest of the stored object
+     * @return affected rows, {@code 0} when the session already left status 0 or the lesson is gone
+     * @author Caspian
+     * @since 0.8.0
+     */
+    @Update(
+            "UPDATE lesson_upload u JOIN course_lesson l ON l.id = u.lesson_id "
+                    + "SET u.status = 1, u.confirmed_at = #{confirmedAt}, "
+                    + "l.video_url = #{videoUrl}, l.video_duration_sec = #{durationSec}, "
+                    + "l.video_codec = #{codec}, l.video_width = #{width}, "
+                    + "l.video_height = #{height}, l.video_size_bytes = #{sizeBytes}, "
+                    + "l.video_sha256 = #{sha256}, l.version = l.version + 1 "
+                    + "WHERE u.id = #{uploadId} AND u.status = 0 AND l.deleted = 0")
+    int confirm(
+            @Param("uploadId") long uploadId,
+            @Param("confirmedAt") LocalDateTime confirmedAt,
+            @Param("videoUrl") String videoUrl,
+            @Param("durationSec") int durationSec,
+            @Param("codec") String codec,
+            @Param("width") int width,
+            @Param("height") int height,
+            @Param("sizeBytes") long sizeBytes,
+            @Param("sha256") String sha256);
 }
