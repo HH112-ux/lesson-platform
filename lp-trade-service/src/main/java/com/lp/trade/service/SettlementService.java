@@ -40,6 +40,8 @@ public class SettlementService {
 
     static final int STATUS_CLOSED = 1;
 
+    static final int STATUS_VOIDED = 2;
+
     private static final int STATUS_IMPORTED_MIN = 1;
 
     private static final int STATUS_IMPORTED_MAX = 3;
@@ -91,6 +93,36 @@ public class SettlementService {
         }
         settleBatchMapper.upsert(build(channel, billDate, closedBy, payment, refund));
         return settleBatchMapper.selectByKey(channel, billDate);
+    }
+
+    /**
+     * Voids a closed batch and unlocks its bill day.
+     *
+     * <p>The row is kept and marked {@code status=2} with the operator and the time, so the same
+     * bill day can be imported and closed again. Only a closed batch can be voided; voiding twice
+     * or voiding a missing batch fails with {@code 40901} or {@code 40401}.
+     *
+     * @param batchId primary key of the batch
+     * @param voidBy operator user id resolved from the gateway identity header
+     * @return voided batch
+     * @throws BizException with {@code 40401} when the batch is missing, or {@code 40901} when it
+     *     is not closed
+     * @author Caspian
+     * @since 0.6.2
+     */
+    @Transactional
+    public PaymentSettleBatch voidSettleBatch(long batchId, long voidBy) {
+        PaymentSettleBatch existing = settleBatchMapper.selectById(batchId);
+        if (existing == null) {
+            throw new BizException(ErrorCode.NOT_FOUND, "settle batch not found");
+        }
+        if (!Objects.equals(existing.getStatus(), STATUS_CLOSED)) {
+            throw new BizException(ErrorCode.STATE_CONFLICT, "settle batch is not closed");
+        }
+        if (settleBatchMapper.voidBatch(batchId, voidBy, LocalDateTime.now()) == 0) {
+            throw new BizException(ErrorCode.STATE_CONFLICT, "settle batch is not closed");
+        }
+        return settleBatchMapper.selectById(batchId);
     }
 
     private void validate(Integer channel, LocalDate billDate) {

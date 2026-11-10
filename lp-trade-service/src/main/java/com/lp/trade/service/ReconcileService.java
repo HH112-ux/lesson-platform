@@ -9,6 +9,7 @@ import com.lp.trade.entity.PaymentReconcile;
 import com.lp.trade.entity.PaymentRecord;
 import com.lp.trade.entity.RefundRequest;
 import com.lp.trade.mapper.PaymentReconcileMapper;
+import com.lp.trade.mapper.PaymentSettleBatchMapper;
 import com.lp.trade.reconcile.LocalReconcileRecord;
 import com.lp.trade.reconcile.ReconcileBillCsvParser;
 import com.lp.trade.reconcile.ReconcileBillLine;
@@ -50,6 +51,8 @@ public class ReconcileService {
 
     private final PaymentReconcileMapper reconcileMapper;
 
+    private final PaymentSettleBatchMapper settleBatchMapper;
+
     private final ReconcileBillCsvParser csvParser;
 
     private final ReconcileCalculator calculator;
@@ -62,6 +65,7 @@ public class ReconcileService {
      * Creates the reconciliation service.
      *
      * @param reconcileMapper persistence for {@code payment_reconcile} and the local trade rows
+     * @param settleBatchMapper reads the settle batch that locks a closed bill day
      * @param csvParser parses the uploaded UTF-8 bill CSV
      * @param calculator compares the channel bill with the local rows
      * @param objectMapper serializes the difference list
@@ -71,11 +75,13 @@ public class ReconcileService {
      */
     public ReconcileService(
             PaymentReconcileMapper reconcileMapper,
+            PaymentSettleBatchMapper settleBatchMapper,
             ReconcileBillCsvParser csvParser,
             ReconcileCalculator calculator,
             ObjectMapper objectMapper,
             MeterRegistry meterRegistry) {
         this.reconcileMapper = reconcileMapper;
+        this.settleBatchMapper = settleBatchMapper;
         this.csvParser = csvParser;
         this.calculator = calculator;
         this.objectMapper = objectMapper;
@@ -98,6 +104,7 @@ public class ReconcileService {
     public PaymentReconcile importBill(
             Integer channel, LocalDate billDate, Integer billType, String csvText) {
         validateRequest(channel, billDate, billType);
+        requireDayOpen(channel, billDate);
         List<ReconcileBillLine> channelLines = csvParser.parse(csvText);
         List<LocalReconcileRecord> localLines = loadLocalLines(channel, billDate, billType);
         ReconcileResult result =
@@ -131,6 +138,7 @@ public class ReconcileService {
         if (existing == null) {
             throw new BizException(ErrorCode.NOT_FOUND, "reconcile record not found");
         }
+        requireDayOpen(existing.getChannel(), existing.getBillDate());
         List<ReconcileBillLine> channelLines = csvParser.parse(existing.getRawBill());
         List<LocalReconcileRecord> localLines =
                 loadLocalLines(
@@ -186,6 +194,12 @@ public class ReconcileService {
             throw new BizException(ErrorCode.STATE_CONFLICT, "reconcile is not pending");
         }
         return reconcileMapper.selectById(reconcileId);
+    }
+
+    private void requireDayOpen(Integer channel, LocalDate billDate) {
+        if (settleBatchMapper.countClosed(channel, billDate) > 0) {
+            throw new BizException(ErrorCode.STATE_CONFLICT, "bill day is settled");
+        }
     }
 
     private List<LocalReconcileRecord> loadLocalLines(
