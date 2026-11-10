@@ -1,0 +1,19 @@
+# Accepted findings for .github/workflows/supply-chain-ci.yml.
+#
+# Every entry must carry all four fields. An entry missing any of them is deleted on
+# review instead of being honoured:
+#   id          a CVE or GHSA identifier, never a package name
+#   paths       the manifest or image the finding applies to, never the whole repository
+#   statement   why the finding cannot be exploited here, or which issue tracks the fix
+#   expired_at  ISO date, at most 90 days from the day the entry is added
+#
+# What this file must not contain:
+#   - wildcard paths ("**", "*/pom.xml") or an image name without a tag
+#   - package level or pkg-type level suppression: Trivy offers no such key here and
+#     wrapping one in a vulnerable entry would silence everything below it
+#   - entries without a date. An expired entry stops suppressing, which is the point:
+#     the finding comes back and somebody has to look at it again.
+#
+# The scan currently runs in baseline mode (report only), so nothing is suppressed yet.
+# This file records the contract the first accepted finding has to follow.
+vulnerabilities: []

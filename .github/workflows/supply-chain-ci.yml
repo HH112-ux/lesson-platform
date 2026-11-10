@@ -1,0 +1,278 @@
+name: supply-chain-ci
+
+# Vulnerability scanning for the three dependency surfaces of the repository:
+# Maven (pom.xml), pnpm (pnpm-lock.yaml) and the base images the stack runs on.
+# Images built from this repository are not scanned here yet: they only exist once the
+# E2E workflow builds the stack, so that surface is added together with it.
+#
+# This check is NOT one of the five required checks. It runs in baseline mode:
+# findings are reported and uploaded, but the job does not fail on them. Flipping it to
+# a gate is a separate change to the workflow and to branch protection, after the
+# baseline has been reviewed and the accepted entries are recorded in .trivyignore.yaml.
+#
+# Trivy is pinned in TRIVY_VERSION; bumping it is a deliberate commit, not a floating tag.
+on:
+  # Dependency manifests decide the result, so other pull requests skip the job.
+  pull_request:
+    branches:
+      - '**'
+    paths:
+      - 'pom.xml'
+      - '**/pom.xml'
+      - 'package.json'
+      - 'apps/*/package.json'
+      - 'packages/*/package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - '.trivyignore.yaml'
+      - '.github/workflows/supply-chain-ci.yml'
+  push:
+    branches:
+      - develop
+      - main
+  # A new CVE is published without any commit of ours, so the scan also runs weekly.
+  # Wednesday 02:00 UTC is Wednesday 10:00 in Asia/Shanghai.
+  schedule:
+    - cron: '0 2 * * 3'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supply-chain-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  supply-chain:
+    name: supply-chain
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # Pinned on purpose: the report must be reproducible and reviewable.
+      TRIVY_VERSION: 0.76.2
+      # actions/cache wraps this directory, so the vulnerability database is reused
+      # across runs instead of being downloaded again on every pull request.
+      # The repository scan skips it: a 1.6 GB SQLite file must not be its own input.
+      TRIVY_CACHE_DIR: ${{ github.workspace }}/.trivy-cache
+      # Unfixed findings are noise until an upgrade exists, so they are excluded.
+      TRIVY_SEVERITY: HIGH,CRITICAL
+      TRIVY_REPORT_DIR: ${{ github.workspace }}/reports
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Trivy
+        run: |
+          set -euo pipefail
+          version="${TRIVY_VERSION}"
+          archive="trivy_${version}_Linux-64bit.tar.gz"
+          curl -sSfL \
+            "https://github.com/aquasecurity/trivy/releases/download/v${version}/${archive}" \
+            | sudo tar -xz -C /usr/local/bin trivy
+          trivy --version
+
+      - name: Compute database cache key
+        id: cache-key
+        run: echo "week=$(date -u +%Y-%V)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore Trivy database cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.TRIVY_CACHE_DIR }}
+          # The unpacked database is about 1.6 GB, and the repository cache is capped at
+          # 10 GB, so the key is weekly rather than per run: one upload a week, exact hits
+          # in between. Trivy still refreshes a database older than 24h, so a stale entry
+          # costs a download, never an outdated report.
+          key: trivy-db-${{ runner.os }}-${{ steps.cache-key.outputs.week }}
+          restore-keys: |
+            trivy-db-${{ runner.os }}-
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Warm the Maven repository
+        # Trivy resolves pom.xml over the network. Maven Central answered the runner with
+        # 429 and Retry-After 1800s on the first attempt, which is what Trivy's own error
+        # message tells you to prevent by populating ~/.m2 first.
+        #
+        # install rather than dependency:resolve: the modules depend on each other
+        # (lp-auth-service needs lp-common), and resolution fails until those snapshots
+        # are in the local repository. Tests are skipped; the same cache key as the
+        # backend jobs keeps a warm run cheap.
+        run: ./mvnw -B -q -DskipTests install
+
+      - name: Scan Maven and pnpm dependencies
+        run: |
+          set -euo pipefail
+          mkdir -p "$TRIVY_REPORT_DIR"
+          # A failure here is a real failure (database unreachable, bad ignore file),
+          # not a finding: leave the exit code alone so CI never reports an empty green.
+          trivy fs \
+            --scanners vuln \
+            --severity "$TRIVY_SEVERITY" \
+            --ignore-unfixed \
+            --ignorefile .trivyignore.yaml \
+            --skip-dirs node_modules \
+            --skip-dirs '**/node_modules' \
+            --skip-dirs target \
+            --skip-dirs '**/target' \
+            --skip-dirs dist \
+            --skip-dirs '**/dist' \
+            --skip-dirs .git \
+            --skip-dirs .trivy-cache \
+            --format table \
+            --output "$TRIVY_REPORT_DIR/dependencies.txt" \
+            .
+          trivy fs \
+            --quiet \
+            --scanners vuln \
+            --severity "$TRIVY_SEVERITY" \
+            --ignore-unfixed \
+            --ignorefile .trivyignore.yaml \
+            --skip-dirs node_modules \
+            --skip-dirs '**/node_modules' \
+            --skip-dirs target \
+            --skip-dirs '**/target' \
+            --skip-dirs dist \
+            --skip-dirs '**/dist' \
+            --skip-dirs .git \
+            --skip-dirs .trivy-cache \
+            --format json \
+            --output "$TRIVY_REPORT_DIR/dependencies.json" \
+            .
+
+      - name: Audit pnpm advisories
+        # Trivy reads pnpm-lock.yaml but on lockfileVersion 9 it resolved only 24 of the
+        # 242 entries in the file (checked 2026-11-10), so its "0 findings" for the
+        # frontend is a coverage limit, not a clean bill. The npm advisory feed is asked
+        # directly as a second opinion. Baseline mode: a finding is not a failure, and
+        # this step cannot tell a finding apart from a registry error, so it never fails.
+        run: |
+          set -euo pipefail
+          pnpm audit --json > "$TRIVY_REPORT_DIR/pnpm-audit.json" || true
+          jq -r '.metadata.vulnerabilities // "audit produced no summary"' \
+            "$TRIVY_REPORT_DIR/pnpm-audit.json" || true
+
+      - name: Scan base images
+        # Images are the slowest part and do not change with a code commit, so they are
+        # scanned on the weekly run and on demand, not on every pull request.
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        run: |
+          set -euo pipefail
+          mkdir -p "$TRIVY_REPORT_DIR/images"
+          # mysql, redis and minio are the stateful dependencies; temurin and nginx are the
+          # bases of docker/backend.Dockerfile and docker/web.Dockerfile; flyway and mc are
+          # the one-shot tools dev-up.sh runs. RocketMQ and Nacos stay out because
+          # dev-up.sh does not start them.
+          #
+          # flyway/flyway:10 and minio/mc:latest are floating tags: scanning them reports
+          # whatever the registry resolves today, which is itself the finding.
+          images=(
+            "mysql:8.0.40"
+            "redis:7.4-alpine"
+            "bitnamilegacy/minio:2025.5.24"
+            "eclipse-temurin:17-jre"
+            "nginx:1.27-alpine"
+            "flyway/flyway:10"
+            "minio/mc:latest"
+          )
+          failed=""
+          for image in "${images[@]}"; do
+            slug="$(printf '%s' "$image" | tr '/:' '--')"
+            printf '\n==> %s\n' "$image"
+            # One unreachable image must not hide the report for the other six, so the
+            # failure is collected and surfaced after the loop. A scan that could not run
+            # is an infrastructure failure and still fails the job: a green run with an
+            # empty report would be worse than a red one.
+            if ! trivy image \
+              --quiet \
+              --scanners vuln \
+              --severity "$TRIVY_SEVERITY" \
+              --ignore-unfixed \
+              --ignorefile .trivyignore.yaml \
+              --format json \
+              --output "$TRIVY_REPORT_DIR/images/${slug}.json" \
+              "$image"; then
+              failed="${failed} ${image}"
+            fi
+          done
+          if [ -n "$failed" ]; then
+            echo "::error::image scans failed for:${failed}"
+            exit 1
+          fi
+
+      - name: Summarise findings
+        if: always()
+        run: |
+          set -euo pipefail
+          report="$TRIVY_REPORT_DIR/dependencies.json"
+          {
+            printf '## Supply chain baseline\n\n'
+            printf 'Baseline mode: findings are recorded, not enforced.\n\n'
+            if [ -f "$report" ]; then
+              # The root aggregator pom repeats every module dependency, so raw rows
+              # overstate the result. The table counts unique package/version/CVE triples
+              # and the raw row count is printed underneath for reference.
+              printf '### Maven and pnpm (unique package/version/CVE)\n\n'
+              printf '| Severity | Findings |\n|---|---|\n'
+              jq -r '
+                [.Results[]?.Vulnerabilities[]?]
+                | unique_by([.PkgName, .InstalledVersion, .VulnerabilityID])
+                | group_by(.Severity)
+                | map({severity: .[0].Severity, count: length})
+                | sort_by(.severity)
+                | .[]
+                | "| \(.severity) | \(.count) |"
+              ' "$report"
+              printf '\nRaw rows before de-duplication: '
+              jq -r '[.Results[]?.Vulnerabilities[]?] | length' "$report"
+              printf '\n\n'
+            else
+              printf 'The dependency scan produced no report. Check the step log.\n\n'
+            fi
+
+            if [ -f "$TRIVY_REPORT_DIR/pnpm-audit.json" ]; then
+              printf '### pnpm audit (second opinion on the npm surface)\n\n'
+              printf '| Severity | Advisories |\n|---|---|\n'
+              jq -r '.metadata.vulnerabilities // {} | to_entries[] | "| \(.key) | \(.value) |"' \
+                "$TRIVY_REPORT_DIR/pnpm-audit.json" || true
+              printf '\n'
+            fi
+
+            if [ -d "$TRIVY_REPORT_DIR/images" ]; then
+              printf '### Base images (unique package/version/CVE)\n\n'
+              printf '| Image | Severity | Findings |\n|---|---|---|\n'
+              for file in "$TRIVY_REPORT_DIR"/images/*.json; do
+                [ -e "$file" ] || continue
+                image="$(basename "$file" .json | tr '-' ':')"
+                jq -r --arg image "$image" '
+                  [.Results[]?.Vulnerabilities[]?]
+                  | unique_by([.PkgName, .InstalledVersion, .VulnerabilityID])
+                  | group_by(.Severity)
+                  | map({severity: .[0].Severity, count: length})
+                  | sort_by(.severity)
+                  | .[]
+                  | "| \($image) | \(.severity) | \(.count) |"
+                ' "$file"
+              done
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          sed -n '1,60p' "$TRIVY_REPORT_DIR/dependencies.txt" || true
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-${{ github.run_id }}
+          path: reports/
+          if-no-files-found: warn
+          # Long enough for the baseline review, short enough not to accumulate copies.
+          retention-days: 30
