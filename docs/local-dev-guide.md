@@ -418,14 +418,13 @@ for g in json.load(sys.stdin)['data']['groups']:
 
 ### 4.10 AC-33 缓存失效告警演练
 
-`scripts/observability-ac33-drill.sh` 用真实请求跑完整条链路，约 12 分钟，全程**不停止 trade**，只用 `docker pause` 冻结（目标与端口都留在原地，不需要重启任何服务）：
+`scripts/observability-ac33-drill.sh` 用真实请求跑完整条链路，约 8 分钟，全程**不停止 trade**，只用 `docker pause` 冻结（目标与端口都留在原地，不需要重启任何服务）：
 
-1. 注册 6 个账号，在 trade 仍可达时逐个提交注销申请（申请会探测 trade，trade 不可达时按 AC-10 直接 `50401`，所以申请必须放在暂停之前）；
-2. 冻结 trade，撤销前 3 个账号（撤销不做探测，提交后通知 trade 清缓存会失败），等计数器 +3 后解冻；
-3. 间隔 3 分钟再冻结一次、撤销后 3 个、等计数器再 +3 后解冻，让 5 分钟速率窗口始终 ≥3；
-4. 等告警 firing，再等它回到 inactive。
+1. 注册 3 个账号，在 trade 仍可达时逐个提交注销申请（申请会探测 trade，trade 不可达时按 AC-10 直接 `50401`，所以申请必须放在暂停之前）；
+2. 冻结 trade，撤销这 3 个账号（撤销不做探测，提交后通知 trade 清缓存会失败），等计数器 +3 后解冻；
+3. 等告警 firing（`for: 1m`，约 1 分钟内触发），再等它回到 inactive。
 
-两次冻结各只持续到该批 3 次失效全部超时（约数秒），trade 不会长时间不可用：本地同一套栈还有其他检查在用 trade。**不能撤销完立刻解冻**——排队中的异步失效会在容器醒来后成功，计数器只记到 1 次而不是 3 次。
+冻结只持续到 3 次失效全部超时（约数秒），trade 不会长时间不可用：本地同一套栈还有其他检查在用 trade。**不能撤销完立刻解冻**——排队中的异步失效会在容器醒来后成功，计数器只记到 1 次而不是 3 次。
 
 ```bash
 bash scripts/observability-ac33-drill.sh
@@ -436,13 +435,13 @@ bash scripts/observability-ac33-drill.sh
 | 证据 | 断言 |
 |---|---|
 | 规则在求值 | `/api/v1/rules` 中 `LpAuthAccountCancellationCacheInvalidateFailed` 的 `health=ok`，且相隔 20 秒的两次 `lastEvaluation` 不同 |
-| 计数器 | `lp_auth_account_cancellation_cache_invalidate_failed_total` 相对基线增加 6（两批各 3） |
-| 两处都能查到 firing | `/api/v1/alerts` 与 `:9093/api/v2/alerts` 都有该告警处于 active，Prometheus 侧 `value` ≥ 3 |
-| 5 分钟后回 inactive | 最后一批失败离开 5m 窗口后，`/api/v1/alerts` 不再返回该告警 |
+| 计数器 | `lp_auth_account_cancellation_cache_invalidate_failed_total` 相对基线增加 3 |
+| 两处都能查到 firing | `/api/v1/alerts` 与 `:9093/api/v2/alerts` 都有该告警处于 active；`value` 只从 Prometheus 取，要求 ≥ 3（Alertmanager 不含数值，脚本原样打印响应，不伪造） |
+| 窗口过后回 inactive | 这批失败离开 5m 窗口后，`/api/v1/alerts` 不再返回该告警 |
 
-- 告警的 `value` 是 `increase(...[5m])` 在触发那次的取值，**不是**计数器累计值，所以显示约 3 而不是 6；要看累计值查 `/actuator/prometheus`。
-- 只撤销 3 个账号无法让这条告警 firing：规则是 `increase(...[5m]) >= 3` 且 `for: 5m`，一批 3 次事件在 `for` 完成的那一刻正好滑出 5m 窗口，pending 会重置。要看到 firing 至少要 6 次失败（两批各 3，间隔小于 5 分钟），所以计数器断言是 +6、告警值仍是 3。若口径必须是「3 次就报」，要改的是规则（例如 `for: 1m`），不是演练脚本。
-- 演练会留下 6 个处于冷静期的账号（`ac*`），7 天后到期；不需要时可以手工清掉，不影响其他数据。
+- 告警的 `value` 是 `increase(...[5m])` 在触发那次的取值，**不是**计数器累计值，所以显示约 3；要看累计值查 `/actuator/prometheus`。
+- 规则的 `for` 是 **1m**，不是 5m：门槛 `>= 3` 与窗口 `[5m]` 都不动。原来的 `for: 5m` 对单批失败永远不 firing——t=0 写入 3 次事件，条件最多维持到 t=5m，而 `for: 5m` 恰好在 t=5m 才满足持续要求，此刻最早的事件已滑出窗口，pending 必然重置。`for: 1m` 保留「持续时间」意图（过滤瞬时抖动），又能在窗口内触发。
+- 演练会留下 3 个处于冷静期的账号（`ac*`），7 天后到期；不需要时可以手工清掉，不影响其他数据。
 - 失败时脚本会打印它当时读到的原始 JSON 行；先看 `docker logs lp-auth-service | grep cache` 与 `docker logs lp-trade-service`，再核对 `prometheus-rules.yml` 是否真的挂载进来了。
 
 ## 5. Web 前端
