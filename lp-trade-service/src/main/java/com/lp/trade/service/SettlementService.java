@@ -15,7 +15,6 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Objects;
-import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -125,7 +124,7 @@ public class SettlementService {
      * @param batchId primary key of the batch
      * @param voidBy operator user id resolved from the gateway identity header
      * @param reason why the batch must be voided, required and at most 300 characters
-     * @param traceId request trace id, generated when blank
+     * @param traceId request trace id resolved by the caller, stored on the audit intent
      * @return voided batch
      * @throws BizException with {@code 40001} when the reason is missing or too long, {@code 40401}
      *     when the batch is missing, or {@code 40901} when it is not closed
@@ -174,10 +173,7 @@ public class SettlementService {
         outbox.setFromStatus(STATUS_CLOSED);
         outbox.setToStatus(STATUS_VOIDED);
         outbox.setRemark(reason);
-        outbox.setTraceId(
-                traceId == null || traceId.isBlank()
-                        ? UUID.randomUUID().toString().replace("-", "")
-                        : traceId);
+        outbox.setTraceId(traceId);
         outbox.setOccurredAt(voidAt);
         outbox.setStatus(0);
         outbox.setRetryCount(0);
