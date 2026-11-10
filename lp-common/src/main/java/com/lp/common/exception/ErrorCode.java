@@ -9,9 +9,9 @@ package com.lp.common.exception;
  *   <li>{@code 4xxxx} client or protocol errors: 400 parameter, 401 credential, 403 permission, 404
  *       resource, 409 state, 429 rate limit
  *   <li>{@code 5xxxx} server or dependency errors: 500 uncaught, 502 third-party channel, 503 AI
- *       pipeline
+ *       pipeline, 504 dependency service unavailable
  *   <li>{@code 6xxxx} business errors, second digit identifies the domain: 61 course, 62 trade, 63
- *       learning, 64 interaction, 65 AI session, 66 miniapp login
+ *       learning, 64 interaction, 65 AI session, 66 miniapp login, 67 account
  * </ul>
  *
  * <p>The same semantic meaning must not be defined in two segments. Domain codes are appended per
@@ -151,7 +151,20 @@ public enum ErrorCode {
     MINIAPP_LOGIN_BIZ_ERROR(66001, "miniapp login failed"),
 
     /** Miniapp login is switched off on this deployment. */
-    MINIAPP_LOGIN_DISABLED(66003, "miniapp login is disabled");
+    MINIAPP_LOGIN_DISABLED(66003, "miniapp login is disabled"),
+
+    /** The account was cancelled and has no remaining usable identity. */
+    ACCOUNT_CANCELLED(67001, "account has been cancelled"),
+
+    /** A cancellation was refused because orders or refunds are still in flight. */
+    ACCOUNT_CANCELLATION_BLOCKED(
+            67003, "account cancellation is blocked by open orders or refunds"),
+
+    /** No cooling-off cancellation is currently pending for the account. */
+    ACCOUNT_CANCELLATION_NOT_FOUND(67004, "no pending account cancellation"),
+
+    /** The account is inside the cooling-off period, so new orders and payments are refused. */
+    ACCOUNT_COOLING_OFF_RESTRICTED(67005, "account is inside the cancellation cooling-off period");
 
     private final int code;
 

@@ -12,6 +12,7 @@ import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lp.auth.config.MiniappProperties;
+import com.lp.auth.constant.UserStatus;
 import com.lp.auth.dto.LoginRequest;
 import com.lp.auth.dto.LoginResponse;
 import com.lp.auth.dto.LogoutRequest;
@@ -208,6 +209,50 @@ class AuthServiceImplTest {
     }
 
     /**
+     * Lets an account inside the cancellation cooling-off period sign in.
+     *
+     * <p>The user must still be able to review and withdraw the request, so {@code status=2} keeps
+     * the login path open; only new orders and payments are refused later in the order flow.
+     *
+     * @author Caspian
+     * @since 0.2.0
+     */
+    @Test
+    void logsInDuringCoolingOffPeriod() {
+        when(authUserMapper.selectByUsername("alice"))
+                .thenReturn(
+                        account(7L, UserStatus.COOLING_OFF, passwordEncoder.encode(RAW_PASSWORD)));
+        when(authUserMapper.selectRoleCodes(7L)).thenReturn(List.of("STUDENT"));
+        when(authUserMapper.selectPermissionCodes(7L)).thenReturn(List.of());
+
+        LoginResponse response = authService.login(request("alice", RAW_PASSWORD), "web");
+
+        assertThat(response.getAccessToken()).isNotBlank();
+        assertThat(response.getUser().getId()).isEqualTo(7L);
+    }
+
+    /**
+     * Reports a cancelled account as {@code 67001} instead of the ban code {@code 40301}.
+     *
+     * @author Caspian
+     * @since 0.2.0
+     */
+    @Test
+    void rejectsCancelledAccountWithDedicatedCode() {
+        when(authUserMapper.selectByUsername("alice"))
+                .thenReturn(
+                        account(7L, UserStatus.CANCELLED, passwordEncoder.encode(RAW_PASSWORD)));
+
+        assertThatThrownBy(() -> authService.login(request("alice", RAW_PASSWORD), "web"))
+                .isInstanceOfSatisfying(
+                        BizException.class,
+                        ex ->
+                                assertThat(ex.getCode())
+                                        .isEqualTo(ErrorCode.ACCOUNT_CANCELLED.getCode()));
+        verify(authUserMapper, never()).touchLastLogin(anyLong());
+    }
+
+    /**
      * Creates a student account, hashes the password and stores the refresh session at once.
      *
      * @author Caspian
@@ -255,7 +300,7 @@ class AuthServiceImplTest {
     @Test
     void registerRejectsDuplicateUsername() {
         when(authUserMapper.selectByUsername("newbie"))
-                .thenReturn(account(7L, AuthServiceImpl.STATUS_ACTIVE, "hash"));
+                .thenReturn(account(7L, UserStatus.ACTIVE, "hash"));
 
         assertThatThrownBy(() -> authService.register(registerRequest(), "web"))
                 .isInstanceOfSatisfying(
@@ -392,6 +437,44 @@ class AuthServiceImplTest {
     }
 
     /**
+     * Rotates a refresh token for an account inside the cooling-off period.
+     *
+     * @author Caspian
+     * @since 0.2.0
+     */
+    @Test
+    void refreshAllowsCoolingOffAccount() {
+        refreshTokenStore.store("refresh-1", new RefreshSession(7L, Instant.now(), "web"));
+        when(authUserMapper.selectById(7L)).thenReturn(account(7L, UserStatus.COOLING_OFF, "hash"));
+        when(authUserMapper.selectRoleCodes(7L)).thenReturn(List.of("STUDENT"));
+        when(authUserMapper.selectPermissionCodes(7L)).thenReturn(List.of());
+
+        RefreshResponse refreshed = authService.refresh(refreshRequest("refresh-1"));
+
+        assertThat(refreshed.getAccessToken()).isNotBlank();
+        assertThat(refreshed.getRefreshToken()).isNotEqualTo("refresh-1");
+    }
+
+    /**
+     * Refuses to rotate a refresh token for a cancelled account with {@code 67001}.
+     *
+     * @author Caspian
+     * @since 0.2.0
+     */
+    @Test
+    void rejectRefreshForCancelledAccount() {
+        refreshTokenStore.store("refresh-1", new RefreshSession(7L, Instant.now(), "web"));
+        when(authUserMapper.selectById(7L)).thenReturn(account(7L, UserStatus.CANCELLED, "hash"));
+
+        assertThatThrownBy(() -> authService.refresh(refreshRequest("refresh-1")))
+                .isInstanceOfSatisfying(
+                        BizException.class,
+                        ex ->
+                                assertThat(ex.getCode())
+                                        .isEqualTo(ErrorCode.ACCOUNT_CANCELLED.getCode()));
+    }
+
+    /**
      * Rejects a refresh attempt whose account no longer exists with {@code 40101}.
      *
      * @author Caspian
@@ -486,6 +569,41 @@ class AuthServiceImplTest {
     }
 
     /**
+     * Serves the profile for an account inside the cooling-off period.
+     *
+     * @author Caspian
+     * @since 0.2.0
+     */
+    @Test
+    void meAllowsCoolingOffAccount() {
+        when(authUserMapper.selectById(7L)).thenReturn(account(7L, UserStatus.COOLING_OFF, "hash"));
+        when(authUserMapper.selectRoleCodes(7L)).thenReturn(List.of("STUDENT"));
+        when(authUserMapper.selectPermissionCodes(7L)).thenReturn(List.of());
+
+        MeResponse me = authService.me(7L);
+
+        assertThat(me.getId()).isEqualTo(7L);
+    }
+
+    /**
+     * Rejects the profile of a cancelled account with {@code 67001} immediately.
+     *
+     * @author Caspian
+     * @since 0.2.0
+     */
+    @Test
+    void meRejectsCancelledAccount() {
+        when(authUserMapper.selectById(7L)).thenReturn(account(7L, UserStatus.CANCELLED, "hash"));
+
+        assertThatThrownBy(() -> authService.me(7L))
+                .isInstanceOfSatisfying(
+                        BizException.class,
+                        ex ->
+                                assertThat(ex.getCode())
+                                        .isEqualTo(ErrorCode.ACCOUNT_CANCELLED.getCode()));
+    }
+
+    /**
      * Signs an existing openid in without creating another account.
      *
      * @author Caspian
@@ -514,6 +632,30 @@ class AuthServiceImplTest {
         assertThat(session).isNotNull();
         assertThat(session.getUserId()).isEqualTo(7L);
         assertThat(session.getSource()).isEqualTo(IdentityHeaders.SOURCE_MINIAPP);
+    }
+
+    /**
+     * Refuses a miniapp sign-in whose bound account was cancelled with {@code 67001}.
+     *
+     * @author Caspian
+     * @since 0.2.0
+     */
+    @Test
+    void miniappLoginRejectsCancelledAccount() {
+        when(wechatMiniappClient.exchange("code-old"))
+                .thenReturn(new WechatSession("openid-old", null, "session-key-old"));
+        UserWechat binding = new UserWechat();
+        binding.setUserId(7L);
+        when(authUserMapper.selectByOpenid("openid-old")).thenReturn(binding);
+        when(authUserMapper.selectById(7L)).thenReturn(account(7L, UserStatus.CANCELLED, "hash"));
+
+        assertThatThrownBy(() -> authService.miniappLogin(miniappRequest("code-old")))
+                .isInstanceOfSatisfying(
+                        BizException.class,
+                        ex ->
+                                assertThat(ex.getCode())
+                                        .isEqualTo(ErrorCode.ACCOUNT_CANCELLED.getCode()));
+        verify(authUserMapper, never()).insertUser(any(UserAccount.class));
     }
 
     /**
@@ -736,6 +878,24 @@ class AuthServiceImplTest {
                 .satisfies(
                         exception ->
                                 assertThat(((BizException) exception).getCode()).isEqualTo(40301));
+    }
+
+    /**
+     * A cancelled account never receives a session and is reported as {@code 67001}.
+     *
+     * @author Caspian
+     * @since 0.2.0
+     */
+    @Test
+    void rejectsSessionForCancelledAccount() {
+        when(authUserMapper.selectById(42L))
+                .thenReturn(account(42L, UserStatus.CANCELLED, "unused"));
+
+        assertThatThrownBy(() -> authService.issueSession(42L, IdentityHeaders.SOURCE_WEB))
+                .isInstanceOf(BizException.class)
+                .satisfies(
+                        exception ->
+                                assertThat(((BizException) exception).getCode()).isEqualTo(67001));
     }
 
     /**

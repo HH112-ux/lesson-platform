@@ -1,6 +1,7 @@
 package com.lp.auth.service.impl;
 
 import com.lp.auth.config.MiniappProperties;
+import com.lp.auth.constant.UserStatus;
 import com.lp.auth.dto.LoginRequest;
 import com.lp.auth.dto.LoginResponse;
 import com.lp.auth.dto.LoginUser;
@@ -51,9 +52,6 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class AuthServiceImpl implements AuthService {
 
-    /** {@code sys_user.status} value of a usable account. */
-    public static final int STATUS_ACTIVE = 1;
-
     /** Role granted to every self registered account. */
     public static final String DEFAULT_ROLE_CODE = "STUDENT";
 
@@ -103,8 +101,8 @@ public class AuthServiceImpl implements AuthService {
      * @param source source platform recorded with the refresh session
      * @return tokens plus the authenticated user summary
      * @throws BizException {@code 40101} when the account is missing or the password is wrong,
-     *     {@code 40301} when the account is not active, {@code 50001} when the refresh store is
-     *     unreachable
+     *     {@code 67001} when the account was cancelled, {@code 40301} when the account is disabled,
+     *     {@code 50001} when the refresh store is unreachable
      * @author Caspian
      * @since 0.1.0
      */
@@ -115,9 +113,7 @@ public class AuthServiceImpl implements AuthService {
                 || !passwordEncoder.matches(request.getPassword(), account.getPasswordHash())) {
             throw new BizException(ErrorCode.UNAUTHENTICATED);
         }
-        if (account.getStatus() == null || account.getStatus() != STATUS_ACTIVE) {
-            throw new BizException(ErrorCode.FORBIDDEN, "account disabled");
-        }
+        requireLoginAllowed(account);
 
         List<String> roles = authUserMapper.selectRoleCodes(account.getId());
         List<String> permissions = authUserMapper.selectPermissionCodes(account.getId());
@@ -205,9 +201,9 @@ public class AuthServiceImpl implements AuthService {
      * @param request validated miniapp login body
      * @return tokens, the new-user flag and the user summary
      * @throws BizException {@code 66003} when the feature is disabled, {@code 66001} when WeChat
-     *     rejects the code, {@code 40101} when a bound account disappeared, {@code 40301} when the
-     *     bound account is disabled, {@code 50001} when the default role or the refresh store is
-     *     unavailable
+     *     rejects the code, {@code 40101} when a bound account disappeared, {@code 67001} when the
+     *     bound account was cancelled, {@code 40301} when the bound account is disabled, {@code
+     *     50001} when the default role or the refresh store is unavailable
      * @author Caspian
      * @since 0.1.0
      */
@@ -225,9 +221,7 @@ public class AuthServiceImpl implements AuthService {
             if (account == null) {
                 throw new BizException(ErrorCode.UNAUTHENTICATED);
             }
-            if (account.getStatus() == null || account.getStatus() != STATUS_ACTIVE) {
-                throw new BizException(ErrorCode.FORBIDDEN, "account disabled");
-            }
+            requireLoginAllowed(account);
             return issueMiniappTokens(account, false);
         }
 
@@ -247,8 +241,9 @@ public class AuthServiceImpl implements AuthService {
      * @param request the refresh token to consume
      * @return a new access token and a new refresh token
      * @throws BizException {@code 40102} when the token is unknown, expired or already used, {@code
-     *     40101} when the owning account no longer exists, {@code 40301} when the owning account is
-     *     disabled, {@code 50001} when the refresh store is unreachable
+     *     40101} when the owning account no longer exists, {@code 67001} when the owning account
+     *     was cancelled, {@code 40301} when the owning account is disabled, {@code 50001} when the
+     *     refresh store is unreachable
      * @author Caspian
      * @since 0.1.0
      */
@@ -263,9 +258,7 @@ public class AuthServiceImpl implements AuthService {
         if (account == null) {
             throw new BizException(ErrorCode.UNAUTHENTICATED);
         }
-        if (account.getStatus() == null || account.getStatus() != STATUS_ACTIVE) {
-            throw new BizException(ErrorCode.FORBIDDEN, "account disabled");
-        }
+        requireLoginAllowed(account);
 
         List<String> roles = authUserMapper.selectRoleCodes(account.getId());
         List<String> permissions = authUserMapper.selectPermissionCodes(account.getId());
@@ -295,8 +288,8 @@ public class AuthServiceImpl implements AuthService {
      *
      * @param userId authentic user id resolved from the trusted gateway header
      * @return profile, roles and permission codes
-     * @throws BizException {@code 40101} when the account no longer exists, {@code 40301} when the
-     *     account is not active
+     * @throws BizException {@code 40101} when the account no longer exists, {@code 67001} when the
+     *     account was cancelled, {@code 40301} when the account is disabled
      * @author Caspian
      * @since 0.1.0
      */
@@ -306,9 +299,7 @@ public class AuthServiceImpl implements AuthService {
         if (account == null) {
             throw new BizException(ErrorCode.UNAUTHENTICATED);
         }
-        if (account.getStatus() == null || account.getStatus() != STATUS_ACTIVE) {
-            throw new BizException(ErrorCode.FORBIDDEN, "account disabled");
-        }
+        requireLoginAllowed(account);
         return new MeResponse(
                 account.getId(),
                 account.getUsername(),
@@ -426,12 +417,38 @@ public class AuthServiceImpl implements AuthService {
     }
 
     /**
+     * Applies the shared account status gate used by every sign-in and session entry point.
+     *
+     * <p>An account inside the cooling-off period stays usable because the user must be able to
+     * review and withdraw the request; only new orders and payments are refused later in the order
+     * flow. A cancelled account is reported as {@code 67001} so it cannot be confused with a ban,
+     * which keeps {@code 40301}.
+     *
+     * @param account account row loaded from {@code lp_ums}
+     * @throws BizException {@code 67001} when the account was cancelled, {@code 40301} when it is
+     *     disabled, banned or carries an unknown status
+     * @author Caspian
+     * @since 0.2.0
+     */
+    private static void requireLoginAllowed(UserAccount account) {
+        Integer status = account.getStatus();
+        if (status != null && (status == UserStatus.ACTIVE || status == UserStatus.COOLING_OFF)) {
+            return;
+        }
+        if (status != null && status == UserStatus.CANCELLED) {
+            throw new BizException(ErrorCode.ACCOUNT_CANCELLED);
+        }
+        throw new BizException(ErrorCode.FORBIDDEN, "account disabled");
+    }
+
+    /**
      * Issues a browser session for a ticket owner.
      *
      * @param userId account id already proven by the ticket
      * @param source source platform recorded with the refresh session
      * @return a new token pair
-     * @throws BizException {@code 40101} when the account is missing, {@code 40301} when disabled
+     * @throws BizException {@code 40101} when the account is missing, {@code 67001} when it was
+     *     cancelled, {@code 40301} when it is disabled
      * @author Caspian
      * @since 0.1.0
      */
@@ -441,9 +458,7 @@ public class AuthServiceImpl implements AuthService {
         if (account == null) {
             throw new BizException(ErrorCode.UNAUTHENTICATED);
         }
-        if (account.getStatus() == null || account.getStatus() != STATUS_ACTIVE) {
-            throw new BizException(ErrorCode.FORBIDDEN, "account disabled");
-        }
+        requireLoginAllowed(account);
         List<String> roles = authUserMapper.selectRoleCodes(userId);
         List<String> permissions = authUserMapper.selectPermissionCodes(userId);
         AuthTokens tokens = jwtTokenService.issue(userId, roles, permissions);
