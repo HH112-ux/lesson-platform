@@ -212,7 +212,8 @@
 | 教师审核驳回原因超 300 字静默截断 | SPEC-PLAT-010、`AdminAuditService.record` | 驳回原因写入审计前按 300 字截断，接口不报错也不提示；超过 300 字时审计备注与实际驳回原因不一致 | 已知问题；处置方向：接口校验拒绝，超过 300 字返回 `40001` 并说明上限，不静默截断；不放宽 `remark` 字段 | 2026-11-10 |
 | 教师工作台界面与数据看板 | engineering-plan 1.2、2.1；product-lifecycle F13；SPEC-COURSE-011 | 仅有课程 CRUD 接口；后台无教师页面，无销售/学习/评论统计接口 | 未排期；缺 `course_daily_stat` 等汇总表 | 2026-11-09 |
 | 教师提交拟定价（前端入口） | SPEC-COURSE-011 AC-1 | 接口接受教师价格，运营审核可覆盖；后台无教师建课页面，教师无法实际提交拟定价 | 未排期；依赖教师工作台界面 | 2026-11-09 |
-| 视频上传与 ffprobe 校验 | product-lifecycle F06；engineering-plan 15.2 D5 | 无上传接口；播放仅对已存在对象签名 | 未排期；存储与校验方案未落地 | 2026-11-09 |
+| 视频上传与 ffprobe 校验 | product-lifecycle F06；engineering-plan 15.2 D5 | 上传会话（`upload-sessions`）、MinIO 直传与确认（`confirm`）接口已通（1c-1/1c-2）；教师端无上传入口界面 | 教师工作台界面未排期（1c-3b） | 2026-11-10 |
+| 教师端无法预览已上传课时视频 | SPEC-COURSE-007；engineering-plan 1297 | 课时目录只下发 `videoUrl` 对象键，教师端没有播放入口 | 需要教师归属域内的**签名 GET**（不是公开 URL）才能播放，属鉴权面新增，1c 未做；仅加前端播放器无法绕过 | 2026-11-10 |
 | 支付重付约束 | SPEC-TRADE-004 AC-3、AC-4；engineering-plan 2.3 | 重新发起支付时直接复用未关闭的支付单，未返回 62006；`ErrorCode` 中没有 62006，也不要求先关闭原单 | 未排期；属支付发起与重付的业务缺口（L2-2），不阻塞 L1 上线 | 2026-11-10 |
 | 全文搜索与多维筛选 | product-lifecycle F02；engineering-plan 1.3 | 仅 `LIKE` 标题/副标题；无难度、热度、上新排序；`ft_` 索引未被查询使用 | 未排期 | 2026-11-09 |
 | 资料维护与账号注销 | product-lifecycle F01；engineering-plan 15.2 D8；SPEC-PLAT-004 | 资料修改未实现；注销已有 `POST/DELETE/GET /api/v1/auth/account-cancellation`（冷静期 7 天、重复申请幂等、阻塞返回 67003、依赖失败返回 50401），trade 冷静期守卫已实现（下单与支付返回 67005、200ms 探测、45s 缓存、提交后异步主动失效）；执行任务与匿名化已由定时任务自动执行，告警规则见 `infra/observability/prometheus-rules.yml`（3 条，尚未接入 Prometheus 求值）；Web `/account` 与小程序账号页已提供注销申请、冷静期倒计时、撤销与阻塞提示，Web 侧 2026-11-10 用真实账号实跑验证（截图与请求响应原文在仓库外 `/Users/caspian/lesson-platform-evidence/ac22-20261110/`），小程序真机预览因无 AppID 无法验证 | 进行中（SPEC-PLAT-004 26/33） | 2026-11-10 |
