@@ -14,7 +14,9 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.lp.common.audit.OperatorRole;
 import com.lp.common.exception.BizException;
+import com.lp.course.dto.AuditLogCreateRequest;
 import com.lp.course.dto.CourseInternalView;
 import com.lp.course.dto.CourseReviewAuditView;
 import com.lp.course.dto.CourseReviewResultView;
@@ -26,6 +28,7 @@ import com.lp.course.entity.CourseLesson;
 import com.lp.course.entity.CourseReviewAudit;
 import com.lp.course.mapper.CourseMapper;
 import com.lp.course.mapper.CourseReviewAuditMapper;
+import com.lp.course.service.AdminAuditService;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -48,6 +51,8 @@ class CourseInternalServiceImplTest {
     @Mock private CourseMapper courseMapper;
 
     @Mock private CourseReviewAuditMapper courseReviewAuditMapper;
+
+    @Mock private AdminAuditService adminAuditService;
 
     @InjectMocks private CourseInternalServiceImpl courseInternalService;
 
@@ -192,7 +197,9 @@ class CourseInternalServiceImplTest {
         when(courseMapper.approve(eq(7L), any(BigDecimal.class), eq(55L), any(LocalDateTime.class)))
                 .thenReturn(1);
 
-        CourseReviewResultView result = courseInternalService.review(7L, true, 9900L, null, 55L);
+        CourseReviewResultView result =
+                courseInternalService.review(
+                        7L, true, 9900L, null, 55L, OperatorRole.OPS, "trace-approve");
 
         assertEquals(2, result.getStatus());
         assertEquals(9900L, result.getPriceFen());
@@ -212,6 +219,15 @@ class CourseInternalServiceImplTest {
         assertEquals(2, audit.getToStatus());
         assertEquals(55L, audit.getReviewerId());
         assertNull(audit.getRemark());
+        AuditLogCreateRequest recorded = captureUnifiedAudit();
+        assertEquals(55L, recorded.operatorId());
+        assertEquals(OperatorRole.OPS, recorded.operatorRole());
+        assertEquals(0, recorded.actionType());
+        assertEquals(0, recorded.objectType());
+        assertEquals(7L, recorded.objectId());
+        assertEquals(1, recorded.fromStatus());
+        assertEquals(2, recorded.toStatus());
+        assertEquals("trace-approve", recorded.traceId());
     }
 
     /**
@@ -227,7 +243,8 @@ class CourseInternalServiceImplTest {
         when(courseMapper.selectPrice(7L)).thenReturn(new BigDecimal("12.30"));
 
         CourseReviewResultView result =
-                courseInternalService.review(7L, false, null, "  missing outline ", 55L);
+                courseInternalService.review(
+                        7L, false, null, "  missing outline ", 55L, OperatorRole.ADMIN, "trace-1");
 
         assertEquals(0, result.getStatus());
         assertEquals(1230L, result.getPriceFen());
@@ -236,6 +253,12 @@ class CourseInternalServiceImplTest {
         assertEquals(1, audit.getFromStatus());
         assertEquals(0, audit.getToStatus());
         assertEquals("missing outline", audit.getRemark());
+        AuditLogCreateRequest recorded = captureUnifiedAudit();
+        assertEquals(1, recorded.actionType());
+        assertEquals(OperatorRole.ADMIN, recorded.operatorRole());
+        assertEquals(1, recorded.fromStatus());
+        assertEquals(0, recorded.toStatus());
+        assertEquals("missing outline", recorded.remark());
     }
 
     /**
@@ -249,7 +272,9 @@ class CourseInternalServiceImplTest {
         BizException exception =
                 assertThrows(
                         BizException.class,
-                        () -> courseInternalService.review(7L, true, -100L, null, 55L));
+                        () ->
+                                courseInternalService.review(
+                                        7L, true, -100L, null, 55L, OperatorRole.OPS, "trace-1"));
 
         assertEquals(40001, exception.getCode());
         verify(courseMapper, never())
@@ -268,7 +293,9 @@ class CourseInternalServiceImplTest {
         BizException exception =
                 assertThrows(
                         BizException.class,
-                        () -> courseInternalService.review(7L, false, null, " ", 55L));
+                        () ->
+                                courseInternalService.review(
+                                        7L, false, null, " ", 55L, OperatorRole.OPS, "trace-1"));
 
         assertEquals(40001, exception.getCode());
         verify(courseMapper, never()).reject(anyLong(), any(), anyLong(), any(LocalDateTime.class));
@@ -287,10 +314,13 @@ class CourseInternalServiceImplTest {
         BizException exception =
                 assertThrows(
                         BizException.class,
-                        () -> courseInternalService.review(7L, true, 100L, null, 55L));
+                        () ->
+                                courseInternalService.review(
+                                        7L, true, 100L, null, 55L, OperatorRole.OPS, "trace-1"));
 
         assertEquals(61005, exception.getCode());
         verify(courseReviewAuditMapper, never()).insert(any(CourseReviewAudit.class));
+        verify(adminAuditService, never()).record(any(AuditLogCreateRequest.class));
     }
 
     /**
@@ -334,6 +364,13 @@ class CourseInternalServiceImplTest {
     private CourseReviewAudit captureAudit() {
         ArgumentCaptor<CourseReviewAudit> captor = ArgumentCaptor.forClass(CourseReviewAudit.class);
         verify(courseReviewAuditMapper).insert(captor.capture());
+        return captor.getValue();
+    }
+
+    private AuditLogCreateRequest captureUnifiedAudit() {
+        ArgumentCaptor<AuditLogCreateRequest> captor =
+                ArgumentCaptor.forClass(AuditLogCreateRequest.class);
+        verify(adminAuditService).record(captor.capture());
         return captor.getValue();
     }
 

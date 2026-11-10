@@ -80,6 +80,8 @@ public interface CourseInternalService {
      * @param priceFen price in fen set on approval, {@code null} keeps the current price
      * @param remark rejection remark, required when rejecting
      * @param reviewerId operator user id
+     * @param operatorRole operator role code, 0 operations, 1 administrator
+     * @param traceId request trace id written to the unified audit log
      * @return course state after the decision
      * @throws com.lp.common.exception.BizException when the course is not pending or the remark is
      *     missing
@@ -87,7 +89,13 @@ public interface CourseInternalService {
      * @since 0.1.0
      */
     CourseReviewResultView review(
-            long courseId, boolean approved, Long priceFen, String remark, long reviewerId);
+            long courseId,
+            boolean approved,
+            Long priceFen,
+            String remark,
+            long reviewerId,
+            int operatorRole,
+            String traceId);
 
     /**
      * Lists the review audit history of one course, newest decision first.

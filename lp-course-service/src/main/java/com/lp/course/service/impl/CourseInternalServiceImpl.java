@@ -1,8 +1,11 @@
 package com.lp.course.service.impl;
 
+import com.lp.common.audit.AuditAction;
+import com.lp.common.audit.AuditObject;
 import com.lp.common.exception.BizException;
 import com.lp.common.exception.ErrorCode;
 import com.lp.common.money.Money;
+import com.lp.course.dto.AuditLogCreateRequest;
 import com.lp.course.dto.CourseInternalView;
 import com.lp.course.dto.CourseReviewAuditView;
 import com.lp.course.dto.CourseReviewResultView;
@@ -16,6 +19,7 @@ import com.lp.course.entity.CourseLesson;
 import com.lp.course.entity.CourseReviewAudit;
 import com.lp.course.mapper.CourseMapper;
 import com.lp.course.mapper.CourseReviewAuditMapper;
+import com.lp.course.service.AdminAuditService;
 import com.lp.course.service.CourseInternalService;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -38,6 +42,8 @@ public class CourseInternalServiceImpl implements CourseInternalService {
     private final CourseMapper courseMapper;
 
     private final CourseReviewAuditMapper courseReviewAuditMapper;
+
+    private final AdminAuditService adminAuditService;
 
     /** Audit action of an approved course. */
     private static final int ACTION_APPROVE = 1;
@@ -68,13 +74,17 @@ public class CourseInternalServiceImpl implements CourseInternalService {
      *
      * @param courseMapper mapper reading the {@code lp_cms} course tables
      * @param courseReviewAuditMapper mapper appending review audit entries
+     * @param adminAuditService unified audit appender, joined to the review transaction
      * @author Caspian
      * @since 0.1.0
      */
     public CourseInternalServiceImpl(
-            CourseMapper courseMapper, CourseReviewAuditMapper courseReviewAuditMapper) {
+            CourseMapper courseMapper,
+            CourseReviewAuditMapper courseReviewAuditMapper,
+            AdminAuditService adminAuditService) {
         this.courseMapper = courseMapper;
         this.courseReviewAuditMapper = courseReviewAuditMapper;
+        this.adminAuditService = adminAuditService;
     }
 
     /**
@@ -183,6 +193,8 @@ public class CourseInternalServiceImpl implements CourseInternalService {
      * @param priceFen price in fen set on approval, {@code null} keeps the current price
      * @param remark rejection remark, required when rejecting
      * @param reviewerId operator user id
+     * @param operatorRole operator role code, 0 operations, 1 administrator
+     * @param traceId request trace id written to the unified audit log
      * @return course state after the decision
      * @throws BizException when the course is not pending or the remark is missing
      * @author Caspian
@@ -191,7 +203,13 @@ public class CourseInternalServiceImpl implements CourseInternalService {
     @Override
     @Transactional
     public CourseReviewResultView review(
-            long courseId, boolean approved, Long priceFen, String remark, long reviewerId) {
+            long courseId,
+            boolean approved,
+            Long priceFen,
+            String remark,
+            long reviewerId,
+            int operatorRole,
+            String traceId) {
         if (priceFen != null && !Money.isStorable(priceFen)) {
             // A negative or oversized price would be clamped to a free order or overflow the
             // column.
@@ -223,6 +241,21 @@ public class CourseInternalServiceImpl implements CourseInternalService {
         audit.setRemark(remarkText);
         audit.setCreatedAt(reviewedAt);
         courseReviewAuditMapper.insert(audit);
+        // Same transaction as the status update above: either both the course and the unified
+        // audit row commit, or neither does.
+        adminAuditService.record(
+                new AuditLogCreateRequest(
+                        reviewerId,
+                        operatorRole,
+                        approved ? AuditAction.COURSE_APPROVE : AuditAction.COURSE_REJECT,
+                        AuditObject.COURSE,
+                        courseId,
+                        STATUS_PENDING_REVIEW,
+                        approved ? STATUS_PUBLISHED : STATUS_DRAFT,
+                        remarkText,
+                        traceId,
+                        null,
+                        reviewedAt));
         long effectivePriceFen =
                 approved && priceFen != null ? priceFen : currentPriceFen(courseId);
         return new CourseReviewResultView(

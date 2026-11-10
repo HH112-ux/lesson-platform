@@ -1,5 +1,6 @@
 package com.lp.course.controller;
 
+import com.lp.common.audit.OperatorRole;
 import com.lp.common.exception.BizException;
 import com.lp.common.exception.ErrorCode;
 import com.lp.common.result.Result;
@@ -148,7 +149,7 @@ public class CourseInternalController {
      * Applies a review decision to a pending course.
      *
      * @param courseId course primary key
-     * @param body decision, optional price in fen and the operator id
+     * @param body decision, optional price in fen, the operator id and role
      * @param request current request, used to resolve the trace id
      * @return course state after the decision
      * @author Caspian
@@ -162,13 +163,19 @@ public class CourseInternalController {
         if (body.getReviewerId() == null || body.getReviewerId() <= 0) {
             throw new BizException(ErrorCode.PARAM_INVALID, "reviewerId is required");
         }
+        if (!OperatorRole.isValid(body.getOperatorRole())) {
+            throw new BizException(ErrorCode.PARAM_INVALID, "operatorRole is invalid");
+        }
+        String traceId = TraceIds.resolve(request);
         return Result.ok(
                 courseInternalService.review(
                         courseId,
                         body.isApproved(),
                         body.getPriceFen(),
                         body.getRemark(),
-                        body.getReviewerId()),
-                TraceIds.resolve(request));
+                        body.getReviewerId(),
+                        body.getOperatorRole(),
+                        traceId),
+                traceId);
     }
 }
