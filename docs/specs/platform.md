@@ -40,4 +40,5 @@ trade 判定买家是否处于冷静期时固定三项口径，避免实现漂�
 
 1. **谁能签、签给谁**：`TEACHER` 与 `ADMIN` 可调 `GET /api/v1/teacher/courses/{courseId}/chapters/{chapterId}/lessons/{lessonId}/play-url`；先按 `course.owner_teacher_id` 判归属，教师只能签自己课程，`ADMIN` 例外。越权 `40301`，课时不属该课程/章节或未确认视频 `40401`，存储未配置 `50206`。
 2. **有效期与返回内容**：默认 10 分钟，由 `lp.course.upload.play-url-ttl`（`LP_COURSE_UPLOAD_PLAY_URL_TTL`）配置，启动时校验必须在 1 秒到 1 小时之间，超出即启动失败，避免签名地址变成可长期复用的裸链接；只回 `playUrl`、`expiresIn`、`expiresAt`，不回对象键，目录接口 `TeacherLessonView` 用 `hasVideo` 表达「是否已上传」。
+3. **有效期短于课时长度时的取舍**：默认 10 分钟短于长课时（本地夹具已有 1275 秒与 1300 秒课时），本版本不调大默认 TTL——签名地址一旦变长，等同于可长期复用的裸链接，泄露后无法及时失效；改为客户端在播放器 `error`（含过期与 403）时重新获取签名并保持 `currentTime`：Web 端为 `PlayerView.vue` 的 `onVideoError`，`apps/admin` 预览为 `LessonVideoView.vue` 的 `onPreviewError`。代价是播放器可能有一次极短的重连，但签名窗口始终保持在 10 分钟。
 
