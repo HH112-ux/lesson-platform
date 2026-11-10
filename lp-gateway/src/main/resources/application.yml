@@ -23,7 +23,7 @@ spring:
         - id: trade-service
           uri: ${LP_TRADE_SERVICE_URI:http://localhost:8103}
           predicates:
-            - Path=/api/v1/trade/**,/api/v1/cart/**,/api/v1/coupons/**,/api/v1/orders/**,/api/v1/payments/**,/api/v1/refunds/**
+            - Path=/api/v1/trade/**,/api/v1/cart/**,/api/v1/coupons/**,/api/v1/orders/**,/api/v1/payments/**,/api/v1/refunds/**,/api/v1/reconcile/**
         - id: learn-service
           uri: ${LP_LEARN_SERVICE_URI:http://localhost:8104}
           predicates:
