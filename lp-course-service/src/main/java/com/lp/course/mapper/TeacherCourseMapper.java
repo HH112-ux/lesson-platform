@@ -190,6 +190,19 @@ public interface TeacherCourseMapper {
     int submit(@Param("courseId") long courseId, @Param("submittedAt") LocalDateTime submittedAt);
 
     /**
+     * Moves a pending course back to draft as the owning teacher requested.
+     *
+     * @param courseId course primary key
+     * @return affected rows, {@code 0} when the course is no longer pending
+     * @author Caspian
+     * @since 0.13.0
+     */
+    @Update(
+            "UPDATE course SET status = 0, version = version + 1 "
+                    + "WHERE id = #{courseId} AND status = 1 AND deleted = 0")
+    int withdraw(@Param("courseId") long courseId);
+
+    /**
      * Counts the lessons that make a course submittable.
      *
      * <p>A lesson needs a playable object key and a positive duration; rows failing either test
