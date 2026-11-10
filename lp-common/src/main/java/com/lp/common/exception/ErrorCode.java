@@ -68,6 +68,14 @@ public enum ErrorCode {
     AI_PIPELINE_UNAVAILABLE(50301, "ai pipeline unavailable"),
 
     /**
+     * Another service this call depends on is unreachable, timed out, or answered unusably.
+     *
+     * <p>Distinct from {@link #INTERNAL_ERROR} on purpose: the cause is a dependency, not a defect
+     * in this service, and callers must fail closed instead of proceeding with an unknown state.
+     */
+    DEPENDENCY_UNAVAILABLE(50401, "dependency service unavailable"),
+
+    /**
      * The course cannot be found. A course that exists but is offline is reported as {@link
      * #TRADE_UNAVAILABLE} on every trade entry point.
      */

@@ -22,7 +22,11 @@ import org.springframework.security.crypto.password.PasswordEncoder;
  * @since 0.1.0
  */
 @Configuration
-@EnableConfigurationProperties({JwtProperties.class, MiniappProperties.class})
+@EnableConfigurationProperties({
+    JwtProperties.class,
+    MiniappProperties.class,
+    AccountDeletionProperties.class
+})
 public class AuthConfiguration {
 
     /**

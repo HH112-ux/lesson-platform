@@ -62,6 +62,11 @@ lp:
       device-limit: ${LP_MINIAPP_LOGIN_DEVICE_LIMIT:5}
       window-seconds: ${LP_MINIAPP_LOGIN_WINDOW_SECONDS:60}
       trusted-proxies: ${LP_TRUSTED_PROXIES:127.0.0.1,::1}
+    # Account cancellation (SPEC-PLAT-004). The blocker probe calls the trade-service internal API
+    # and fails closed with 50401 when trade is unreachable, so no order is hidden by an outage.
+    account-deletion:
+      trade-base-url: ${LP_AUTH_TRADE_BASE_URL:http://127.0.0.1:8103}
+      trade-read-timeout: ${LP_AUTH_TRADE_READ_TIMEOUT:2s}
 
 management:
   endpoints:
