@@ -1,10 +1,11 @@
 name: frontend-ci
 
 on:
+  # Any pull request branch runs the checks, including stacked pull requests whose base is a
+  # feature branch. Push and merge queue triggers stay limited to develop and main.
   pull_request:
     branches:
-      - develop
-      - main
+      - '**'
   push:
     branches:
       - develop
