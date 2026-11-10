@@ -12,14 +12,18 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.lp.common.exception.BizException;
+import com.lp.course.config.CourseUploadProperties;
 import com.lp.course.dto.TeacherCoursePageView;
 import com.lp.course.dto.TeacherCourseRequest;
 import com.lp.course.dto.TeacherCourseStatusCounts;
 import com.lp.course.dto.TeacherCourseView;
 import com.lp.course.entity.Course;
 import com.lp.course.entity.TeacherCourseStatusRow;
+import com.lp.course.mapper.LessonUploadMapper;
 import com.lp.course.mapper.TeacherCourseMapper;
+import com.lp.course.upload.LessonUploadUrlSigner;
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -38,17 +42,27 @@ class TeacherCourseServiceImplTest {
 
     @Mock private TeacherCourseMapper teacherCourseMapper;
 
+    @Mock private LessonUploadMapper lessonUploadMapper;
+
+    @Mock private LessonUploadUrlSigner uploadUrlSigner;
+
     private TeacherCourseServiceImpl service;
 
     /**
-     * Builds the service under test with a mocked mapper.
+     * Builds the service under test with mocked dependencies.
      *
      * @author Caspian
      * @since 0.1.0
      */
     @BeforeEach
     void setUp() {
-        service = new TeacherCourseServiceImpl(teacherCourseMapper);
+        service =
+                new TeacherCourseServiceImpl(
+                        teacherCourseMapper,
+                        lessonUploadMapper,
+                        uploadUrlSigner,
+                        new CourseUploadProperties(
+                                Duration.ofMinutes(30), 209_715_200L, "", "", "", "", ""));
     }
 
     /**

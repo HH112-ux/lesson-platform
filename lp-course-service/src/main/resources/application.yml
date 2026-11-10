@@ -39,6 +39,18 @@ lp:
     # Used only to fill the catalog owned flag; failures degrade to anonymous.
     learn-base-url: ${LP_LEARN_BASE_URL:http://127.0.0.1:8104}
     learn-read-timeout-ms: ${LP_LEARN_READ_TIMEOUT_MS:2000}
+    upload:
+      # Presigned PUT credentials are short lived on purpose: they are issued per session.
+      session-ttl: ${LP_COURSE_UPLOAD_SESSION_TTL:30m}
+      # Must match chk_lesson_upload_size; the API rejects larger files before insert.
+      max-size-bytes: ${LP_COURSE_UPLOAD_MAX_SIZE_BYTES:209715200}
+      minio-endpoint: ${LP_COURSE_UPLOAD_MINIO_ENDPOINT:${LP_MINIO_ENDPOINT:http://127.0.0.1:9000}}
+      # Fixed so presigning needs no network call; the endpoint above is browser facing.
+      minio-region: ${LP_COURSE_UPLOAD_MINIO_REGION:${LP_MINIO_REGION:us-east-1}}
+      # Local defaults mirror infra/docker-compose.yml; production values come from K8s Secret.
+      minio-access-key: ${LP_COURSE_UPLOAD_MINIO_ACCESS_KEY:${LP_MINIO_ROOT_USER:lpminio}}
+      minio-secret-key: ${LP_COURSE_UPLOAD_MINIO_SECRET_KEY:${LP_MINIO_ROOT_PASSWORD:lp_minio_dev}}
+      minio-bucket: ${LP_COURSE_UPLOAD_MINIO_BUCKET:${LP_MINIO_BUCKET:lp-media}}
 
 management:
   endpoints:
