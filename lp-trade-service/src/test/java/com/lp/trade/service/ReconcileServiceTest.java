@@ -128,6 +128,67 @@ class ReconcileServiceTest {
         verify(reconcileMapper, never()).count(any(), any(), any());
     }
 
+    @Test
+    void recheckPicksUpLatePaymentAndClearsDifferences() {
+        PaymentReconcile stored = aggregate(7L, 2);
+        stored.setRawBill(csv("T1,LP1,9.90,"));
+        when(reconcileMapper.selectById(7L)).thenReturn(stored);
+        when(reconcileMapper.selectLocalPayments(eq(1), any(), any()))
+                .thenReturn(List.of(payment(11L, "T1", "9.90")));
+        when(reconcileMapper.selectByKey(1, BILL_DATE, 1)).thenReturn(aggregate(7L, 1));
+
+        PaymentReconcile result = service.recheck(7L);
+
+        assertEquals(Integer.valueOf(1), result.getStatus());
+        assertEquals(Integer.valueOf(1), captureUpsert().getStatus());
+    }
+
+    @Test
+    void recheckFailsWithUnresolvedCodeWhenDifferencesRemain() {
+        PaymentReconcile stored = aggregate(7L, 2);
+        stored.setRawBill(csv("T1,LP1,9.90,", "T2,LP2,5.00,"));
+        when(reconcileMapper.selectById(7L)).thenReturn(stored);
+        when(reconcileMapper.selectLocalPayments(eq(1), any(), any())).thenReturn(List.of());
+        when(reconcileMapper.selectByKey(1, BILL_DATE, 1)).thenReturn(aggregate(7L, 2));
+
+        BizException ex = assertThrows(BizException.class, () -> service.recheck(7L));
+
+        assertEquals(50204, ex.getCode());
+        assertEquals(Integer.valueOf(2), captureUpsert().getStatus());
+    }
+
+    @Test
+    void recheckRejectsMissingAggregate() {
+        when(reconcileMapper.selectById(99L)).thenReturn(null);
+
+        BizException ex = assertThrows(BizException.class, () -> service.recheck(99L));
+
+        assertEquals(40401, ex.getCode());
+        verify(reconcileMapper, never()).upsert(any());
+    }
+
+    @Test
+    void handleMarksPendingAggregateAsHandled() {
+        when(reconcileMapper.selectById(7L))
+                .thenReturn(aggregate(7L, 2))
+                .thenReturn(aggregate(7L, 3));
+        when(reconcileMapper.markHandled(eq(7L), eq(42L), any())).thenReturn(1);
+
+        PaymentReconcile handled = service.handle(7L, 42L);
+
+        assertEquals(Integer.valueOf(3), handled.getStatus());
+    }
+
+    @Test
+    void handleRejectsAggregateThatIsNotPending() {
+        when(reconcileMapper.selectById(7L)).thenReturn(aggregate(7L, 1));
+
+        BizException ex = assertThrows(BizException.class, () -> service.handle(7L, 42L));
+
+        assertEquals(40901, ex.getCode());
+        verify(reconcileMapper, never()).markHandled(any(), any(), any());
+    }
+
     private PaymentReconcile aggregate(Long id, int status) {
         PaymentReconcile row = new PaymentReconcile();
         row.setId(id);
