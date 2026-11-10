@@ -1207,6 +1207,7 @@ spec:
 | POST | `/api/v1/admin/entitlements/grant` | 运营发放课程权益（免费课开通/客诉补偿，不产生订单，15.2 D9） | `{userId,courseId,reason}` | `{entitlementId}` | 40001,40301,40901(已有权益) |
 | GET | `/api/v1/admin/teachers` | 教师列表/入驻审核队列（权限码 `admin:teacher:audit`） | query:`auditStatus,keyword,pageNum,pageSize` | 分页 `{records:[{teacherId,userId,displayName,auditStatus,auditRemark,auditedBy,auditedAt,submittedAt,courseCount,createdAt}],total,pageNum,pageSize}` | 40001,40301 |
 | POST | `/api/v1/admin/teachers/{teacherId}/review` | 教师入驻审核（通过 `0→1`；驳回 `0→2` 且 `remark` 必填） | `{approved:bool,remark?}` | `{teacherId,auditStatus,auditRemark,auditedBy,auditedAt}` | 40001,40301,40401,40901 |
+| GET | `/api/v1/admin/audit-logs` | 统一操作审计查询（权限码 `admin:audit:list`；按对象 `objectType`+`objectId`，或按操作人+时间 `operatorId`+`dateFrom`+`dateTo`，时间 ISO-8601） | query:`objectType,objectId,operatorId,dateFrom,dateTo,pageNum,pageSize` | 分页 `{records:[{id,operatorId,operatorRole,actionType,objectType,objectId,fromStatus,toStatus,remark,traceId,createdAt}],total,pageNum,pageSize}` | 40001,40301,50201 |
 | POST | `/api/v1/admin/courses/{courseId}/chapters` | 建章节 | `{title,sort}` | `{chapterId}` | 40301 |
 | POST | `/api/v1/admin/chapters/{chapterId}/lessons` | 建课时 | `{title,isFree,sort,coverUrl}` | `{lessonId}` | 40301 |
 | POST | `/api/v1/admin/lessons/{lessonId}/video` | 上传视频（multipart，服务端校验项见 SPEC-PLAT-006，当前未实现） | form-data `file` | `{videoUrl,durationSec,codec,width,height,sizeBytes}` | 40002,50001,61003 |
@@ -1231,7 +1232,7 @@ spec:
 | POST | `/api/v1/admin/ai/model-config/test` | **连通性测试** | `{}` | `{ok:bool,latencyMs,model,error?}` | 40301,50303,50304,50306 |
 | POST | `/api/v1/admin/ai/model-config/rotate-key` | **密钥轮换**（旧钥保留 24h 双活） | `{apiKey}` | `{keyVersion,apiKeyMasked}` | 40001,40301 |
 
-> 权限码沿用 `sys_menu` 现有 `admin:*` 体系：`admin:dashboard:view`、`admin:course:list`、`admin:course:review`、`admin:user:list`、`admin:order:list`、`admin:teacher:audit`。`/api/v1/admin/menus` 只返回调用方权限码命中的节点（父节点有可见子节点即保留）；`ADMIN`/`OPS` 之外的调用方返回 `40301`。`/api/v1/admin/dashboard` 通过 course-service `/internal/v1/courses/stats`、trade-service `/internal/v1/orders/stats`、auth-service `/internal/v1/users/stats` 聚合，任一上游失败返回 `50201`；`/api/v1/admin/metrics/overview` 的区间趋势仍为规划中。
+> 权限码沿用 `sys_menu` 现有 `admin:*` 体系：`admin:dashboard:view`、`admin:course:list`、`admin:course:review`、`admin:user:list`、`admin:order:list`、`admin:teacher:audit`、`admin:audit:list`。`/api/v1/admin/menus` 只返回调用方权限码命中的节点（父节点有可见子节点即保留）；`ADMIN`/`OPS` 之外的调用方返回 `40301`。`/api/v1/admin/dashboard` 通过 course-service `/internal/v1/courses/stats`、trade-service `/internal/v1/orders/stats`、auth-service `/internal/v1/users/stats` 聚合，任一上游失败返回 `50201`；`/api/v1/admin/metrics/overview` 的区间趋势仍为规划中。
 
 ### 5.9.1 统一操作审计（L1-7）
 
@@ -1250,6 +1251,8 @@ spec:
 课程审核与教师审核的审计写入在 `@Transactional` 方法内完成：先写业务状态，再写 `admin_audit_log`，任一步抛异常由同一事务回滚，因此不存在"状态已改、审计缺失"的中间态。
 
 **退款投递语义**：中继按 `status=0` 且 `next_retry_at <= now` 取批（默认 50 条），失败按 5s 起指数退避、上限 300s；course-service 侧 `INSERT ... ON DUPLICATE KEY UPDATE dedupe_key = dedupe_key` 保证重复投递不产生第二行。**积压发现方式**：`SELECT status, COUNT(*) FROM audit_outbox GROUP BY status`，待投递持续增长或 `status=2` 出现即告警；中继同时累加投递成功/失败/放弃三类指标，`status=2` 需人工补写审计。
+
+**查询接口**：`GET /api/v1/admin/audit-logs`，`admin-service` 无数据源，经 `X-Internal-Token` 调 course-service `GET /internal/v1/audit-logs`；两种模式互斥——传 `objectType`+`objectId` 按对象查，否则必须传 `operatorId`+`dateFrom`+`dateTo`（`from < to`，左闭右开），分页固定 `pageNum/pageSize`（默认 1/20，上限 100）。权限码 `admin:audit:list`，默认只授予 `ADMIN`，运营需管理员单独授权。
 
 **与 `course_review_audit` 的关系**：保留、继续双写、历史数据不迁移。课程审核同时写 `course_review_audit`（单课程历史查询）与 `admin_audit_log`（跨域统一视图）；旧行没有 `operator_role` 与 `trace_id`，不回填、不合并，`course_review_audit` 视为只读历史表。
 
