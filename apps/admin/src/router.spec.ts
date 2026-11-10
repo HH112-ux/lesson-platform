@@ -14,6 +14,7 @@ const GUARD_MATRIX: [string, ConsoleRole[]][] = [
   ['/users', ['ADMIN', 'OPS']],
   ['/orders', ['ADMIN', 'OPS']],
   ['/refunds', ['ADMIN', 'OPS']],
+  ['/teacher-courses', ['ADMIN', 'TEACHER']],
   ['/lesson-videos', ['ADMIN', 'TEACHER']],
 ]
 
@@ -33,19 +34,22 @@ describe('resolveRoute', () => {
 })
 
 describe('canAccess', () => {
-  it('admits teachers to the lesson video screen only', () => {
+  it('admits teachers to the teacher screens only', () => {
     const teacher = ['TEACHER'] as const
+    expect(canAccess(resolveRoute('/teacher-courses'), teacher)).toBe(true)
     expect(canAccess(resolveRoute('/lesson-videos'), teacher)).toBe(true)
     expect(canAccess(resolveRoute('/orders'), teacher)).toBe(false)
     expect(canAccess(resolveRoute('/'), teacher)).toBe(false)
   })
 
-  it('admits administrators to the teacher screen by URL', () => {
+  it('admits administrators to the teacher screens by URL', () => {
+    expect(canAccess(resolveRoute('/teacher-courses'), ['ADMIN'])).toBe(true)
     expect(canAccess(resolveRoute('/lesson-videos'), ['ADMIN'])).toBe(true)
     expect(canAccess(resolveRoute('/orders'), ['ADMIN'])).toBe(true)
   })
 
-  it('keeps operators out of the teacher screen', () => {
+  it('keeps operators out of the teacher screens', () => {
+    expect(canAccess(resolveRoute('/teacher-courses'), ['OPS'])).toBe(false)
     expect(canAccess(resolveRoute('/lesson-videos'), ['OPS'])).toBe(false)
   })
 
@@ -66,8 +70,8 @@ describe('defaultRouteFor', () => {
     expect(defaultRouteFor(['OPS'])).toBe('/')
   })
 
-  it('lands a pure teacher on the lesson video screen', () => {
-    expect(defaultRouteFor(['TEACHER'])).toBe('/lesson-videos')
+  it('lands a pure teacher on the course screen', () => {
+    expect(defaultRouteFor(['TEACHER'])).toBe('/teacher-courses')
   })
 
   it('prefers the dashboard when an account is both admin and teacher', () => {
@@ -81,8 +85,11 @@ describe('defaultRouteFor', () => {
 })
 
 describe('visibleMenu', () => {
-  it('shows teachers only the lesson video entry', () => {
-    expect(visibleMenu(['TEACHER']).map((item) => item.path)).toEqual(['/lesson-videos'])
+  it('shows teachers only the two teacher entries', () => {
+    expect(visibleMenu(['TEACHER']).map((item) => item.path)).toEqual([
+      '/teacher-courses',
+      '/lesson-videos',
+    ])
   })
 
   it('shows operators the five operations entries and hides the teacher entry', () => {
@@ -100,6 +107,7 @@ describe('visibleMenu', () => {
   it('shows both entries to an account that is admin and teacher', () => {
     const paths = visibleMenu(['TEACHER', 'ADMIN']).map((item) => item.path)
     expect(paths).toContain('/')
+    expect(paths).toContain('/teacher-courses')
     expect(paths).toContain('/lesson-videos')
   })
 
