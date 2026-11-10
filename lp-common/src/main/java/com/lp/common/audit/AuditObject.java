@@ -20,5 +20,8 @@ public final class AuditObject {
     /** Teacher profile in {@code lp_cms.teacher_profile}: {@code 2}. */
     public static final int TEACHER = 2;
 
+    /** Settle batch in {@code lp_oms.payment_settle_batch}: {@code 3}. */
+    public static final int SETTLE_BATCH = 3;
+
     private AuditObject() {}
 }

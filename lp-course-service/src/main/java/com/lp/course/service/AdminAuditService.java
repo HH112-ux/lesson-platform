@@ -49,14 +49,14 @@ public class AdminAuditService {
     /** Lowest action code, {@link AuditAction#COURSE_APPROVE}. */
     private static final int ACTION_MIN = AuditAction.COURSE_APPROVE;
 
-    /** Highest action code, {@link AuditAction#TEACHER_REJECT}. */
-    private static final int ACTION_MAX = AuditAction.TEACHER_REJECT;
+    /** Highest action code, {@link AuditAction#SETTLE_VOID}. */
+    private static final int ACTION_MAX = AuditAction.SETTLE_VOID;
 
     /** Lowest object type code, {@link AuditObject#COURSE}. */
     private static final int OBJECT_MIN = AuditObject.COURSE;
 
-    /** Highest object type code, {@link AuditObject#TEACHER}. */
-    private static final int OBJECT_MAX = AuditObject.TEACHER;
+    /** Highest object type code, {@link AuditObject#SETTLE_BATCH}. */
+    private static final int OBJECT_MAX = AuditObject.SETTLE_BATCH;
 
     private final AdminAuditLogMapper adminAuditLogMapper;
 

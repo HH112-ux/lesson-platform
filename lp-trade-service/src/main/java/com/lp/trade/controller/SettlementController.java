@@ -8,6 +8,7 @@ import com.lp.common.web.TraceIds;
 import com.lp.trade.reconcile.CloseSettlementRequest;
 import com.lp.trade.reconcile.ReconcilePermissions;
 import com.lp.trade.reconcile.SettlementView;
+import com.lp.trade.reconcile.VoidSettlementRequest;
 import com.lp.trade.service.SettlementService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -21,9 +22,9 @@ import org.springframework.web.bind.annotation.RestController;
  * Operations endpoints that close or void one settled bill day of the Alipay channel.
  *
  * <p>A settlement closes one bill day and stores its net summary; it never moves money. Both
- * endpoints require the {@code admin:reconcile:close} permission, which only {@code ADMIN} holds.
- * The gateway injects the role and permission headers after JWT verification, so a browser cannot
- * forge them.
+ * endpoints require the {@code admin:reconcile:close} permission, which only {@code ADMIN} holds;
+ * void additionally requires the {@code ADMIN} role itself and a non-empty reason. The gateway
+ * injects the role and permission headers after JWT verification, so a browser cannot forge them.
  *
  * @author Caspian
  * @since 0.6.2
@@ -76,12 +77,13 @@ public class SettlementController {
     }
 
     /**
-     * Voids a closed batch and unlocks its bill day.
+     * Voids a closed batch, unlocks its bill day and records the reason in the unified audit.
      *
-     * @param roles gateway injected roles
+     * @param roles gateway injected roles, must contain {@code ADMIN}
      * @param permissions gateway injected permission codes
      * @param userId gateway injected operator id
      * @param batchId primary key of the batch
+     * @param body mandatory void reason
      * @param request current request, used to resolve the trace id
      * @return voided batch
      * @author Caspian
@@ -94,12 +96,15 @@ public class SettlementController {
                     String permissions,
             @RequestHeader(value = IdentityHeaders.USER_ID, required = false) Long userId,
             @PathVariable("batchId") long batchId,
+            @RequestBody VoidSettlementRequest body,
             HttpServletRequest request) {
-        ReconcilePermissions.require(roles, permissions, ReconcilePermissions.CLOSE);
+        ReconcilePermissions.requireAdmin(roles, permissions, ReconcilePermissions.CLOSE);
         long voidBy = requireUserId(userId);
+        String traceId = TraceIds.resolve(request);
         return Result.ok(
-                SettlementView.from(settlementService.voidSettleBatch(batchId, voidBy)),
-                TraceIds.resolve(request));
+                SettlementView.from(
+                        settlementService.voidSettleBatch(batchId, voidBy, body.reason(), traceId)),
+                traceId);
     }
 
     private long requireUserId(Long userId) {

@@ -151,7 +151,7 @@ public class AuditOutbox {
     /**
      * Sets the action code.
      *
-     * @param actionType 2 refund approve, 3 refund reject
+     * @param actionType 2 refund approve, 3 refund reject, 6 settle batch void
      * @author Caspian
      * @since 0.6.0
      */
@@ -162,7 +162,7 @@ public class AuditOutbox {
     /**
      * Returns the object type code.
      *
-     * @return 1 refund
+     * @return 1 refund, 3 settle batch
      * @author Caspian
      * @since 0.6.0
      */
@@ -173,7 +173,7 @@ public class AuditOutbox {
     /**
      * Sets the object type code.
      *
-     * @param objectType 1 refund
+     * @param objectType 1 refund, 3 settle batch
      * @author Caspian
      * @since 0.6.0
      */

@@ -12,10 +12,11 @@ import org.apache.ibatis.annotations.Update;
 /**
  * Reads and writes {@code payment_settle_batch}.
  *
- * <p>The upsert relies on {@code uk_channel_date}, so closing the same channel and bill day twice
- * keeps one row and returns the same primary key; two concurrent closes also converge to that one
- * row. Re-closing a voided day is the same upsert: it rewrites the figures and the close columns
- * and clears the void columns. No statement here touches orders, payments, refunds or funds.
+ * <p>The upsert relies on {@code uk_active_day}, so closing the same channel and bill day twice
+ * keeps one active row and returns the same primary key; two concurrent closes also converge to
+ * that one row. A voided row has a {@code null} generated key, so closing that day again inserts a
+ * new batch and keeps the voided row as history. No statement here touches orders, payments,
+ * refunds or funds.
  *
  * @author Caspian
  * @since 0.6.2
@@ -24,11 +25,14 @@ import org.apache.ibatis.annotations.Update;
 public interface PaymentSettleBatchMapper {
 
     /**
-     * Loads one batch by its unique key, regardless of status.
+     * Loads the active batch of one channel and bill day.
+     *
+     * <p>Voided rows are excluded, so a day with only voided history looks unclosed and can be
+     * closed again as a new batch.
      *
      * @param channel payment channel
      * @param billDate bill day in Asia/Shanghai
-     * @return batch or {@code null}
+     * @return active batch or {@code null}
      * @author Caspian
      * @since 0.6.2
      */
@@ -47,8 +51,8 @@ public interface PaymentSettleBatchMapper {
                     + "diff_amount AS diffAmount, status, closed_by AS closedBy, "
                     + "closed_at AS closedAt, void_by AS voidBy, void_at AS voidAt "
                     + "FROM payment_settle_batch "
-                    + "WHERE channel = #{channel} AND bill_date = #{billDate}")
-    PaymentSettleBatch selectByKey(
+                    + "WHERE channel = #{channel} AND bill_date = #{billDate} AND status = 1")
+    PaymentSettleBatch selectActiveByKey(
             @Param("channel") Integer channel, @Param("billDate") LocalDate billDate);
 
     /**
@@ -78,7 +82,10 @@ public interface PaymentSettleBatchMapper {
     PaymentSettleBatch selectById(@Param("id") Long id);
 
     /**
-     * Inserts or rewrites one batch by its unique key and marks it closed.
+     * Inserts one active batch, or rewrites the existing active batch of the day.
+     *
+     * <p>{@code uk_active_day} only covers status 1 rows, so a voided row never blocks the insert.
+     * That is what turns a re-close after a void into a new batch row instead of reviving history.
      *
      * @param batch batch carrying the computed figures and the closing operator
      * @return affected rows
@@ -86,16 +93,18 @@ public interface PaymentSettleBatchMapper {
      * @since 0.6.2
      */
     @Insert(
-            "INSERT INTO payment_settle_batch (channel, bill_date, channel_pay_count, "
-                    + "channel_pay_amount, channel_refund_count, channel_refund_amount, "
-                    + "local_pay_count, local_pay_amount, local_refund_count, "
-                    + "local_refund_amount, net_channel_amount, net_local_amount, diff_count, "
-                    + "diff_amount, status, closed_by, closed_at) VALUES (#{channel}, "
-                    + "#{billDate}, #{channelPayCount}, #{channelPayAmount}, "
-                    + "#{channelRefundCount}, #{channelRefundAmount}, #{localPayCount}, "
-                    + "#{localPayAmount}, #{localRefundCount}, #{localRefundAmount}, "
-                    + "#{netChannelAmount}, #{netLocalAmount}, #{diffCount}, #{diffAmount}, 1, "
-                    + "#{closedBy}, #{closedAt}) ON DUPLICATE KEY UPDATE "
+            "INSERT INTO payment_settle_batch (channel, bill_date, active_day_key, "
+                    + "channel_pay_count, channel_pay_amount, channel_refund_count, "
+                    + "channel_refund_amount, local_pay_count, local_pay_amount, "
+                    + "local_refund_count, local_refund_amount, net_channel_amount, "
+                    + "net_local_amount, diff_count, diff_amount, status, closed_by, closed_at) "
+                    + "VALUES (#{channel}, #{billDate}, "
+                    + "CONCAT(#{channel}, '-', #{billDate}), #{channelPayCount}, "
+                    + "#{channelPayAmount}, #{channelRefundCount}, #{channelRefundAmount}, "
+                    + "#{localPayCount}, #{localPayAmount}, #{localRefundCount}, "
+                    + "#{localRefundAmount}, #{netChannelAmount}, #{netLocalAmount}, "
+                    + "#{diffCount}, #{diffAmount}, 1, #{closedBy}, #{closedAt}) "
+                    + "ON DUPLICATE KEY UPDATE "
                     + "channel_pay_count = VALUES(channel_pay_count), "
                     + "channel_pay_amount = VALUES(channel_pay_amount), "
                     + "channel_refund_count = VALUES(channel_refund_count), "
@@ -108,7 +117,8 @@ public interface PaymentSettleBatchMapper {
                     + "net_local_amount = VALUES(net_local_amount), "
                     + "diff_count = VALUES(diff_count), diff_amount = VALUES(diff_amount), "
                     + "status = 1, closed_by = VALUES(closed_by), closed_at = VALUES(closed_at), "
-                    + "void_by = NULL, void_at = NULL")
+                    + "void_by = NULL, void_at = NULL, "
+                    + "active_day_key = VALUES(active_day_key)")
     int upsert(PaymentSettleBatch batch);
 
     /**
@@ -125,8 +135,9 @@ public interface PaymentSettleBatchMapper {
      * @since 0.6.2
      */
     @Update(
-            "UPDATE payment_settle_batch SET status = 2, void_by = #{voidBy}, "
-                    + "void_at = #{voidAt} WHERE id = #{id} AND status = 1")
+            "UPDATE payment_settle_batch SET status = 2, active_day_key = NULL, "
+                    + "void_by = #{voidBy}, void_at = #{voidAt} "
+                    + "WHERE id = #{id} AND status = 1")
     int voidBatch(
             @Param("id") Long id,
             @Param("voidBy") Long voidBy,
