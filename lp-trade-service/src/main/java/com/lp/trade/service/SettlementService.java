@@ -11,9 +11,12 @@ import com.lp.trade.entity.PaymentSettleBatch;
 import com.lp.trade.mapper.AuditOutboxMapper;
 import com.lp.trade.mapper.PaymentReconcileMapper;
 import com.lp.trade.mapper.PaymentSettleBatchMapper;
+import com.lp.trade.reconcile.SettlementPageView;
+import com.lp.trade.reconcile.SettlementView;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Objects;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -47,6 +50,8 @@ public class SettlementService {
     static final int STATUS_CLOSED = 1;
 
     static final int STATUS_VOIDED = 2;
+
+    static final int MAX_PAGE_SIZE = 100;
 
     private static final int STATUS_IMPORTED_MIN = 1;
 
@@ -178,6 +183,63 @@ public class SettlementService {
         outbox.setStatus(0);
         outbox.setRetryCount(0);
         return outbox;
+    }
+
+    /**
+     * Loads one batch by primary key.
+     *
+     * @param batchId primary key of the batch
+     * @return stored batch, whatever its status
+     * @throws BizException with {@code 40401} when the batch is missing
+     * @author Caspian
+     * @since 0.6.2
+     */
+    public PaymentSettleBatch get(long batchId) {
+        PaymentSettleBatch batch = settleBatchMapper.selectById(batchId);
+        if (batch == null) {
+            throw new BizException(ErrorCode.NOT_FOUND, "settle batch not found");
+        }
+        return batch;
+    }
+
+    /**
+     * Lists the batches of one channel ordered by bill day descending.
+     *
+     * @param channel payment channel; only {@link #CHANNEL_ALIPAY} is settled in this release
+     * @param billDate optional bill day filter
+     * @param status optional status filter, 1 closed or 2 voided
+     * @param pageNum one based page number
+     * @param pageSize page size, capped at {@value #MAX_PAGE_SIZE}
+     * @return one page of batches
+     * @throws BizException with {@code 40001} when the channel or status is invalid
+     * @author Caspian
+     * @since 0.6.2
+     */
+    public SettlementPageView page(
+            Integer channel, LocalDate billDate, Integer status, int pageNum, int pageSize) {
+        if (!Objects.equals(channel, CHANNEL_ALIPAY)) {
+            throw new BizException(ErrorCode.PARAM_INVALID, "only Alipay is settled");
+        }
+        if (status != null
+                && !Objects.equals(status, STATUS_CLOSED)
+                && !Objects.equals(status, STATUS_VOIDED)) {
+            throw new BizException(ErrorCode.PARAM_INVALID, "status must be 1 or 2");
+        }
+        int safePageNum = Math.max(pageNum, 1);
+        int safePageSize = Math.min(Math.max(pageSize, 1), MAX_PAGE_SIZE);
+        long total = settleBatchMapper.count(channel, billDate, status);
+        List<SettlementView> records =
+                settleBatchMapper
+                        .page(
+                                channel,
+                                billDate,
+                                status,
+                                (safePageNum - 1) * safePageSize,
+                                safePageSize)
+                        .stream()
+                        .map(SettlementView::from)
+                        .toList();
+        return new SettlementPageView(records, total, safePageNum, safePageSize);
     }
 
     private void validate(Integer channel, LocalDate billDate) {

@@ -7,15 +7,20 @@ import com.lp.common.result.Result;
 import com.lp.common.web.TraceIds;
 import com.lp.trade.reconcile.CloseSettlementRequest;
 import com.lp.trade.reconcile.ReconcilePermissions;
+import com.lp.trade.reconcile.SettlementPageView;
 import com.lp.trade.reconcile.SettlementView;
 import com.lp.trade.reconcile.VoidSettlementRequest;
 import com.lp.trade.service.SettlementService;
 import jakarta.servlet.http.HttpServletRequest;
+import java.time.LocalDate;
+import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -106,6 +111,63 @@ public class SettlementController {
                 SettlementView.from(
                         settlementService.voidSettleBatch(batchId, voidBy, reason, traceId)),
                 traceId);
+    }
+
+    /**
+     * Loads one settlement batch.
+     *
+     * @param roles gateway injected roles
+     * @param permissions gateway injected permission codes
+     * @param batchId primary key of the batch
+     * @param request current request, used to resolve the trace id
+     * @return stored batch
+     * @author Caspian
+     * @since 0.6.2
+     */
+    @GetMapping("/{batchId}")
+    public Result<SettlementView> detail(
+            @RequestHeader(value = IdentityHeaders.USER_ROLES, required = false) String roles,
+            @RequestHeader(value = IdentityHeaders.USER_PERMISSIONS, required = false)
+                    String permissions,
+            @PathVariable("batchId") long batchId,
+            HttpServletRequest request) {
+        ReconcilePermissions.require(roles, permissions, ReconcilePermissions.VIEW);
+        return Result.ok(
+                SettlementView.from(settlementService.get(batchId)), TraceIds.resolve(request));
+    }
+
+    /**
+     * Lists the settlement batches of one channel.
+     *
+     * @param roles gateway injected roles
+     * @param permissions gateway injected permission codes
+     * @param channel payment channel, defaults to 1 (Alipay)
+     * @param billDate optional bill day filter
+     * @param status optional status filter, 1 closed or 2 voided
+     * @param pageNum one based page number, defaults to 1
+     * @param pageSize page size, defaults to 20 and is capped at 100
+     * @param request current request, used to resolve the trace id
+     * @return batch page ordered by bill day descending
+     * @author Caspian
+     * @since 0.6.2
+     */
+    @GetMapping
+    public Result<SettlementPageView> page(
+            @RequestHeader(value = IdentityHeaders.USER_ROLES, required = false) String roles,
+            @RequestHeader(value = IdentityHeaders.USER_PERMISSIONS, required = false)
+                    String permissions,
+            @RequestParam(value = "channel", defaultValue = "1") Integer channel,
+            @RequestParam(value = "billDate", required = false)
+                    @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
+                    LocalDate billDate,
+            @RequestParam(value = "status", required = false) Integer status,
+            @RequestParam(value = "pageNum", defaultValue = "1") int pageNum,
+            @RequestParam(value = "pageSize", defaultValue = "20") int pageSize,
+            HttpServletRequest request) {
+        ReconcilePermissions.require(roles, permissions, ReconcilePermissions.VIEW);
+        return Result.ok(
+                settlementService.page(channel, billDate, status, pageNum, pageSize),
+                TraceIds.resolve(request));
     }
 
     private long requireUserId(Long userId) {

@@ -1,10 +1,14 @@
 package com.lp.trade.controller;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -13,9 +17,11 @@ import com.lp.common.identity.IdentityHeaders;
 import com.lp.common.web.GlobalExceptionHandler;
 import com.lp.trade.entity.PaymentSettleBatch;
 import com.lp.trade.reconcile.ReconcilePermissions;
+import com.lp.trade.reconcile.SettlementPageView;
 import com.lp.trade.service.SettlementService;
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -208,6 +214,49 @@ class SettlementControllerTest {
                         org.mockito.ArgumentMatchers.eq(9001L),
                         org.mockito.ArgumentMatchers.eq("duplicate bill import"),
                         any());
+    }
+
+    @Test
+    void opsWithReadCodeMayListBatches() throws Exception {
+        when(settlementService.page(eq(1), isNull(), isNull(), anyInt(), anyInt()))
+                .thenReturn(new SettlementPageView(List.of(), 0, 1, 20));
+
+        mockMvc.perform(
+                        get("/api/v1/reconcile/settlements")
+                                .header(IdentityHeaders.USER_ROLES, "OPS")
+                                .header(
+                                        IdentityHeaders.USER_PERMISSIONS,
+                                        ReconcilePermissions.VIEW))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.total").value(0));
+    }
+
+    @Test
+    void opsWithReadCodeMayReadOneBatch() throws Exception {
+        when(settlementService.get(77L)).thenReturn(batch(77L));
+
+        mockMvc.perform(
+                        get("/api/v1/reconcile/settlements/77")
+                                .header(IdentityHeaders.USER_ROLES, "OPS")
+                                .header(
+                                        IdentityHeaders.USER_PERMISSIONS,
+                                        ReconcilePermissions.VIEW))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.id").value(77))
+                .andExpect(jsonPath("$.data.netLocalAmountFen").value(7000));
+    }
+
+    @Test
+    void callerWithoutReadCodeCannotReadOneBatch() throws Exception {
+        mockMvc.perform(
+                        get("/api/v1/reconcile/settlements/77")
+                                .header(IdentityHeaders.USER_ROLES, "OPS"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(40301));
+
+        verify(settlementService, never()).get(anyLong());
     }
 
     private PaymentSettleBatch batch(long id) {
