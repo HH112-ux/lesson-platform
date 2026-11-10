@@ -33,6 +33,7 @@ INTERNAL_TOKEN="${LP_INTERNAL_TOKEN:-lp_internal_dev_token}"
 MYSQL_ROOT_PASSWORD="${LP_MYSQL_ROOT_PASSWORD:-lp_root_dev}"
 
 RUN_ID="$(date +%Y%m%d%H%M%S)"
+IDEMPOTENCY_SEQ=0
 COURSE_TITLE="退款闭环演练 $RUN_ID"
 SECOND_COURSE_TITLE="退款超期演练 $RUN_ID"
 THIRD_COURSE_TITLE="退款驳回演练 $RUN_ID"
@@ -61,6 +62,19 @@ req() {
   local method="$1" path="$2" token="${3:-}" data="${4:-}"
   local args=(-sS -X "$method" "$BASE$path" -w $'\n%{http_code}')
   [ -n "$token" ] && args+=(-H "Authorization: Bearer $token")
+  # Payment initiation and refund application both enforce the idempotency header
+  # contract. A per-call sequence keeps them distinct, including the re-apply after a
+  # rejection that shares its order number with the rejected application.
+  case "$path" in
+    */pay)
+      IDEMPOTENCY_SEQ=$((IDEMPOTENCY_SEQ + 1))
+      args+=(-H "Idempotency-Key: pay-$RUN_ID-$IDEMPOTENCY_SEQ")
+      ;;
+    */refund)
+      IDEMPOTENCY_SEQ=$((IDEMPOTENCY_SEQ + 1))
+      args+=(-H "Idempotency-Key: refund-$RUN_ID-$IDEMPOTENCY_SEQ")
+      ;;
+  esac
   [ -n "$data" ] && args+=(-H 'Content-Type: application/json' -d "$data")
   local raw
   raw="$(curl "${args[@]}")" || die "curl $method $path failed"
