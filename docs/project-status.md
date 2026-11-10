@@ -85,7 +85,7 @@
 | SPEC-PLAT-001 | 网关身份头剥离与注入 | 已完成 | — | 4/4 |
 | SPEC-PLAT-002 | 端来源识别 | 未开始 | L2-1 | 0/4 |
 | SPEC-PLAT-003 | 小程序登录与凭证防重放 | 已完成 | — | 5/5 |
-| SPEC-PLAT-004 | 账号注销冷静期 | 进行中 | L1-8 | 22/33 |
+| SPEC-PLAT-004 | 账号注销冷静期 | 进行中 | L1-8 | 26/33 |
 | SPEC-PLAT-005 | 服务间内部调用鉴权 | 已完成 | — | 4/4 |
 | SPEC-PLAT-006 | 视频上传校验与交付 | 未开始 | L1-11 | 0/6 |
 | SPEC-PLAT-007 | AI 模型接入（BYO） | 未开始 | 上线后首批 | 0/6 |
@@ -109,7 +109,7 @@
 | L1-5 | 教师入驻审核 | SPEC-COURSE-009（5/5） | 已完成 | 审核接口、权限码 `admin:teacher:audit` 与重新提交已通；运营与教师端无页面，档案未打 L1-5 层级标记 | 2026-11-10 |
 | L1-6 | 登录风控与网关边界 | SPEC-PLAT-011（8/8）、SPEC-PLAT-012（8/8）、SPEC-PLAT-013（7/7） | 已完成 | 小程序登录频控、网关限流与 CORS 白名单三项 AC 全满足 | 2026-11-10 |
 | L1-7 | 统一操作审计 | SPEC-PLAT-010（10/10） | 已完成 | 三类审核的统一审计已完成；原同层级的账号注销已按门槛编号移到 L1-8 | 2026-11-10 |
-| L1-8 | 账号注销 | SPEC-PLAT-004（22/33） | 进行中 | 2.4 与 `docs/specs/platform.md` 已把 SPEC-PLAT-004 改标 L1-8；视频上传已补为 L1-11。已完成 AC-1/2/3/4/5/6/7/8/10/13/14/19/20/21/22/23/24/28/29/30/31/32：申请与撤销接口、7×24 小时落库、重复申请幂等、阻塞失败关闭、员工账号拒绝、查询倒计时与状态门禁、trade 冷静期守卫（200ms 探测、45s 缓存、提交后异步主动失效、失败关闭 50401），以及 Web `/account` 与小程序账号页的注销入口。剩余 AC-9/11/12/15/16/17/18/25/26/27/33 依赖执行任务、匿名化与告警规则 | 2026-11-10 |
+| L1-8 | 账号注销 | SPEC-PLAT-004（26/33） | 进行中 | 已实现 26 条：AC-1/2/3/4/5/7/8/10/11/12/13/14/15/18/19/20/21/23/24/26/27/28/29/30/31/32，覆盖申请与撤销、7 天冷静期落库、重复申请幂等、阻塞失败关闭、员工账号拒绝、查询与状态门禁、trade 冷静期守卫、执行任务与匿名化、环境变量与指标。剩余 7 条均为「部分」：AC-6、AC-9、AC-16、AC-17 已有单测但未在真实链路复核；AC-25 日志字段已补齐，尚无日志断言与真实采样；AC-33 三条规则已就位，但没有 Prometheus/Alertmanager 进程加载求值，随 L1-10 关闭；AC-22 的 Web 侧已于 2026-11-10 用真实账号浏览器实跑（申请/倒计时/撤销/67003 常驻提示/67005 下单与支付门禁），小程序真机预览受外部条件阻塞（无 AppID） | 2026-11-10 |
 | L1-9 | 支付对账 | SPEC-TRADE-014（0/4） | 未开始 | 「未完成对账能力不得开启真实收款」已写在 4.1「支付宝对账」行，并由 SPEC-TRADE-014 AC-4 约束；层级为「真实收款前置」 | 2026-11-10 |
 | L1-10 | 发布前工程化验证 | 无对应规格条目 | 未开始 | E2E 冒烟进 CI、备份恢复演练、依赖与镜像漏洞扫描三项均未做，见 3.5 与第 5 章 | 2026-11-10 |
 | L1-11 | 内容生产通路（上传→处理→播放链路，教师端或运营后台任一） | SPEC-PLAT-006（0/6） | 未开始 | 2026-11-10 补入，理由：缺少可用上传链路时课程内容无法生产 | 2026-11-10 |
@@ -122,7 +122,7 @@
 
 | 能力 | 完成程度与限制 | 证据 | 最后核对日期 |
 |---|---|---|---|
-| 账号与 JWT | 注册、密码登录、刷新、登出、`/me` 可用；密码 BCrypt 存储；注销已有申请、撤销与查询接口（冷静期 7 天，`effective_at` 申请时落库），并已提供内部冷静期状态查询与提交后异步失效 trade 缓存；执行任务、匿名化与前端入口未上线 | `lp-auth-service/.../controller/AuthController.java`、`controller/AccountCancellationController.java`、`controller/InternalAccountCancellationController.java`、`service/impl/AccountCancellationServiceImpl.java`、`client/AccountDeletionCacheClient.java` | 2026-11-10 |
+| 账号与 JWT | 注册、密码登录、刷新、登出、`/me` 可用；密码 BCrypt 存储；注销已有申请、撤销与查询接口（冷静期 7 天，`effective_at` 申请时落库），并已提供内部冷静期状态查询与提交后异步失效 trade 缓存；执行任务与匿名化已实现（`LP_AUTH_ACCOUNT_DELETION_EXECUTION_ENABLED` 默认关闭，staging/prod 显式开启），Web `/account` 与小程序账号页注销入口已上线 | `lp-auth-service/.../controller/AuthController.java`、`controller/AccountCancellationController.java`、`controller/InternalAccountCancellationController.java`、`service/impl/AccountCancellationServiceImpl.java`、`client/AccountDeletionCacheClient.java` | 2026-11-10 |
 | 小程序 code 登录 | 接口与真实 `jscode2session` 客户端均已实现，默认关闭；本地可用 mock 客户端；登录入口按真实 IP 与 `X-Device-Id` 双维度频控，Redis 故障放行并打点 | `AuthController.java`、`security/HttpWechatMiniappClient.java`、`security/MiniappLoginRateLimitFilter.java`、`config/MiniappProperties.java` | 2026-11-10 |
 | 网关 | 7 条服务路由、身份头剥离与注入、JWT 三态校验，默认 `hard`；`/api/v1/**` 按用户或真实客户端 IP 做每实例内存限流（默认 300 次/分钟/实例，集群容量 = 阈值 × 副本数），超限返回 429 + `Retry-After` + 统一信封；CORS 走显式来源白名单，预检在鉴权前处理，非 dev 未配置来源时启动失败；`/internal/**` 与 `/actuator/**` 不经路由 | `lp-gateway/src/main/resources/application.yml`、`application-dev.yml`、`filter/HeaderSanitizeFilter.java`、`filter/JwtAuthFilter.java`、`filter/GatewayRateLimitFilter.java`、`config/CorsConfig.java` | 2026-11-10 |
 | 课程浏览 | 已上架课程分页、分类、关键词（`LIKE` 标题/副标题）、详情、目录；下架课程对非持有者按 404 处理 | `lp-course-service/.../controller/CoursePublicController.java`、`mapper/CourseMapper.java` | 2026-11-09 |
@@ -213,7 +213,7 @@
 | 视频上传与 ffprobe 校验 | product-lifecycle F06；engineering-plan 15.2 D5 | 无上传接口；播放仅对已存在对象签名 | 未排期；存储与校验方案未落地 | 2026-11-09 |
 | 支付重付约束 | SPEC-TRADE-004 AC-3、AC-4；engineering-plan 2.3 | 重新发起支付时直接复用未关闭的支付单，未返回 62006；`ErrorCode` 中没有 62006，也不要求先关闭原单 | 未排期；属支付发起与重付的业务缺口（L2-2），不阻塞 L1 上线 | 2026-11-10 |
 | 全文搜索与多维筛选 | product-lifecycle F02；engineering-plan 1.3 | 仅 `LIKE` 标题/副标题；无难度、热度、上新排序；`ft_` 索引未被查询使用 | 未排期 | 2026-11-09 |
-| 资料维护与账号注销 | product-lifecycle F01；engineering-plan 15.2 D8；SPEC-PLAT-004 | 资料修改未实现；注销已有 `POST/DELETE/GET /api/v1/auth/account-cancellation`（冷静期 7 天、重复申请幂等、阻塞返回 67003、依赖失败返回 50401），trade 冷静期守卫已实现（下单与支付返回 67005、200ms 探测、45s 缓存、提交后异步主动失效）；执行任务、匿名化与告警规则未实现；Web `/account` 与小程序账号页已提供注销申请、冷静期倒计时、撤销与阻塞提示 | 进行中（SPEC-PLAT-004 22/33） | 2026-11-10 |
+| 资料维护与账号注销 | product-lifecycle F01；engineering-plan 15.2 D8；SPEC-PLAT-004 | 资料修改未实现；注销已有 `POST/DELETE/GET /api/v1/auth/account-cancellation`（冷静期 7 天、重复申请幂等、阻塞返回 67003、依赖失败返回 50401），trade 冷静期守卫已实现（下单与支付返回 67005、200ms 探测、45s 缓存、提交后异步主动失效）；执行任务与匿名化已由定时任务自动执行，告警规则见 `infra/observability/prometheus-rules.yml`（3 条，尚未接入 Prometheus 求值）；Web `/account` 与小程序账号页已提供注销申请、冷静期倒计时、撤销与阻塞提示，Web 侧 2026-11-10 用真实账号实跑验证（截图与请求响应原文在仓库外 `/Users/caspian/lesson-platform-evidence/ac22-20261110/`），小程序真机预览因无 AppID 无法验证 | 进行中（SPEC-PLAT-004 26/33） | 2026-11-10 |
 | 注销后原用户名登录返回 `40101`，`67001` 只在匿名名上可达 | SPEC-PLAT-004 AC-13/AC-14 与 AC-15；`AuthServiceImpl.login`、`AccountAnonymizationMapper` | #150（`02a790b`）已按方案 A 落地「仅 `status=3` 先判状态、后验密码」，用 `deleted_{userId}` 登录返回 `67001`。但 AC-15 同时要求 `username` 改为不可逆占位，匿名化后原用户名不再存在，原用户名登录在查账号阶段即返回 `40101`；真实验证覆盖旧 token 下的 `/me`、`/refresh` 与匿名名登录的 `67001` | 已按方案 A 收敛，不再待裁决；演练脚本同时断言原用户名 `40101` 与匿名名 `67001`，并用「仅改 `status=3`、密码不变」的 fixture 证明状态门禁先于密码，禁用账号分支断言「密码优先、`40301` 在后」 | 2026-11-10 |
 | 手动取消不释放优惠券 | SPEC-TRADE-006、SPEC-TRADE-007 AC-5 | 超时关单会释放订单占用的优惠券，手动取消（`OrderServiceImpl.cancel`）只关闭订单与支付单，券仍停留为已使用且绑定该订单，用户丢券且两种取消行为不一致 | 未排期；行为不一致 | 2026-11-09 |
 | 幂等层降级时同键换 body 无法识别 | SPEC-TRADE-001 AC-5、SPEC-TRADE-008 | Redis 不可用时幂等层记录 WARN 日志并累加 `lp.trade.idempotency.degraded` 指标后放行，该窗口内同键换请求体不会被识别为 `40901`，仅靠数据库唯一键（`uk_idempotency`、`uk_active_order`、支付单行锁）兜底 | 已接受；依赖监控告警 | 2026-11-09 |
@@ -222,8 +222,8 @@
 | 后台评论、举报与教师管理 | product-lifecycle F14 | 后台已有课程审核、用户、订单、退款审核、教师入驻审核接口与看板 | 依赖 UGC 与界面 | 2026-11-09 |
 | 小程序评论 | product-lifecycle 4.3 | 小程序无评论页面 | 依赖 UGC | 2026-11-09 |
 | 小程序购买 ticket 闭环 | engineering-plan 15.2 D2；错误码 62012–62015 | ticket 签发与兑换接口已实现、Web 可兑换；小程序只复制普通链接，不签发 ticket | 前后端未接线 | 2026-11-09 |
-| 监控栈与告警 | engineering-plan 13.6 M0-40/M0-41 | 各服务暴露 `/actuator/prometheus`，trade 有 outbox 指标；无 Prometheus/Grafana 编排与告警规则 | 未排期 | 2026-11-09 |
-| 除 trade 外的服务未暴露 `/actuator/prometheus` | engineering-plan 13.6 M0-40 | 仅 `lp-trade-service` 含 `micrometer-registry-prometheus`；auth 由本 PR 补上；`course`、`learn`、`ugc`、`admin`、`ai`、`gateway` 仍只有 `spring-boot-starter-actuator`，`/actuator/prometheus` 返回 `50001`，SPEC-PLAT-004 的 `lp.auth.account_cancellation.executed` 一类计数器无法 scrape | 本 PR 只补 auth，其余服务单独排期；缺 registry 时 M0-40 与 AC-26/AC-27 的指标不可观测 | 2026-11-10 |
+| 监控栈与告警 | engineering-plan 13.6 M0-40/M0-41 | 各服务暴露 `/actuator/prometheus`，trade 有 outbox 指标；无 Prometheus/Grafana 编排。账号注销的三条告警规则已在 `infra/observability/prometheus-rules.yml`，但没有进程加载求值 | 规则文件已就位；监控栈未排期，规则求值随 L1-10 | 2026-11-10 |
+| 除 trade 与 auth 外的服务未暴露 `/actuator/prometheus` | engineering-plan 13.6 M0-40 | 仅 `lp-trade-service` 与 `lp-auth-service` 含 `micrometer-registry-prometheus`；`course`、`learn`、`ugc`、`admin`、`ai`、`gateway` 仍只有 `spring-boot-starter-actuator`，`/actuator/prometheus` 返回 `50001`。`lp.auth.account_cancellation.*` 已可 scrape，仓库提供 `infra/observability/prometheus-rules.yml`，但没有 Prometheus/Alertmanager 进程加载规则，规则从未被求值 | 其余服务的 registry 单独排期；规则求值随 L1-10 关闭，在那之前 AC-12/AC-33 的告警只停留在文件层 | 2026-11-10 |
 | 不存在的路径返回 `50001` | `lp-common` 的 `GlobalExceptionHandler` | `NoResourceFoundException` 落入兜底 `Exception` 分支，被报成 `50001 internal server error`；实际是路径或端点不存在（如未注册的 `/actuator/prometheus`），排查时容易被误导为服务端故障 | 技术债；应映射为 `40401`，与 `ErrorCode.NOT_FOUND` 对齐 | 2026-11-10 |
 | 小程序 CI 上传 | engineering-plan 13.6 M0-49 | CI 仅做静态检查，无 `miniprogram-ci` 上传 | 缺 AppID 与上传私钥 | 2026-11-09 |
 | staging/prod 部署 | engineering-plan 3.3、3.4、13.2 M5 | 无镜像构建、K8s 清单或部署 workflow | 缺服务器、域名、备案与凭据 | 2026-11-09 |
