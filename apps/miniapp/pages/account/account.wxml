@@ -1,0 +1,22 @@
+<view class="page">
+  <view wx:if="{{loading}}" class="empty">加载中…</view>
+  <view wx:elif="{{errorText}}" class="card empty">
+    <text>{{errorText}}</text>
+    <view class="btn btn--ghost retry" bindtap="load">重新加载</view>
+  </view>
+  <view wx:else class="card">
+    <block wx:if="{{status === 0}}">
+      <view class="notice">注销冷静期中，暂不可购买</view>
+      <view class="line">距离账号删除还剩 <text class="countdown">{{countdown}}</text></view>
+      <view class="line muted small">
+        到期后账号将被注销：用户名、手机号、邮箱与微信绑定会被清除，已购课程与订单不再可访问。冷静期内可以正常登录、学习已购内容与申请退款，但不能新建订单或发起支付。
+      </view>
+      <view class="btn btn--ghost" bindtap="askWithdraw">撤销注销申请</view>
+    </block>
+    <block wx:else>
+      <view class="line">注销申请提交后进入 7 天冷静期，冷静期内可随时撤销，到期后账号与个人信息将被删除且无法恢复。</view>
+      <view class="line muted small">存在进行中的订单或退款时无法提交申请，请先处理完再试。</view>
+      <view class="btn btn--ghost" bindtap="askApply">申请注销账号</view>
+    </block>
+  </view>
+</view>
