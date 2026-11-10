@@ -2,6 +2,7 @@ package com.lp.course.service.impl;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -12,6 +13,7 @@ import com.lp.course.config.CourseUploadProperties;
 import com.lp.course.dto.TeacherChapterRequest;
 import com.lp.course.dto.TeacherChapterView;
 import com.lp.course.dto.TeacherLessonRequest;
+import com.lp.course.dto.TeacherLessonView;
 import com.lp.course.entity.Course;
 import com.lp.course.entity.CourseChapter;
 import com.lp.course.entity.CourseLesson;
@@ -143,13 +145,13 @@ class TeacherChapterLessonServiceImplTest {
     }
 
     /**
-     * A lesson without a positive duration is rejected.
+     * Video fields are refused on create because the upload confirmation owns them.
      *
      * @author Caspian
      * @since 0.1.0
      */
     @Test
-    void rejectsLessonWithoutDuration() {
+    void rejectsClientVideoFieldsOnCreate() {
         givenOwnedCourse(0);
         when(teacherCourseMapper.selectChapter(9L, 71L)).thenReturn(chapter(71L, 9L));
 
@@ -163,10 +165,75 @@ class TeacherChapterLessonServiceImplTest {
                                         9L,
                                         71L,
                                         new TeacherLessonRequest(
-                                                "Intro", "course/9/1.mp4", null, 0, 1, null)));
+                                                "Intro", "course/9/1.mp4", 600, 0, 1, null)));
 
         assertEquals(40001, exception.getCode());
+        assertTrue(exception.getMessage().contains("upload confirmation"));
         verify(teacherCourseMapper, never()).insertLesson(any());
+    }
+
+    /**
+     * A new lesson starts without a video and keeps the rest of the form.
+     *
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Test
+    void createsLessonWithoutVideo() {
+        givenOwnedCourse(0);
+        when(teacherCourseMapper.selectChapter(9L, 71L)).thenReturn(chapter(71L, 9L));
+        when(teacherCourseMapper.insertLesson(any(CourseLesson.class)))
+                .thenAnswer(
+                        invocation -> {
+                            CourseLesson row = invocation.getArgument(0);
+                            row.setId(81L);
+                            return 1;
+                        });
+
+        TeacherLessonView view =
+                service.createLesson(
+                        1001L,
+                        "TEACHER",
+                        9L,
+                        71L,
+                        new TeacherLessonRequest("Intro", null, null, 0, 1, 1));
+
+        assertEquals("", view.videoUrl());
+        assertEquals(0, view.durationSec());
+        assertEquals("Intro", view.title());
+    }
+
+    /**
+     * Video fields are refused on edit as well.
+     *
+     * @author Caspian
+     * @since 0.1.0
+     */
+    @Test
+    void rejectsClientVideoFieldsOnUpdate() {
+        givenOwnedCourse(0);
+        when(teacherCourseMapper.selectChapter(9L, 71L)).thenReturn(chapter(71L, 9L));
+
+        BizException exception =
+                assertThrows(
+                        BizException.class,
+                        () ->
+                                service.updateLesson(
+                                        1001L,
+                                        "TEACHER",
+                                        9L,
+                                        71L,
+                                        81L,
+                                        new TeacherLessonRequest(
+                                                null,
+                                                "course/9/other.mp4",
+                                                null,
+                                                null,
+                                                null,
+                                                null)));
+
+        assertEquals(40001, exception.getCode());
+        verify(teacherCourseMapper, never()).updateLesson(any());
     }
 
     /**
@@ -189,11 +256,7 @@ class TeacherChapterLessonServiceImplTest {
         when(teacherCourseMapper.resetOfflineToDraft(9L)).thenReturn(1);
 
         service.createLesson(
-                1001L,
-                "TEACHER",
-                9L,
-                71L,
-                new TeacherLessonRequest("Intro", "course/9/1.mp4", 600, 1, 1, 1));
+                1001L, "TEACHER", 9L, 71L, new TeacherLessonRequest("Intro", null, null, 1, 1, 1));
 
         verify(teacherCourseMapper).resetOfflineToDraft(9L);
     }
@@ -217,8 +280,7 @@ class TeacherChapterLessonServiceImplTest {
                                         "TEACHER",
                                         9L,
                                         71L,
-                                        new TeacherLessonRequest(
-                                                "Intro", "course/9/1.mp4", 600, 0, 1, 1)));
+                                        new TeacherLessonRequest("Intro", null, null, 0, 1, 1)));
 
         assertEquals(40901, exception.getCode());
     }
