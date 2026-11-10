@@ -29,8 +29,8 @@
 | 里程碑 | 状态 | 判定依据 | 最后核对日期 |
 |---|---|---|---|
 | M0 基建 | 完成 | Compose、Flyway、网关、统一返回、身份头、CI、本地验收脚本均可运行；`infra/observability` 已提供 Prometheus / Alertmanager / Grafana 本地编排与抓取配置 | 2026-11-10 |
-| M1 账号与内容（含教师端） | 部分完成 | 注册登录、RBAC 种子、分类/课程/章节课时、教师课程 API、课程审核与审计、教师入驻审核接口已通；视频上传、全文搜索、教师前端未做 | 2026-11-09 |
-| M2 交易与学习 | 部分完成 | 购物车 API、下单幂等、0 元课、模拟支付、权益 outbox、播放签名、进度回写已通；真实支付宝未接 | 2026-11-09 |
+| M1 账号与内容（含教师端） | 部分完成 | 注册登录、RBAC 种子、分类/课程/章节课时、教师课程 API、课程审核与审计、教师入驻审核接口已通（均为接口级）；课时视频上传已通：`upload-sessions`/`confirm` 与 `apps/admin` `/lesson-videos` 上传页，2026-11-10 本地实跑 PUT 200、confirm 200（证据见 L1-11 行）；全文搜索未做，教师独立工作台未做（教师入口寄居运营后台，见 4.2） | 2026-11-10 |
+| M2 交易与学习 | 部分完成 | 购物车 API、下单幂等、0 元课、模拟支付、权益 outbox、学员播放签名（SPEC-LEARN-003 6/6）、进度回写已通；教师预览播放签名 2026-11-10 补齐（#204：只签本人课程、默认 10 分钟；#213 补过期重签）；真实支付宝未接 | 2026-11-10 |
 | M3 互动与后台 | 部分完成 | 运营审核、用户/订单查询、退款审核、看板概览、对账 CSV 导入与差异处置已通；UGC、举报处置未做，对账缺自动拉账与日结/结算 | 2026-11-10 |
 | M4 AI MVP | 未开始 | `lp-ai-service` 仅有启动类与 `package-info` | 2026-11-09 |
 | M5 Web 加固与上线 | 未开始 | 无压测、安全测试、灰度与部署流水线 | 2026-11-09 |
@@ -223,6 +223,8 @@
 | 支付重付约束 | SPEC-TRADE-004 AC-3、AC-4；engineering-plan 2.3 | 重新发起支付时直接复用未关闭的支付单，未返回 62006；`ErrorCode` 中没有 62006，也不要求先关闭原单 | 未排期；属支付发起与重付的业务缺口（L2-2），不阻塞 L1 上线 | 2026-11-10 |
 | 全文搜索与多维筛选 | product-lifecycle F02；engineering-plan 1.3 | 仅 `LIKE` 标题/副标题；无难度、热度、上新排序；`ft_` 索引未被查询使用 | 未排期 | 2026-11-09 |
 | 资料维护与账号注销 | product-lifecycle F01；engineering-plan 15.2 D8；SPEC-PLAT-004 | 资料修改未实现；注销已有 `POST/DELETE/GET /api/v1/auth/account-cancellation`（冷静期 7 天、重复申请幂等、阻塞返回 67003、依赖失败返回 50401），trade 冷静期守卫已实现（下单与支付返回 67005、200ms 探测、45s 缓存、提交后异步主动失效）；执行任务与匿名化已由定时任务自动执行，告警规则见 `infra/observability/prometheus-rules.yml`（3 条，已由本地监控栈加载求值；AC-33 的 firing 已由 `scripts/observability-ac33-drill.sh` 跑通）；Web `/account` 与小程序账号页已提供注销申请、冷静期倒计时、撤销与阻塞提示，Web 侧 2026-11-10 用真实账号实跑验证（截图与请求响应原文在仓库外 `/Users/caspian/lesson-platform-evidence/ac22-20261110/`），小程序真机预览因无 AppID 无法验证 | 进行中（SPEC-PLAT-004 26/33） | 2026-11-10 |
+| 游客试看免费课时 | product-lifecycle 6.3、6.8 播放权限、F03；SPEC-LEARN-003 | 需求侧：product-lifecycle 6.3 允许未登录游客浏览课程详情并试看免费课时，6.8 的口径是「免费课时所有用户可看」。实现侧：网关 `lp.identity.optional-auth` 只含 `/api/v1/courses/**`、`/api/v1/categories/**` 与 `/api/v1/orders/purchase-ticket/redeem`，`/api/v1/lessons/**` 不在其中，匿名请求在网关即返回 `40101`；即使放行，`LessonController#playToken` 在缺少 `X-User-Id` 时同样抛 `40101`。规格侧：SPEC-LEARN-003 的 AC-1 至 AC-6 全部以已登录用户为前提，没有匿名试看的 AC | 未排期；需先冻结匿名试看口径（是否签发匿名凭证、频控、防盗链），再决定是否把播放接口加入 `optional-auth`；当前「免费课时可试看」只对已登录用户成立 | 2026-11-10 |
+| 同一用户同一课时最多 2 路并发播放 | product-lifecycle 6.5 视频上传与播放约束；F03 | 仅产品承诺：SPEC-LEARN-003 没有并发路数的 AC；`lp-learn-service` 的 `play-token` 只校验登录与权益，不计数也不拒绝，同一用户可对同一课时无限次取签名并同时播放，无播放会话表或 Redis 占位 | 未排期；要么补 AC 并在签发或播放链路落地计数（Redis 租约或播放会话表），要么从产品口径中删除；当前既不实现也不校验 | 2026-11-10 |
 | 注销后原用户名登录返回 `40101`，`67001` 只在匿名名上可达 | SPEC-PLAT-004 AC-13/AC-14 与 AC-15；`AuthServiceImpl.login`、`AccountAnonymizationMapper` | #150（`02a790b`）已按方案 A 落地「仅 `status=3` 先判状态、后验密码」，用 `deleted_{userId}` 登录返回 `67001`。但 AC-15 同时要求 `username` 改为不可逆占位，匿名化后原用户名不再存在，原用户名登录在查账号阶段即返回 `40101`；真实验证覆盖旧 token 下的 `/me`、`/refresh` 与匿名名登录的 `67001` | 已按方案 A 收敛，不再待裁决；演练脚本同时断言原用户名 `40101` 与匿名名 `67001`，并用「仅改 `status=3`、密码不变」的 fixture 证明状态门禁先于密码，禁用账号分支断言「密码优先、`40301` 在后」 | 2026-11-10 |
 | 手动取消不释放优惠券 | SPEC-TRADE-006、SPEC-TRADE-007 AC-5 | 超时关单会释放订单占用的优惠券，手动取消（`OrderServiceImpl.cancel`）只关闭订单与支付单，券仍停留为已使用且绑定该订单，用户丢券且两种取消行为不一致 | 未排期；行为不一致 | 2026-11-09 |
 | 幂等层降级时同键换 body 无法识别 | SPEC-TRADE-001 AC-5、SPEC-TRADE-008 | Redis 不可用时幂等层记录 WARN 日志并累加 `lp.trade.idempotency.degraded` 指标后放行，该窗口内同键换请求体不会被识别为 `40901`，仅靠数据库唯一键（`uk_idempotency`、`uk_active_order`、支付单行锁）兜底 | 已接受；依赖监控告警 | 2026-11-09 |
