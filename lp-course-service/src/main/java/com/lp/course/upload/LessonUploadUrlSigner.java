@@ -54,7 +54,8 @@ public class LessonUploadUrlSigner {
      * @param objectKey server generated key, never taken from the original file name
      * @param ttl how long the URL stays valid, at least one second
      * @return absolute presigned PUT URL
-     * @throws BizException with {@code 50206} when credentials are missing or signing fails
+     * @throws BizException with {@code 40401} when the object key is blank, or {@code 50206} when
+     *     credentials are missing or signing fails
      * @author Caspian
      * @since 0.7.0
      */
@@ -68,7 +69,8 @@ public class LessonUploadUrlSigner {
      * @param objectKey stored object key, never taken from a request
      * @param ttl how long the URL stays valid, at least one second
      * @return absolute presigned GET URL
-     * @throws BizException with {@code 50206} when credentials are missing or signing fails
+     * @throws BizException with {@code 40401} when the object key is blank, or {@code 50206} when
+     *     credentials are missing or signing fails
      * @author Caspian
      * @since 0.10.0
      */
@@ -77,6 +79,9 @@ public class LessonUploadUrlSigner {
     }
 
     private String presign(Method method, String objectKey, Duration ttl) {
+        if (objectKey == null || objectKey.isBlank()) {
+            throw new BizException(ErrorCode.NOT_FOUND, "object key is blank");
+        }
         if (minioClient == null) {
             throw new BizException(ErrorCode.LEARN_STORAGE_ERROR);
         }

@@ -231,6 +231,45 @@ class CourseInternalServiceImplTest {
     }
 
     /**
+     * Overriding the teacher proposed price writes both amounts into the review audit trail.
+     *
+     * @author Caspian
+     * @since 0.11.0
+     */
+    @Test
+    void recordsPriceChangeOnApproval() {
+        when(courseMapper.selectPrice(7L)).thenReturn(new BigDecimal("199.00"));
+        when(courseMapper.approve(eq(7L), any(BigDecimal.class), eq(55L), any(LocalDateTime.class)))
+                .thenReturn(1);
+
+        CourseReviewResultView result =
+                courseInternalService.review(
+                        7L, true, 29900L, null, 55L, OperatorRole.OPS, "trace-approve");
+
+        assertEquals(29900L, result.getPriceFen());
+        assertEquals("priceFen 19900 -> 29900", captureAudit().getRemark());
+        assertEquals("priceFen 19900 -> 29900", captureUnifiedAudit().remark());
+    }
+
+    /**
+     * Confirming the teacher price unchanged leaves the audit remark empty.
+     *
+     * @author Caspian
+     * @since 0.11.0
+     */
+    @Test
+    void keepsRemarkEmptyWhenPriceIsUnchanged() {
+        when(courseMapper.selectPrice(7L)).thenReturn(new BigDecimal("99.00"));
+        when(courseMapper.approve(eq(7L), any(BigDecimal.class), eq(55L), any(LocalDateTime.class)))
+                .thenReturn(1);
+
+        courseInternalService.review(7L, true, 9900L, null, 55L, OperatorRole.OPS, "trace-approve");
+
+        assertNull(captureAudit().getRemark());
+        assertNull(captureUnifiedAudit().remark());
+    }
+
+    /**
      * Rejection requires a remark and moves the course back to draft.
      *
      * @author Caspian

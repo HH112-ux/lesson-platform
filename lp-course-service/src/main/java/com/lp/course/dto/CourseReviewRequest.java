@@ -3,6 +3,10 @@ package com.lp.course.dto;
 /**
  * Body of the internal review endpoint.
  *
+ * <p>{@code priceFen} is the only amount of the review path and is always expressed in fen.
+ * Teachers submit their proposed price in yuan through the teacher course form; the server owns the
+ * conversion between the two representations, so no caller or console converts an amount itself.
+ *
  * @author Caspian
  * @since 0.1.0
  */
@@ -41,7 +45,10 @@ public class CourseReviewRequest {
     }
 
     /**
-     * Returns the price to apply on approval.
+     * Returns the final price to apply on approval.
+     *
+     * <p>Unit is fen, never yuan. The teacher proposed price is stored in yuan, so this field is
+     * the final decision of operations and the server converts it before writing the course row.
      *
      * @return price in fen, {@code null} keeps the current price
      * @author Caspian
@@ -52,9 +59,9 @@ public class CourseReviewRequest {
     }
 
     /**
-     * Sets the price to apply on approval.
+     * Sets the final price to apply on approval.
      *
-     * @param priceFen price in fen
+     * @param priceFen price in fen, never yuan
      * @author Caspian
      * @since 0.1.0
      */
