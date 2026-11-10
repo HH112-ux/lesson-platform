@@ -11,8 +11,8 @@ export interface TeacherLesson {
   lessonId: number
   chapterId: number
   title: string
-  /** MinIO object key, empty until the upload is confirmed. */
-  videoUrl: string
+  /** Whether a confirmed video exists; the object key never leaves the server. */
+  hasVideo: boolean
   /** Duration in seconds, zero until the upload is confirmed. */
   durationSec: number
   /** Codec written by the confirm endpoint. */
@@ -63,6 +63,13 @@ export interface TeacherUploadSession {
   expiresAt: string
   /** Declared size the server will accept, the only size the client must trust. */
   expectedSizeBytes: number
+}
+
+/** Presigned playback credential, aligned with {@code TeacherPlayUrlView}. */
+export interface TeacherPlayUrl {
+  playUrl: string
+  expiresIn: number
+  expiresAt: number
 }
 
 /**
@@ -148,5 +155,25 @@ export function confirmLessonUpload(
   return apiRequest<TeacherLesson>(
     `/api/v1/teacher/courses/${courseId}/chapters/${chapterId}/lessons/${lessonId}/upload-sessions/${uploadId}/confirm`,
     { method: 'POST' },
+  )
+}
+
+/**
+ * Signs a short lived playback URL for a lesson video; the console never receives the object key.
+ *
+ * @param courseId course identifier
+ * @param chapterId chapter identifier
+ * @param lessonId lesson identifier
+ * @returns presigned GET URL with its lifetime and expiry
+ * @author Caspian
+ * @since 0.10.0
+ */
+export function getLessonPlayUrl(
+  courseId: number,
+  chapterId: number,
+  lessonId: number,
+): Promise<TeacherPlayUrl> {
+  return apiRequest<TeacherPlayUrl>(
+    `/api/v1/teacher/courses/${courseId}/chapters/${chapterId}/lessons/${lessonId}/play-url`,
   )
 }

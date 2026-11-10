@@ -15,6 +15,7 @@ import com.lp.common.exception.BizException;
 import com.lp.course.config.CourseUploadProperties;
 import com.lp.course.domain.LessonUploadStatus;
 import com.lp.course.dto.TeacherLessonView;
+import com.lp.course.dto.TeacherPlayUrlView;
 import com.lp.course.dto.TeacherUploadSessionRequest;
 import com.lp.course.dto.TeacherUploadSessionView;
 import com.lp.course.entity.Course;
@@ -30,6 +31,7 @@ import com.lp.course.upload.LessonVideoProbe;
 import com.lp.course.upload.LessonVideoValidator;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -69,7 +71,14 @@ class TeacherLessonUploadSessionTest {
                         uploadSigner,
                         uploadReader,
                         new CourseUploadProperties(
-                                Duration.ofMinutes(30), MAX_SIZE, "", "", "", "", ""),
+                                Duration.ofMinutes(30),
+                                Duration.ofMinutes(10),
+                                MAX_SIZE,
+                                "",
+                                "",
+                                "",
+                                "",
+                                ""),
                         videoProbe,
                         videoValidator);
     }
@@ -171,7 +180,7 @@ class TeacherLessonUploadSessionTest {
         TeacherLessonView view = confirm(501L);
 
         assertEquals(77L, view.lessonId());
-        assertEquals(OBJECT_KEY, view.videoUrl());
+        assertTrue(view.hasVideo());
         assertEquals(90, view.durationSec());
         assertEquals("h264", view.videoCodec());
         assertEquals(1280, view.videoWidth());
@@ -252,6 +261,55 @@ class TeacherLessonUploadSessionTest {
 
         assertEquals(61008, exception.getCode());
         verify(uploadReader).delete(any(DownloadedVideo.class));
+    }
+
+    @Test
+    void signsPlaybackUrlForOwnedLesson() {
+        givenEditableCourse();
+        when(teacherCourseMapper.selectLesson(9L, 3L, 77L)).thenReturn(lesson());
+        when(uploadSigner.presignGet(OBJECT_KEY, Duration.ofMinutes(10)))
+                .thenReturn("https://minio/get");
+
+        long before = Instant.now().plusSeconds(600).getEpochSecond();
+        TeacherPlayUrlView view = service.playUrl(1001L, "TEACHER", 9L, 3L, 77L);
+
+        assertEquals("https://minio/get", view.playUrl());
+        assertEquals(600, view.expiresIn());
+        assertTrue(view.expiresAt() >= before);
+    }
+
+    @Test
+    void letsAdministratorSignAnyCourse() {
+        givenCourse(0, 12L);
+        when(teacherCourseMapper.selectLesson(9L, 3L, 77L)).thenReturn(lesson());
+        when(uploadSigner.presignGet(OBJECT_KEY, Duration.ofMinutes(10)))
+                .thenReturn("https://minio/get");
+
+        assertEquals("https://minio/get", service.playUrl(1001L, "ADMIN", 9L, 3L, 77L).playUrl());
+    }
+
+    @Test
+    void refusesPlaybackForAnotherTeachersCourse() {
+        givenCourse(0, 12L);
+
+        BizException exception =
+                assertThrows(
+                        BizException.class, () -> service.playUrl(1001L, "TEACHER", 9L, 3L, 77L));
+
+        assertEquals(40301, exception.getCode());
+        verify(uploadSigner, never()).presignGet(any(), any());
+    }
+
+    @Test
+    void refusesPlaybackWithoutAConfirmedVideo() {
+        givenEditableLesson();
+
+        BizException exception =
+                assertThrows(
+                        BizException.class, () -> service.playUrl(1001L, "TEACHER", 9L, 3L, 77L));
+
+        assertEquals(40401, exception.getCode());
+        verify(uploadSigner, never()).presignGet(any(), any());
     }
 
     private TeacherUploadSessionView create(long size) {

@@ -12,6 +12,7 @@ import com.lp.course.dto.TeacherCourseRequest;
 import com.lp.course.dto.TeacherCourseView;
 import com.lp.course.dto.TeacherLessonRequest;
 import com.lp.course.dto.TeacherLessonView;
+import com.lp.course.dto.TeacherPlayUrlView;
 import com.lp.course.dto.TeacherUploadSessionRequest;
 import com.lp.course.dto.TeacherUploadSessionView;
 import com.lp.course.service.TeacherCourseService;
@@ -405,6 +406,33 @@ public class TeacherCourseController {
         return Result.ok(
                 teacherCourseService.confirmUpload(
                         requireUser(userId), roles, courseId, chapterId, lessonId, uploadId),
+                TraceIds.resolve(request));
+    }
+
+    /**
+     * Signs a short lived playback URL for the video of a lesson.
+     *
+     * @param userId gateway injected user id
+     * @param roles gateway injected roles, comma separated
+     * @param courseId course primary key
+     * @param chapterId chapter primary key
+     * @param lessonId lesson primary key
+     * @param request current request, used to resolve the trace id
+     * @return presigned playback URL with its lifetime and expiry
+     * @author Caspian
+     * @since 0.10.0
+     */
+    @GetMapping("/{courseId}/chapters/{chapterId}/lessons/{lessonId}/play-url")
+    public Result<TeacherPlayUrlView> playUrl(
+            @RequestHeader(value = IdentityHeaders.USER_ID, required = false) Long userId,
+            @RequestHeader(value = IdentityHeaders.USER_ROLES, required = false) String roles,
+            @PathVariable("courseId") long courseId,
+            @PathVariable("chapterId") long chapterId,
+            @PathVariable("lessonId") long lessonId,
+            HttpServletRequest request) {
+        return Result.ok(
+                teacherCourseService.playUrl(
+                        requireUser(userId), roles, courseId, chapterId, lessonId),
                 TraceIds.resolve(request));
     }
 
