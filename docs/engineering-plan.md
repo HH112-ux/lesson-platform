@@ -186,10 +186,10 @@ stateDiagram-v2
 | 层 | 选型 | 理由 | 依据 |
 |---|---|---|---|
 | 后端语言 | Java 17 | 与团队既有技术栈一致，生态成熟 | 【文档事实】原工程 Java 17 |
-| 框架 | Spring Boot 3.2.x | 长期支持版本，虚拟线程可用 | 【行业惯例】 |
-| 微服务 | Spring Cloud Alibaba 2023.x + Nacos | 团队已有使用经验，注册/配置一体 | 【文档事实】原工程同栈 |
+| 框架 | Spring Boot 3.5.x（当前 3.5.16） | 当前 OSS 支持线，虚拟线程可用；3.5 线首个托管 Tomcat/Netty 已含高危修复的版本 | 【行业惯例】 |
+| 微服务 | Spring Cloud 2025.0.x（当前 2025.0.3）；Nacos 规划中 | 2025.0.x 为按 Boot 3.5 构建的发布列车；注册/配置中心尚未引入 | 【行业惯例】 |
 | 网关 | Spring Cloud Gateway | 统一鉴权、限流、路由 | 同上 |
-| ORM | MyBatis-Flex 1.10.x | 原工程使用，支持逻辑删除/乐观锁/QueryChain | 【文档事实】 |
+| ORM | MyBatis-Flex 1.10.x（当前 1.10.9） | 原工程使用，支持逻辑删除/乐观锁/QueryChain；随 Boot 3.5 升级实测兼容，未改动 | 【文档事实】 |
 | 数据库 | MySQL 8.0（InnoDB） | 事务成熟；8.0 支持 ngram 全文索引，首版免引向量库 | 【行业惯例】 |
 | 缓存 | Redis 7 + Redisson | Token、限流、缓存、分布式锁 | 【文档事实】 |
 | 消息 | RocketMQ 5.x | 支付后发放权益、审核事件、AI 异步任务 | 【文档事实】 |
@@ -203,6 +203,21 @@ stateDiagram-v2
 | 可观测 | Prometheus + Grafana + Loki + Tempo（OTLP） | 指标/日志/链路三件套，开源可落地 | 【行业惯例】 |
 | CI/CD | GitHub Actions + Docker + Kubernetes | 仓库在 GitHub；K8s 支持滚动/灰度/HPA | 【行业惯例】 |
 | 部署 | 开发 Docker Compose；预发/生产 K8s 单集群双 namespace | 成本可控，支持按环境隔离 | 【行业惯例】 |
+
+### 3.1.1 依赖基线与安全覆盖（2026-11-10）
+
+聚合工程以 `import` 方式引入 Boot BOM，不继承 `spring-boot-starter-parent`，因此 `<tomcat.version>`/`<netty.version>` 这类属性覆盖不会被 BOM 读取；要压过 BOM 必须在 `dependencyManagement` 里写显式条目或先导入对应 BOM。
+
+| 依赖 | 版本 | 来源 |
+|---|---|---|
+| `spring-boot-dependencies` | 3.5.16 | BOM import |
+| `spring-cloud-dependencies` | 2025.0.3 | BOM import |
+| `tomcat-embed-core` / `-el` / `-websocket` | 10.1.61 | 显式 `dependencyManagement`，覆盖 BOM 的 10.1.55 |
+| `io.netty:netty-bom` | 4.1.140.Final | 先于 Boot BOM 导入，覆盖 4.1.135.Final |
+| `bcprov-jdk18on` | 1.86 | 显式钉版；经 `io.minio:minio` 传递，Boot 与 Cloud 均不管理 |
+| `mybatis-flex` | 1.10.9 | 未升级，随 Boot 3.5 实测兼容 |
+
+Trivy 基线升级后仍有 3 条 critical：`spring-webmvc`/`spring-webflux` 6.2.19 的 CVE-2026-47884、CVE-2026-47890、CVE-2026-47892，其修复版本只有 7.0.9，Boot 3.5 线暂无修复版本，需等 3.5 线回补或评估升到 Boot 4。
 
 ## 3.2 模块划分与服务边界
 
