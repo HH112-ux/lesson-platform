@@ -4,13 +4,17 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.lp.common.exception.BizException;
 import com.lp.course.config.CourseUploadProperties;
+import com.lp.course.domain.LessonUploadStatus;
+import com.lp.course.dto.TeacherLessonView;
 import com.lp.course.dto.TeacherUploadSessionRequest;
 import com.lp.course.dto.TeacherUploadSessionView;
 import com.lp.course.entity.Course;
@@ -18,7 +22,13 @@ import com.lp.course.entity.CourseLesson;
 import com.lp.course.entity.LessonUpload;
 import com.lp.course.mapper.LessonUploadMapper;
 import com.lp.course.mapper.TeacherCourseMapper;
+import com.lp.course.upload.LessonUploadObjectReader;
+import com.lp.course.upload.LessonUploadObjectReader.DownloadedVideo;
 import com.lp.course.upload.LessonUploadUrlSigner;
+import com.lp.course.upload.LessonVideoMetadata;
+import com.lp.course.upload.LessonVideoProbe;
+import com.lp.course.upload.LessonVideoValidator;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import org.junit.jupiter.api.BeforeEach;
@@ -34,9 +44,19 @@ class TeacherLessonUploadSessionTest {
 
     private static final long MAX_SIZE = 209_715_200L;
 
+    private static final String OBJECT_KEY = "lesson-videos/77/501.mp4";
+
     @Mock private TeacherCourseMapper teacherCourseMapper;
+
     @Mock private LessonUploadMapper lessonUploadMapper;
-    @Mock private LessonUploadUrlSigner uploadUrlSigner;
+
+    @Mock private LessonUploadUrlSigner uploadSigner;
+
+    @Mock private LessonUploadObjectReader uploadReader;
+
+    @Mock private LessonVideoProbe videoProbe;
+
+    @Mock private LessonVideoValidator videoValidator;
 
     private TeacherCourseServiceImpl service;
 
@@ -46,23 +66,26 @@ class TeacherLessonUploadSessionTest {
                 new TeacherCourseServiceImpl(
                         teacherCourseMapper,
                         lessonUploadMapper,
-                        uploadUrlSigner,
+                        uploadSigner,
+                        uploadReader,
                         new CourseUploadProperties(
-                                Duration.ofMinutes(30), MAX_SIZE, "", "", "", "", ""));
+                                Duration.ofMinutes(30), MAX_SIZE, "", "", "", "", ""),
+                        videoProbe,
+                        videoValidator);
     }
 
     @Test
     void createsSessionWithStableObjectKey() {
         givenEditableLesson();
         when(lessonUploadMapper.insert(any(LessonUpload.class))).thenAnswer(rowWithId(501L));
-        when(uploadUrlSigner.presignPut(any(), any())).thenReturn("https://minio/put");
+        when(uploadSigner.presignPut(any(), any())).thenReturn("https://minio/put");
 
         TeacherUploadSessionView view = create(1024L);
 
         assertEquals(501L, view.uploadId());
         assertTrue(view.expiresAt().isAfter(LocalDateTime.now().plusMinutes(29)));
         verify(lessonUploadMapper).updateObjectKey(501L, "lesson-videos/77/501.mp4");
-        verify(uploadUrlSigner).presignPut("lesson-videos/77/501.mp4", Duration.ofMinutes(30));
+        verify(uploadSigner).presignPut("lesson-videos/77/501.mp4", Duration.ofMinutes(30));
     }
 
     @Test
@@ -90,7 +113,7 @@ class TeacherLessonUploadSessionTest {
                 .thenThrow(new DuplicateKeyException("uk_lesson_pending"));
         when(lessonUploadMapper.selectPendingByLessonId(77L))
                 .thenReturn(session(800L, LocalDateTime.now().plusMinutes(10)));
-        when(uploadUrlSigner.presignPut(any(), any())).thenReturn("https://minio/reused");
+        when(uploadSigner.presignPut(any(), any())).thenReturn("https://minio/reused");
 
         TeacherUploadSessionView view = create(1024L);
 
@@ -108,15 +131,114 @@ class TeacherLessonUploadSessionTest {
                 .thenAnswer(rowWithId(900L));
         when(lessonUploadMapper.selectPendingByLessonId(77L))
                 .thenReturn(session(801L, LocalDateTime.now().minusMinutes(1)));
-        when(uploadUrlSigner.presignPut(any(), any())).thenReturn("https://minio/new");
+        when(uploadSigner.presignPut(any(), any())).thenReturn("https://minio/new");
 
         assertEquals(900L, create(1024L).uploadId());
         verify(lessonUploadMapper).markExpired(801L);
     }
 
+    @Test
+    void confirmsUploadAndWritesProbedFacts() {
+        givenEditableLesson();
+        when(lessonUploadMapper.selectById(501L)).thenReturn(pendingSession());
+        when(uploadReader.statSize(OBJECT_KEY)).thenReturn(1024L);
+        when(uploadReader.download(OBJECT_KEY)).thenReturn(downloaded());
+        when(videoProbe.probe(any()))
+                .thenReturn(new LessonVideoMetadata("isom", 90.4, "h264", 1280, 720, "aac"));
+        when(lessonUploadMapper.confirm(
+                        anyLong(), any(), any(), anyInt(), any(), anyInt(), anyInt(), anyLong(),
+                        any()))
+                .thenReturn(1);
+        CourseLesson lesson = lesson();
+        when(teacherCourseMapper.selectLesson(9L, 3L, 77L)).thenReturn(lesson);
+
+        TeacherLessonView view = confirm(501L);
+
+        assertEquals(77L, view.lessonId());
+        verify(videoValidator).validate(any(LessonVideoMetadata.class));
+        verify(lessonUploadMapper)
+                .confirm(
+                        eq(501L),
+                        any(),
+                        eq(OBJECT_KEY),
+                        eq(90),
+                        eq("h264"),
+                        eq(1280),
+                        eq(720),
+                        eq(1024L),
+                        eq("sha256-value"));
+        verify(uploadReader).delete(any(DownloadedVideo.class));
+    }
+
+    @Test
+    void returnsConfirmedLessonWithoutReadingTheObjectAgain() {
+        givenEditableLesson();
+        LessonUpload confirmed = pendingSession();
+        confirmed.setStatus(LessonUploadStatus.CONFIRMED);
+        when(lessonUploadMapper.selectById(501L)).thenReturn(confirmed);
+        when(teacherCourseMapper.selectLesson(9L, 3L, 77L)).thenReturn(lesson());
+
+        assertEquals(77L, confirm(501L).lessonId());
+        verify(uploadReader, never()).statSize(any());
+        verify(uploadReader, never()).download(any());
+        verify(videoProbe, never()).probe(any());
+    }
+
+    @Test
+    void rejectsStoredSizeThatDiffersFromTheDeclaration() {
+        givenEditableCourse();
+        when(lessonUploadMapper.selectById(501L)).thenReturn(pendingSession());
+        when(uploadReader.statSize(OBJECT_KEY)).thenReturn(2048L);
+
+        BizException exception = assertThrows(BizException.class, () -> confirm(501L));
+
+        assertEquals(61003, exception.getCode());
+        verify(uploadReader, never()).download(any());
+        verify(lessonUploadMapper, never())
+                .confirm(
+                        anyLong(), any(), any(), anyInt(), any(), anyInt(), anyInt(), anyLong(),
+                        any());
+    }
+
+    @Test
+    void rejectsExpiredSession() {
+        givenEditableCourse();
+        LessonUpload expired = pendingSession();
+        expired.setSessionExpiresAt(LocalDateTime.now().minusMinutes(1));
+        when(lessonUploadMapper.selectById(501L)).thenReturn(expired);
+
+        BizException exception = assertThrows(BizException.class, () -> confirm(501L));
+
+        assertEquals(61007, exception.getCode());
+        verify(uploadReader, never()).statSize(any());
+    }
+
+    @Test
+    void reportsConflictWhenAConcurrentCallKeepsTheSessionPending() {
+        givenEditableCourse();
+        when(lessonUploadMapper.selectById(501L)).thenReturn(pendingSession());
+        when(uploadReader.statSize(OBJECT_KEY)).thenReturn(1024L);
+        when(uploadReader.download(OBJECT_KEY)).thenReturn(downloaded());
+        when(videoProbe.probe(any()))
+                .thenReturn(new LessonVideoMetadata("isom", 90.4, "h264", 1280, 720, "aac"));
+        when(lessonUploadMapper.confirm(
+                        anyLong(), any(), any(), anyInt(), any(), anyInt(), anyInt(), anyLong(),
+                        any()))
+                .thenReturn(0);
+
+        BizException exception = assertThrows(BizException.class, () -> confirm(501L));
+
+        assertEquals(61008, exception.getCode());
+        verify(uploadReader).delete(any(DownloadedVideo.class));
+    }
+
     private TeacherUploadSessionView create(long size) {
         return service.createUploadSession(
                 1001L, "TEACHER", 9L, 3L, 77L, new TeacherUploadSessionRequest(size));
+    }
+
+    private TeacherLessonView confirm(long uploadId) {
+        return service.confirmUpload(1001L, "TEACHER", 9L, 3L, 77L, uploadId);
     }
 
     private void givenEditableLesson() {
@@ -126,6 +248,10 @@ class TeacherLessonUploadSessionTest {
         when(teacherCourseMapper.selectLesson(9L, 3L, 77L)).thenReturn(lesson);
     }
 
+    private void givenEditableCourse() {
+        givenCourse(0, 11L);
+    }
+
     private void givenCourse(int status, long ownerTeacherId) {
         when(teacherCourseMapper.selectTeacherIdByUser(1001L)).thenReturn(11L);
         Course course = new Course();
@@ -133,6 +259,31 @@ class TeacherLessonUploadSessionTest {
         course.setStatus(status);
         course.setOwnerTeacherId(ownerTeacherId);
         when(teacherCourseMapper.selectById(9L)).thenReturn(course);
+    }
+
+    private LessonUpload pendingSession() {
+        LessonUpload session = session(501L, LocalDateTime.now().plusMinutes(10));
+        session.setStatus(LessonUploadStatus.PENDING);
+        session.setCourseId(9L);
+        session.setChapterId(3L);
+        session.setLessonId(77L);
+        session.setObjectKey(OBJECT_KEY);
+        session.setExpectedSizeBytes(1024L);
+        return session;
+    }
+
+    private DownloadedVideo downloaded() {
+        return new DownloadedVideo(
+                Path.of("/tmp/lp-lesson-video-test"), Path.of("/tmp/video.mp4"), "sha256-value");
+    }
+
+    private CourseLesson lesson() {
+        CourseLesson lesson = new CourseLesson();
+        lesson.setId(77L);
+        lesson.setChapterId(3L);
+        lesson.setVideoUrl(OBJECT_KEY);
+        lesson.setVideoDurationSec(90);
+        return lesson;
     }
 
     private LessonUpload session(long id, LocalDateTime expiresAt) {

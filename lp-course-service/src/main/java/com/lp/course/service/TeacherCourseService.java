@@ -212,4 +212,20 @@ public interface TeacherCourseService {
             long chapterId,
             long lessonId,
             TeacherUploadSessionRequest request);
+
+    /**
+     * Confirms an uploaded lesson video and writes the video facts to the lesson.
+     *
+     * @param userId authenticated user id
+     * @param roles comma separated gateway roles
+     * @param courseId course primary key
+     * @param chapterId chapter primary key
+     * @param lessonId lesson primary key
+     * @param uploadId upload session primary key
+     * @return the confirmed lesson, also returned when the confirmation is repeated
+     * @author Caspian
+     * @since 0.8.0
+     */
+    TeacherLessonView confirmUpload(
+            long userId, String roles, long courseId, long chapterId, long lessonId, long uploadId);
 }

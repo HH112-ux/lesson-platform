@@ -21,7 +21,10 @@ import com.lp.course.entity.Course;
 import com.lp.course.entity.TeacherCourseStatusRow;
 import com.lp.course.mapper.LessonUploadMapper;
 import com.lp.course.mapper.TeacherCourseMapper;
+import com.lp.course.upload.LessonUploadObjectReader;
 import com.lp.course.upload.LessonUploadUrlSigner;
+import com.lp.course.upload.LessonVideoProbe;
+import com.lp.course.upload.LessonVideoValidator;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.List;
@@ -44,7 +47,13 @@ class TeacherCourseServiceImplTest {
 
     @Mock private LessonUploadMapper lessonUploadMapper;
 
-    @Mock private LessonUploadUrlSigner uploadUrlSigner;
+    @Mock private LessonUploadUrlSigner uploadSigner;
+
+    @Mock private LessonUploadObjectReader uploadReader;
+
+    @Mock private LessonVideoProbe videoProbe;
+
+    @Mock private LessonVideoValidator videoValidator;
 
     private TeacherCourseServiceImpl service;
 
@@ -60,9 +69,12 @@ class TeacherCourseServiceImplTest {
                 new TeacherCourseServiceImpl(
                         teacherCourseMapper,
                         lessonUploadMapper,
-                        uploadUrlSigner,
+                        uploadSigner,
+                        uploadReader,
                         new CourseUploadProperties(
-                                Duration.ofMinutes(30), 209_715_200L, "", "", "", "", ""));
+                                Duration.ofMinutes(30), 209_715_200L, "", "", "", "", ""),
+                        videoProbe,
+                        videoValidator);
     }
 
     /**

@@ -379,6 +379,36 @@ public class TeacherCourseController {
     }
 
     /**
+     * Confirms an uploaded lesson video and stores its probed facts.
+     *
+     * @param userId gateway injected user id
+     * @param roles gateway injected roles, comma separated
+     * @param courseId course primary key
+     * @param chapterId chapter primary key
+     * @param lessonId lesson primary key
+     * @param uploadId upload session primary key
+     * @param request current request, used to resolve the trace id
+     * @return the confirmed lesson, also returned when the confirmation is repeated
+     * @author Caspian
+     * @since 0.8.0
+     */
+    @PostMapping(
+            "/{courseId}/chapters/{chapterId}/lessons/{lessonId}/upload-sessions/{uploadId}/confirm")
+    public Result<TeacherLessonView> confirmUpload(
+            @RequestHeader(value = IdentityHeaders.USER_ID, required = false) Long userId,
+            @RequestHeader(value = IdentityHeaders.USER_ROLES, required = false) String roles,
+            @PathVariable("courseId") long courseId,
+            @PathVariable("chapterId") long chapterId,
+            @PathVariable("lessonId") long lessonId,
+            @PathVariable("uploadId") long uploadId,
+            HttpServletRequest request) {
+        return Result.ok(
+                teacherCourseService.confirmUpload(
+                        requireUser(userId), roles, courseId, chapterId, lessonId, uploadId),
+                TraceIds.resolve(request));
+    }
+
+    /**
      * Rejects a request that reached the service without a trusted user id.
      *
      * @param userId gateway injected user id
