@@ -1,17 +1,22 @@
 package com.lp.course.service.impl;
 
+import com.lp.common.audit.AuditAction;
+import com.lp.common.audit.AuditObject;
 import com.lp.common.exception.BizException;
 import com.lp.common.exception.ErrorCode;
+import com.lp.course.dto.AuditLogCreateRequest;
 import com.lp.course.dto.TeacherAuditApplicationView;
 import com.lp.course.dto.TeacherAuditPageView;
 import com.lp.course.dto.TeacherAuditResultView;
 import com.lp.course.dto.TeacherAuditView;
 import com.lp.course.entity.TeacherProfileAudit;
 import com.lp.course.mapper.TeacherAuditMapper;
+import com.lp.course.service.AdminAuditService;
 import com.lp.course.service.TeacherAuditService;
 import java.time.LocalDateTime;
 import java.util.List;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Default {@link TeacherAuditService} backed by {@link TeacherAuditMapper}.
@@ -42,15 +47,20 @@ public class TeacherAuditServiceImpl implements TeacherAuditService {
 
     private final TeacherAuditMapper teacherAuditMapper;
 
+    private final AdminAuditService adminAuditService;
+
     /**
      * Creates the service with its mapper dependency.
      *
      * @param teacherAuditMapper teacher profile audit statements
+     * @param adminAuditService unified audit appender, joined to the review transaction
      * @author Caspian
      * @since 0.5.0
      */
-    public TeacherAuditServiceImpl(TeacherAuditMapper teacherAuditMapper) {
+    public TeacherAuditServiceImpl(
+            TeacherAuditMapper teacherAuditMapper, AdminAuditService adminAuditService) {
         this.teacherAuditMapper = teacherAuditMapper;
+        this.adminAuditService = adminAuditService;
     }
 
     /**
@@ -98,6 +108,8 @@ public class TeacherAuditServiceImpl implements TeacherAuditService {
      * @param approved {@code true} to approve, {@code false} to reject
      * @param remark rejection remark, required when rejecting
      * @param reviewerId operations user id
+     * @param operatorRole operator role code, 0 operations, 1 administrator
+     * @param traceId request trace id written to the unified audit log
      * @return application state after the decision
      * @throws BizException with {@code 40401} when the profile is absent, {@code 40901} when it is
      *     no longer pending, {@code 40001} when a rejection carries no remark
@@ -105,8 +117,14 @@ public class TeacherAuditServiceImpl implements TeacherAuditService {
      * @since 0.5.0
      */
     @Override
+    @Transactional
     public TeacherAuditResultView review(
-            long teacherId, boolean approved, String remark, long reviewerId) {
+            long teacherId,
+            boolean approved,
+            String remark,
+            long reviewerId,
+            int operatorRole,
+            String traceId) {
         TeacherProfileAudit profile = teacherAuditMapper.selectById(teacherId);
         if (profile == null) {
             throw new BizException(ErrorCode.NOT_FOUND);
@@ -128,6 +146,20 @@ public class TeacherAuditServiceImpl implements TeacherAuditService {
                 == 0) {
             throw new BizException(ErrorCode.STATE_CONFLICT, "application is not pending");
         }
+        // Same transaction as the conditional update: a rollback drops the audit row with it.
+        adminAuditService.record(
+                new AuditLogCreateRequest(
+                        reviewerId,
+                        operatorRole,
+                        approved ? AuditAction.TEACHER_APPROVE : AuditAction.TEACHER_REJECT,
+                        AuditObject.TEACHER,
+                        teacherId,
+                        AUDIT_PENDING,
+                        toStatus,
+                        remarkText,
+                        traceId,
+                        null,
+                        auditedAt));
         return new TeacherAuditResultView(teacherId, toStatus, remarkText, reviewerId, auditedAt);
     }
 

@@ -15,6 +15,7 @@ import static org.mockito.Mockito.when;
 import com.lp.admin.client.TeacherAuditClient;
 import com.lp.admin.dto.AdminTeacherPageView;
 import com.lp.admin.dto.AdminTeacherReviewResultView;
+import com.lp.common.audit.OperatorRole;
 import com.lp.common.exception.BizException;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -77,10 +78,11 @@ class AdminTeacherAuditServiceImplTest {
      */
     @Test
     void forwardsApproval() {
-        when(teacherAuditClient.review(7L, true, null, 55L))
+        when(teacherAuditClient.review(7L, true, null, 55L, OperatorRole.ADMIN))
                 .thenReturn(new AdminTeacherReviewResultView(7L, 1, null, 55L, null));
 
-        AdminTeacherReviewResultView result = service.review(7L, true, null, 55L);
+        AdminTeacherReviewResultView result =
+                service.review(7L, true, null, 55L, OperatorRole.ADMIN);
 
         assertEquals(1, result.auditStatus());
         assertEquals(55L, result.auditedBy());
@@ -95,10 +97,13 @@ class AdminTeacherAuditServiceImplTest {
     @Test
     void rejectsBlankRemark() {
         BizException exception =
-                assertThrows(BizException.class, () -> service.review(7L, false, "  ", 55L));
+                assertThrows(
+                        BizException.class,
+                        () -> service.review(7L, false, "  ", 55L, OperatorRole.OPS));
 
         assertEquals(40001, exception.getCode());
-        verify(teacherAuditClient, never()).review(anyLong(), anyBoolean(), anyString(), anyLong());
+        verify(teacherAuditClient, never())
+                .review(anyLong(), anyBoolean(), anyString(), anyLong(), anyInt());
     }
 
     /**
@@ -110,11 +115,12 @@ class AdminTeacherAuditServiceImplTest {
     @Test
     void trimsAndCapsRejectionRemark() {
         String remark = "  " + "x".repeat(400);
-        when(teacherAuditClient.review(eq(7L), eq(false), anyString(), eq(55L)))
+        when(teacherAuditClient.review(
+                        eq(7L), eq(false), anyString(), eq(55L), eq(OperatorRole.OPS)))
                 .thenReturn(new AdminTeacherReviewResultView(7L, 2, "x".repeat(300), 55L, null));
 
-        service.review(7L, false, remark, 55L);
+        service.review(7L, false, remark, 55L, OperatorRole.OPS);
 
-        verify(teacherAuditClient).review(7L, false, "x".repeat(300), 55L);
+        verify(teacherAuditClient).review(7L, false, "x".repeat(300), 55L, OperatorRole.OPS);
     }
 }

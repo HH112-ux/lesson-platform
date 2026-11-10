@@ -1,5 +1,6 @@
 package com.lp.admin.support;
 
+import com.lp.common.audit.OperatorRole;
 import com.lp.common.exception.BizException;
 import com.lp.common.exception.ErrorCode;
 import java.util.Arrays;
@@ -33,6 +34,25 @@ public final class ConsoleRoles {
     public static final String TEACHER_AUDIT = "admin:teacher:audit";
 
     private ConsoleRoles() {}
+
+    /**
+     * Resolves the operator role written to the unified audit log.
+     *
+     * <p>{@code ADMIN} wins when the gateway header carries both roles, because the stricter role
+     * is the one that explains the broader permission. The browser never supplies this value.
+     *
+     * @param roles gateway injected roles, comma separated
+     * @return {@link OperatorRole#ADMIN} when {@code ADMIN} is present, otherwise {@link
+     *     OperatorRole#OPS}
+     * @throws BizException with {@code 40301} when the caller is not a console user
+     * @author Caspian
+     * @since 0.6.0
+     */
+    public static int operatorRole(String roles) {
+        requireConsole(roles);
+        boolean admin = Arrays.stream(roles.split(",")).map(String::trim).anyMatch("ADMIN"::equals);
+        return admin ? OperatorRole.ADMIN : OperatorRole.OPS;
+    }
 
     /**
      * Rejects callers that do not belong to the operations console.

@@ -16,6 +16,8 @@ public class CourseReviewRequest {
 
     private Long reviewerId;
 
+    private Integer operatorRole;
+
     /**
      * Returns whether the course is approved.
      *
@@ -102,5 +104,27 @@ public class CourseReviewRequest {
      */
     public void setReviewerId(Long reviewerId) {
         this.reviewerId = reviewerId;
+    }
+
+    /**
+     * Returns the operator role code forwarded by admin-service.
+     *
+     * @return 0 operations, 1 administrator
+     * @author Caspian
+     * @since 0.6.0
+     */
+    public Integer getOperatorRole() {
+        return operatorRole;
+    }
+
+    /**
+     * Sets the operator role code.
+     *
+     * @param operatorRole 0 operations, 1 administrator
+     * @author Caspian
+     * @since 0.6.0
+     */
+    public void setOperatorRole(Integer operatorRole) {
+        this.operatorRole = operatorRole;
     }
 }

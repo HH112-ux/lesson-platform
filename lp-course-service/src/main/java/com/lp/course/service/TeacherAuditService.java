@@ -37,11 +37,19 @@ public interface TeacherAuditService {
      * @param approved {@code true} to approve, {@code false} to reject
      * @param remark rejection remark, required when rejecting
      * @param reviewerId operations user id
+     * @param operatorRole operator role code, 0 operations, 1 administrator
+     * @param traceId request trace id written to the unified audit log
      * @return application state after the decision
      * @author Caspian
      * @since 0.5.0
      */
-    TeacherAuditResultView review(long teacherId, boolean approved, String remark, long reviewerId);
+    TeacherAuditResultView review(
+            long teacherId,
+            boolean approved,
+            String remark,
+            long reviewerId,
+            int operatorRole,
+            String traceId);
 
     /**
      * Returns the caller's own application.

@@ -103,8 +103,10 @@ public class AdminTeacherController {
         if (userId == null || userId <= 0) {
             throw new BizException(ErrorCode.UNAUTHENTICATED);
         }
+        int operatorRole = ConsoleRoles.operatorRole(roles);
         return Result.ok(
-                adminTeacherAuditService.review(teacherId, body.approved(), body.remark(), userId),
+                adminTeacherAuditService.review(
+                        teacherId, body.approved(), body.remark(), userId, operatorRole),
                 TraceIds.resolve(request));
     }
 
