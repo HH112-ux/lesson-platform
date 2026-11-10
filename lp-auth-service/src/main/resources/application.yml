@@ -67,6 +67,9 @@ lp:
     account-deletion:
       trade-base-url: ${LP_AUTH_TRADE_BASE_URL:http://127.0.0.1:8103}
       trade-read-timeout: ${LP_AUTH_TRADE_READ_TIMEOUT:2s}
+      # Fixed once per request: effective_at is stored, so changing this value never moves a
+      # deletion date already promised to a user.
+      cooling-off-period: ${LP_AUTH_CANCELLATION_COOLING_OFF:7d}
 
 management:
   endpoints:

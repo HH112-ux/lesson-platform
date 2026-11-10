@@ -5,6 +5,7 @@ import com.lp.common.security.PemKeys;
 import java.nio.file.Path;
 import java.security.PrivateKey;
 import java.security.interfaces.RSAPrivateKey;
+import java.time.Clock;
 import java.time.Duration;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -39,6 +40,21 @@ public class AuthConfiguration {
     @Bean
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
+    }
+
+    /**
+     * Creates the clock used to fix cancellation deadlines.
+     *
+     * <p>Injecting the clock keeps {@code effective_at} and the remaining seconds of a request
+     * verifiable in tests without changing the production default.
+     *
+     * @return system clock in the JVM default zone, matching the database session zone
+     * @author Caspian
+     * @since 0.2.0
+     */
+    @Bean
+    public Clock clock() {
+        return Clock.systemDefaultZone();
     }
 
     /**
