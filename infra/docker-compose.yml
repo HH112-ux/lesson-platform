@@ -170,6 +170,10 @@ services:
       LP_REDIS_HOST: redis
       LP_REDIS_PORT: "6379"
       LP_JWT_PRIVATE_KEY_PATH: /run/jwt/jwt-private.pem
+      LP_AUTH_CANCELLATION_EXECUTION_ENABLED: ${LP_AUTH_CANCELLATION_EXECUTION_ENABLED:-false}
+      LP_ANONYMIZE_SALT: ${LP_ANONYMIZE_SALT:-}
+      LP_MINIAPP_LOGIN_ENABLED: ${LP_MINIAPP_LOGIN_ENABLED:-false}
+      LP_MINIAPP_LOGIN_MOCK_ENABLED: ${LP_MINIAPP_LOGIN_MOCK_ENABLED:-false}
     volumes:
       - ./jwt:/run/jwt:ro
     ports:
