@@ -374,6 +374,8 @@ curl -s http://127.0.0.1:8103/internal/v1/entitlement-outbox/stats \
 
 - 旧名 `LP_AUTH_CANCELLATION_EXECUTION_ENABLED` 已于 2026-11-10 改名废弃，**不再生效**；外部脚本若仍用旧名，执行任务会静默保持关闭。
 - 执行依赖 trade-service 的 `/internal/v1/account-deletion/anonymize`；trade 不可达时本地匿名化整体回滚，申请单留在 `status=0`，下一轮重试。
+- 注销生效后**不主动吊销 refresh token**：Redis 中该账号剩余的 `lp:auth:refresh:*` 键按 TTL 自然过期，最长 7 天（`lp.auth.jwt.refresh-token-ttl-seconds` 默认 `604800`），不要据此认为已即时吊销。真正拦住刷新的是 `status=3` 的状态判定，`/auth/refresh` 与 `/auth/me` 在注销后立即返回 `67001`（AC-14）。
+- 执行类指标与告警规则见 [infra/observability/README.md](../infra/observability/README.md)。
 
 ## 5. Web 前端
 
