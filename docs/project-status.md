@@ -31,7 +31,7 @@
 | M0 基建 | 完成 | Compose、Flyway、网关、统一返回、身份头、CI、本地验收脚本均可运行；`infra/observability` 已提供 Prometheus / Alertmanager / Grafana 本地编排与抓取配置 | 2026-11-10 |
 | M1 账号与内容（含教师端） | 部分完成 | 注册登录、RBAC 种子、分类/课程/章节课时、教师课程 API、课程审核与审计、教师入驻审核接口已通；视频上传、全文搜索、教师前端未做 | 2026-11-09 |
 | M2 交易与学习 | 部分完成 | 购物车 API、下单幂等、0 元课、模拟支付、权益 outbox、播放签名、进度回写已通；真实支付宝未接 | 2026-11-09 |
-| M3 互动与后台 | 部分完成 | 运营审核、用户/订单查询、退款审核、看板概览已通；UGC、对账、举报处置未做 | 2026-11-09 |
+| M3 互动与后台 | 部分完成 | 运营审核、用户/订单查询、退款审核、看板概览、对账 CSV 导入与差异处置已通；UGC、举报处置未做，对账缺自动拉账与日结/结算 | 2026-11-10 |
 | M4 AI MVP | 未开始 | `lp-ai-service` 仅有启动类与 `package-info` | 2026-11-09 |
 | M5 Web 加固与上线 | 未开始 | 无压测、安全测试、灰度与部署流水线 | 2026-11-09 |
 | M6 小程序端 | 部分完成 | 4 个页面 + 静默登录 + 购买引导；无评论，未配置 AppID，未提审 | 2026-11-09 |
@@ -73,7 +73,7 @@
 | SPEC-TRADE-011 | 退款成功后的权益处理 | 已完成 | — | 4/4 |
 | SPEC-TRADE-012 | 购票（Web 购买、小程序引导） | 进行中 | L2-2 | 4/4 |
 | SPEC-TRADE-013 | 金额单位与边界约束 | 已完成 | — | 5/5 |
-| SPEC-TRADE-014 | 支付对账与差异处置 | 未开始 | 真实收款前置 | 0/4 |
+| SPEC-TRADE-014 | 支付对账与差异处置 | 进行中 | 真实收款前置 | 2/4 |
 | SPEC-LEARN-001 | 权益发放与幂等 | 已完成 | — | 4/4 |
 | SPEC-LEARN-002 | 退款后的权益撤销 | 已完成 | — | 4/4 |
 | SPEC-LEARN-003 | 播放凭证与访问控制 | 已完成 | — | 6/6 |
@@ -109,9 +109,9 @@
 | L1-5 | 教师入驻审核 | SPEC-COURSE-009（5/5） | 已完成 | 审核接口、权限码 `admin:teacher:audit` 与重新提交已通；运营与教师端无页面，档案未打 L1-5 层级标记 | 2026-11-10 |
 | L1-6 | 登录风控与网关边界 | SPEC-PLAT-011（8/8）、SPEC-PLAT-012（8/8）、SPEC-PLAT-013（7/7） | 已完成 | 小程序登录频控、网关限流与 CORS 白名单三项 AC 全满足 | 2026-11-10 |
 | L1-7 | 统一操作审计 | SPEC-PLAT-010（10/10） | 已完成 | 三类审核的统一审计已完成；原同层级的账号注销已按门槛编号移到 L1-8 | 2026-11-10 |
-| L1-8 | 账号注销 | SPEC-PLAT-004（26/33） | 进行中 | 已实现 26 条：AC-1/2/3/4/5/7/8/10/11/12/13/14/15/18/19/20/21/23/24/26/27/28/29/30/31/32，覆盖申请与撤销、7 天冷静期落库、重复申请幂等、阻塞失败关闭、员工账号拒绝、查询与状态门禁、trade 冷静期守卫、执行任务与匿名化、环境变量与指标。剩余 7 条均为「部分」：AC-6、AC-9、AC-16、AC-17 已有单测但未在真实链路复核；AC-25 日志字段已补齐，尚无日志断言与真实采样；AC-33 三条规则已就位，但没有 Prometheus/Alertmanager 进程加载求值，随 L1-10 关闭；AC-22 的 Web 侧已于 2026-11-10 用真实账号浏览器实跑（申请/倒计时/撤销/67003 常驻提示/67005 下单与支付门禁），小程序真机预览受外部条件阻塞（无 AppID） | 2026-11-10 |
-| L1-9 | 支付对账 | SPEC-TRADE-014（0/4） | 未开始 | 「未完成对账能力不得开启真实收款」已写在 4.1「支付宝对账」行，并由 SPEC-TRADE-014 AC-4 约束；层级为「真实收款前置」 | 2026-11-10 |
-| L1-10 | 发布前工程化验证 | 无对应规格条目 | 进行中 | 依赖与镜像漏洞扫描已进 CI（`.github/workflows/supply-chain-ci.yml`，Trivy 固定版本，非阻断基线期，报告落 artifact）；备份恢复演练脚本已落地并在本地跑通（`scripts/backup-drill.sh`，逻辑备份、无 binlog PITR、耗时不代表生产 RTO）；后端依赖基线已升到 Boot 3.5.16 + Cloud 2025.0.3，Tomcat/Netty/Jackson/BouncyCastle/minio 等以显式 `dependencyManagement` 钉在修复版本，Trivy HIGH 清空、CRITICAL 由 15 条降到 3 条（剩余为 Spring Framework 6.2.19，Boot 3.5 线无修复版本）；监控栈已落 `infra/observability`（Prometheus / Alertmanager / Grafana，`rule_files` 挂载现有规则文件），8 个服务均暴露 `/actuator/prometheus` 并被抓取（2026-11-10 本地 8/8 UP、规则组 `health=ok`）；AC-33 的 firing 证据仍待演练，E2E 冒烟进 CI 未做，见 3.5 与第 5 章 | 2026-11-10 |
+| L1-8 | 账号注销 | SPEC-PLAT-004（26/33） | 进行中 | 已实现 26 条：AC-1/2/3/4/5/7/8/10/11/12/13/14/15/18/19/20/21/23/24/26/27/28/29/30/31/32，覆盖申请与撤销、7 天冷静期落库、重复申请幂等、阻塞失败关闭、员工账号拒绝、查询与状态门禁、trade 冷静期守卫、执行任务与匿名化、环境变量与指标。剩余 7 条均为「部分」：AC-6、AC-9、AC-16、AC-17 已有单测但未在真实链路复核；AC-25 日志字段已补齐，尚无日志断言与真实采样；AC-33 三条规则已由本地监控栈加载求值（`health=ok`），firing 现场证据待 L1-10 演练；AC-22 的 Web 侧已于 2026-11-10 用真实账号浏览器实跑（申请/倒计时/撤销/67003 常驻提示/67005 下单与支付门禁），小程序真机预览受外部条件阻塞（无 AppID） | 2026-11-10 |
+| L1-9 | 支付对账 | SPEC-TRADE-014（2/4） | 进行中 | 已完成：CSV 账单导入与 `uk_channel_date_type` 幂等覆盖、差异明细落库、ERROR 日志与 `reconcile_diff_total{channel}`、日查询、重跑与人工标记（AC-1/AC-2）。剩余：AC-3 缺日结与结算接口，`50204` 仅在重跑仍待处理时返回，见 4.2「日结与结算」；AC-4 为真实收款开启前的门禁。自动拉账待商户号与账单权限 | 2026-11-10 |
+| L1-10 | 发布前工程化验证 | 无对应规格条目 | 进行中 | 依赖与镜像漏洞扫描已进 CI（`.github/workflows/supply-chain-ci.yml`，Trivy 固定版本，非阻断基线期，报告落 artifact）；备份恢复演练脚本已落地并在本地跑通（`scripts/backup-drill.sh`，逻辑备份、无 binlog PITR、耗时不代表生产 RTO）；后端依赖基线已升到 Boot 3.5.16 + Cloud 2025.0.3，Tomcat/Netty/Jackson/BouncyCastle/minio 等以显式 `dependencyManagement` 钉在修复版本，Trivy HIGH 清空、CRITICAL 由 15 条降到 3 条（剩余为 Spring Framework 6.2.19，Boot 3.5 线无修复版本）；E2E 冒烟已进独立 workflow（`e2e-ci.yml`，不进五项必需检查，失败上传六项取证）；监控栈已落 `infra/observability`（Prometheus / Alertmanager / Grafana，`rule_files` 挂载现有规则文件），8 个服务均暴露 `/actuator/prometheus` 并被抓取（2026-11-10 本地 8 个服务 8/8 UP、规则组 `health=ok`）；AC-33 的 firing 证据仍待演练，见 3.5 与第 5 章 | 2026-11-10 |
 | L1-11 | 内容生产通路（上传→处理→播放链路，教师端或运营后台任一） | SPEC-PLAT-006（5/6） | 进行中 | 上传会话、浏览器单次 PUT 直传、确认回填与运营后台教师入口已成：`apps/admin` 的 `/lesson-videos` 走「建会话→PUT→确认→列表回显」，2026-11-10 用 6 秒 MP4 在本地全栈实跑通过（PUT 200、confirm 200、`course_lesson` 回填 640×360 与字节数、会话置已确认）；`submit` 要求每条可见课时均已确认视频；AC-1~AC-5 有单测与实跑证据。剩余缺口：AC-6 播放地址服务端签名未做（教师端仍无法预览已上传视频），转码未做 | 2026-11-10 |
 
 ---
@@ -178,11 +178,11 @@
 | 本地一键起停 | Compose 拉起 MySQL/Redis/RocketMQ/MinIO/Nacos、7 个后端服务、Web 与后台；构建 jar 与前端、执行迁移、导入种子 | `infra/docker-compose.yml`、`scripts/dev-up.sh`、`scripts/dev-down.sh` | 2026-11-09 |
 | 演示数据 | 教师/运营/学员/管理员账号、多状态课程与一笔已支付订单 | `db/seed/demo-seed.sql`、`scripts/seed/seed-demo.sh` | 2026-11-09 |
 | 验收与演练 | 冒烟、outbox 故障演练、退款闭环演练、一条命令验收；支付发起与退款申请的 `Idempotency-Key` 头已补齐，`verify-all.sh` 可在本机全绿 | `scripts/smoke.sh`、`scripts/outbox-fault-drill.sh`、`scripts/refund-drill.sh`、`scripts/verify-all.sh` | 2026-11-10 |
-| CI | `backend-build`/`backend-test`、`frontend-check`、`miniapp-check`、`docs-check` | `.github/workflows/backend-ci.yml`、`frontend-ci.yml`、`docs-ci.yml` | 2026-11-09 |
+| CI | `backend-build`/`backend-test`、`frontend-check`、`miniapp-check`、`docs-check`；`e2e` 为独立 workflow，不进五项必需检查 | `.github/workflows/backend-ci.yml`、`frontend-ci.yml`、`docs-ci.yml`、`e2e-ci.yml` | 2026-11-10 |
 | 依赖与镜像漏洞扫描 | Trivy 固定 0.76.2，扫 Maven `pom.xml`、`pnpm-lock.yaml` 与基础镜像；基线期只报告不阻断，不进五项必需检查；基础镜像周扫在 `schedule` 与手动触发时跑；`.trivyignore.yaml` 规定每条必须带 `id`/`paths`/`statement`/`expired_at`。2026-11-10 升到 Boot 3.5.16 + Cloud 2025.0.3 并补齐 jackson/guava/minio/snappy 补丁后实测 unique 3 条（CRITICAL 3 / HIGH 0），升级前为 unique 76 条（CRITICAL 15 / HIGH 61）；剩余 critical 均为 Spring Framework 6.2.19 且只有 7.0.9 修复版本 | `.github/workflows/supply-chain-ci.yml`、`.trivyignore.yaml` | 2026-11-10 |
 | 备份恢复演练 | `mysqldump` 七个库 → 隔离恢复实例（`--rm`、无卷、临时端口）→ 比对表清单、逐表行数、`CHECKSUM TABLE`、`flyway_schema_history` 最大版本；MinIO `mc mirror --preserve` 双向（桶→宿主机备份树→新桶）→ 比对对象数、字节数与 ETag。边界：逻辑备份、RPO = 两次 dump 间隔且无 binlog PITR、本机耗时不代表生产 RTO | `scripts/backup-drill.sh` | 2026-11-10 |
 | 本地钩子 | `pre-commit` 跑文档校验与 Spotless，`commit-msg` 跑提交信息校验 | `.githooks/pre-commit`、`.githooks/commit-msg`、`scripts/install-hooks.sh` | 2026-11-09 |
-| 测试 | 47 个后端测试类、6 个前端 spec；无端到端测试进入 CI | `lp-*/src/test/**`、`apps/*/src/**/*.spec.ts` | 2026-11-09 |
+| 测试 | 47 个后端测试类、6 个前端 spec；端到端冒烟由 `e2e-ci.yml` 在 push、每日定时与手动触发时运行（PR 仅按路径触发），失败上传六项取证 | `lp-*/src/test/**`、`apps/*/src/**/*.spec.ts`、`.github/workflows/e2e-ci.yml` | 2026-11-10 |
 | 未做 | 镜像构建与推送、staging/prod 部署 | `.github/workflows/**`、`infra/**` | 2026-11-10 |
 
 ---
@@ -196,7 +196,7 @@
 | 功能 | 文档出处 | 现状 | 卡点 | 最后核对日期 |
 |---|---|---|---|---|
 | 真实支付宝支付 | engineering-plan 1.2、5.5、13.2 M2；15.2 D2 | 只有 `MockPaymentGateway` 与未配置即报 50205 的占位实现，无支付宝 SDK 适配器 | 缺商户号、应用私钥、公钥证书、回调域名 | 2026-11-09 |
-| 支付宝对账 | engineering-plan 1.2、13.2 M3、15.1 R11；SPEC-TRADE-014 | 无 `payment_reconcile` 表、无拉账任务、无差异告警 | 依赖商户号与账单权限；**未完成对账能力不得开启真实收款** | 2026-11-09 |
+| 支付宝对账 | engineering-plan 1.2、13.2 M3、15.1 R11；SPEC-TRADE-014 | 已实现 CSV 账单导入（支付/退款）、`uk_channel_date_type` 幂等覆盖、差异明细与告警、日查询、重跑与人工标记（`/api/v1/reconcile/**`）；**无自动拉账任务，无日结/结算接口**（`50204` 已在重跑仍待处理时返回，为其预留） | 自动拉账依赖商户号与账单权限；**未完成对账能力不得开启真实收款** | 2026-11-10 |
 | 支付宝回调 `app_id` 校验 | SPEC-TRADE-005 AC-6；engineering-plan 5.5、8.3 | 回调只验签与校验金额，未比对 `app_id`；当前为 Mock 渠道 | 阻塞：真实渠道接入时实现 | 2026-11-09 |
 | 小程序支付（JSAPI）与 `payer_openid` 落库 | product-lifecycle F07；engineering-plan 5.5、15.2 D2；SPEC-TRADE-012 | 无小程序支付实现；`payment_record.payer_openid` 当前无写入方，只有账号注销的匿名化会读取并覆写该列 | 缺 AppID、商户号与 APIv3 密钥；注销演练中该列只能由 SQL fixture 预置，属非接口写入，随小程序支付链路补齐 | 2026-11-10 |
 
@@ -204,6 +204,8 @@
 
 | 功能 | 文档出处 | 现状 | 卡点 | 最后核对日期 |
 |---|---|---|---|---|
+| 日结与结算 | SPEC-TRADE-014 AC-3 与 Q-2；engineering-plan 5.2、5.5 | 无日结与结算接口；`50204` 已实现并在重跑对账仍待处理时返回，为该场景预留 | 结算口径（对象、周期、金额来源）未冻结 | 2026-11-10 |
+| 对账账单对象存储归档 | SPEC-TRADE-014 Q-3；engineering-plan 10.4 | 已定：维持库内 `payment_reconcile.raw_bill`，不迁 MinIO。账单是文本、单日行数量级小，对象存储归档属可选优化；**如单日账单体积上量再评估对象存储归档** | 无（按需评估，不阻塞上线） | 2026-11-10 |
 | 评论、两级回复、收藏、举报与内容审核 | product-lifecycle F11/F12、4.3；engineering-plan 13.2 M3 | `lp-ugc-service` 仅有启动类与 `package-info`，`lp_ugc` 仅有 V1 基线 | 未排期；依赖 UGC 表设计与审核链路 | 2026-11-09 |
 | AI 课程画像、审核、文案、学伴、BYO 模型配置 | product-lifecycle F15–F18；engineering-plan 第 7 章、13.2 M4 | `lp-ai-service` 仅有启动类与 `package-info`，`lp_ai` 仅有 V1 基线 | 未排期；缺客户模型 key 与配置界面 | 2026-11-09 |
 | 购物车页面 | product-lifecycle F07、4.3 | 后端 `/api/v1/cart` 可用，Web 无购物车页面 | 未排期 | 2026-11-09 |
@@ -229,6 +231,7 @@
 | 小程序购买 ticket 闭环 | engineering-plan 15.2 D2；错误码 62012–62015 | ticket 签发与兑换接口已实现、Web 可兑换；小程序只复制普通链接，不签发 ticket | 前后端未接线 | 2026-11-09 |
 | 监控栈与告警 | engineering-plan 13.6 M0-40/M0-41 | 8 个服务均含 `micrometer-registry-prometheus`，`/actuator/prometheus` 可抓取并有 `http_server_requests`；`infra/observability` 提供 Prometheus / Alertmanager / Grafana 编排，`rule_files` 直接挂载现有三条规则，本地 8/8 target UP、规则组 `health=ok` | 规则已真实求值；AC-33 还差 firing 现场证据（PR B 演练），Grafana 按边界不铺面板 | 2026-11-10 |
 | 不存在的路径返回 `50001` | `lp-common` 的 `GlobalExceptionHandler` | `NoResourceFoundException` 落入兜底 `Exception` 分支，被报成 `50001 internal server error`；实际是路径或端点不存在（如未注册的 `/actuator/prometheus`），排查时容易被误导为服务端故障 | 技术债；应映射为 `40401`，与 `ErrorCode.NOT_FOUND` 对齐 | 2026-11-10 |
+| 预签名地址与服务端回读地址未拆分 | `lp-course-service` 的 `lp.course.upload.minio-endpoint` | 同一个端点既用于生成浏览器侧预签名 PUT URL，又用于 confirm 时容器内回读对象：容器内必须指 `http://minio:9000`，而该主机名在宿主机浏览器里不可解析，本地靠修改 `/etc/hosts` 兜底；指宿主机 LAN IP 则容器内 `connection refused`（MinIO 只绑定 `127.0.0.1`） | 技术债；应拆成「浏览器侧签名地址」与「服务端回读地址」两个配置，拆分前本地按 `docs/local-dev-guide.md` 的 hosts 步骤操作 | 2026-11-10 |
 | 小程序 CI 上传 | engineering-plan 13.6 M0-49 | CI 仅做静态检查，无 `miniprogram-ci` 上传 | 缺 AppID 与上传私钥 | 2026-11-09 |
 | staging/prod 部署 | engineering-plan 3.3、3.4、13.2 M5 | 无镜像构建、K8s 清单或部署 workflow | 缺服务器、域名、备案与凭据 | 2026-11-09 |
 
@@ -271,7 +274,7 @@
 
 | 文档表述 | 实际实现 | 处理建议 | 最后核对日期 |
 |---|---|---|---|
-| README "初版不包含退款与对账" | 退款闭环已合并（`1a56af8`、`b4be3b6`），对账确实未做 | 拆分表述：退款已做、对账未做 | 2026-11-09 |
+| README "初版不包含退款与对账" | 退款闭环已合并（`1a56af8`、`b4be3b6`）；对账已合并 CSV 导入、重跑与人工标记，自动拉账与日结/结算未做 | 拆分表述：退款已做；对账已做 CSV 链路，自动拉账与日结未做 | 2026-11-10 |
 | engineering-plan 1.2 教师工作台位于 `apps/admin` | 后台仅有运营页面，无教师建课界面 | 标注为"仅 API，界面未做" | 2026-11-09 |
 | engineering-plan 15.2 D11 下单 30 分钟自动关单 | 无定时关单任务 | 标注为未实现 | 2026-11-09 |
 | engineering-plan 1.3 允许 MySQL 全文索引搜索 | 查询使用 `LIKE`，`ft_` 索引未使用 | 标注当前为 `LIKE`，全文检索待做 | 2026-11-09 |
