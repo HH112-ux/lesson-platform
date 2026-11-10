@@ -124,7 +124,7 @@ public class IdempotencyService {
             return degraded(scope, traceId, null, action);
         }
         if (lease == Lease.ACQUIRED) {
-            return executeAsOwner(scope, userId, keyHash, ownerToken, digest, traceId, action);
+            return executeAfterAcquire(scope, userId, keyHash, ownerToken, digest, traceId, action);
         }
 
         long deadline = System.nanoTime() + waitTimeout.toNanos();
@@ -147,12 +147,58 @@ public class IdempotencyService {
                 return degraded(scope, traceId, null, action);
             }
             if (retry == Lease.ACQUIRED) {
-                return executeAsOwner(scope, userId, keyHash, ownerToken, digest, traceId, action);
+                return executeAfterAcquire(
+                        scope, userId, keyHash, ownerToken, digest, traceId, action);
             }
         }
         throw new BizException(
                 ErrorCode.IDEMPOTENCY_IN_PROGRESS,
                 "the first request with this Idempotency-Key is still running");
+    }
+
+    /**
+     * Rechecks the stored result before running the action under a freshly acquired lease.
+     *
+     * <p>The previous owner stores its result before releasing the lease, so a request can win the
+     * lease and only then see that result. Running the action in that window would overwrite the
+     * first result, therefore the lease is dropped and the stored response replayed instead.
+     *
+     * @param scope endpoint scope
+     * @param userId authenticated buyer id
+     * @param keyHash SHA-256 hash of the client key
+     * @param ownerToken token of the lease this request just acquired
+     * @param digest canonical request digest
+     * @param traceId trace id used when the action must still run
+     * @param action business action producing the payload
+     * @param <T> payload type
+     * @return replay of the stored result, or the outcome of running the action
+     * @author Caspian
+     * @since 0.4.0
+     */
+    private <T> IdempotencyOutcome<String> executeAfterAcquire(
+            IdempotencyScope scope,
+            long userId,
+            String keyHash,
+            String ownerToken,
+            String digest,
+            String traceId,
+            Supplier<T> action) {
+        Lookup confirmed;
+        try {
+            confirmed = lookup(scope, userId, keyHash, digest);
+        } catch (RuntimeException exception) {
+            releaseQuietly(scope, userId, keyHash, ownerToken);
+            throw exception;
+        }
+        if (confirmed.replayed() != null) {
+            releaseQuietly(scope, userId, keyHash, ownerToken);
+            return confirmed.replayed();
+        }
+        if (confirmed.degraded()) {
+            releaseQuietly(scope, userId, keyHash, ownerToken);
+            return degraded(scope, traceId, null, action);
+        }
+        return executeAsOwner(scope, userId, keyHash, ownerToken, digest, traceId, action);
     }
 
     private <T> IdempotencyOutcome<String> executeAsOwner(
@@ -178,14 +224,19 @@ public class IdempotencyService {
             }
             return new IdempotencyOutcome<>(body, false);
         } finally {
-            try {
-                store.releaseLease(scope, userId, keyHash, ownerToken);
-            } catch (RuntimeException exception) {
-                LOG.warn(
-                        "idempotency lease release failed: scope={}, reason={}",
-                        scope.slug(),
-                        exception.toString());
-            }
+            releaseQuietly(scope, userId, keyHash, ownerToken);
+        }
+    }
+
+    private void releaseQuietly(
+            IdempotencyScope scope, long userId, String keyHash, String ownerToken) {
+        try {
+            store.releaseLease(scope, userId, keyHash, ownerToken);
+        } catch (RuntimeException exception) {
+            LOG.warn(
+                    "idempotency lease release failed: scope={}, reason={}",
+                    scope.slug(),
+                    exception.toString());
         }
     }
 
