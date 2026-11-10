@@ -15,6 +15,9 @@ const state = ref<AccountCancellationView | null>(null)
 const loading = ref(false)
 const needLogin = ref(false)
 const errorText = ref('')
+const actionError = ref('')
+const notice = ref('')
+const busy = ref(false)
 const remaining = ref(0)
 let timer: number | undefined
 
@@ -76,6 +79,9 @@ async function load(): Promise<void> {
 
 /** Applies or withdraws after the browser confirmation and refreshes the state. */
 async function run(decision: 'apply' | 'withdraw'): Promise<void> {
+  busy.value = true
+  actionError.value = ''
+  notice.value = ''
   try {
     if (decision === 'apply') {
       const view = await applyCancellation()
@@ -84,10 +90,15 @@ async function run(decision: 'apply' | 'withdraw'): Promise<void> {
     } else {
       await withdrawCancellation()
       stopTimer()
+      notice.value = '已撤销注销申请，账号恢复正常使用。'
     }
     await load()
   } catch (error) {
-    window.alert(describeError(error, decision === 'apply' ? '注销申请提交失败' : '撤销失败'))
+    // Blocked applications stay on the page instead of a modal: the reason (unfinished order or
+    // refund, 67003) has to remain readable while the user goes off to resolve it.
+    actionError.value = describeError(error, decision === 'apply' ? '注销申请提交失败' : '撤销失败')
+  } finally {
+    busy.value = false
   }
 }
 
@@ -138,45 +149,63 @@ onUnmounted(stopTimer)
         action-label="重试"
         @action="load"
       />
-      <section
-        v-else-if="coolingOff"
-        class="lp-card"
-      >
-        <p class="notice">
-          注销冷静期中，暂不可购买
-        </p>
-        <p class="line">
-          距离账号删除还剩 <strong class="countdown">{{ countdown }}</strong>
-        </p>
-        <p class="line lp-subtle">
-          到期后账号将被注销：用户名、手机号、邮箱与微信绑定会被清除，已购课程与订单不再可访问。冷静期内可以正常登录、学习已购内容与申请退款，但不能新建订单或发起支付。
-        </p>
-        <button
-          type="button"
-          class="lp-btn"
-          @click="askWithdraw"
+      <template v-else>
+        <p
+          v-if="actionError"
+          class="lp-alert"
+          role="alert"
         >
-          撤销注销申请
-        </button>
-      </section>
-      <section
-        v-else
-        class="lp-card"
-      >
-        <p class="line">
-          注销申请提交后进入 7 天冷静期，冷静期内可随时撤销，到期后账号与个人信息将被删除且无法恢复。
+          {{ actionError }}
         </p>
-        <p class="line lp-subtle">
-          存在进行中的订单或退款时无法提交申请，请先处理完再试。
-        </p>
-        <button
-          type="button"
-          class="lp-btn lp-btn--ghost"
-          @click="askApply"
+        <p
+          v-if="notice"
+          class="ok"
+          role="status"
         >
-          申请注销账号
-        </button>
-      </section>
+          {{ notice }}
+        </p>
+        <section
+          v-if="coolingOff"
+          class="lp-card"
+        >
+          <p class="notice">
+            注销冷静期中，暂不可购买
+          </p>
+          <p class="line">
+            距离账号删除还剩 <strong class="countdown">{{ countdown }}</strong>
+          </p>
+          <p class="line lp-subtle">
+            到期后账号将被注销：用户名、手机号、邮箱与微信绑定会被清除，已购课程与订单不再可访问。冷静期内可以正常登录、学习已购内容与申请退款，但不能新建订单或发起支付。
+          </p>
+          <button
+            type="button"
+            class="lp-btn"
+            :disabled="busy"
+            @click="askWithdraw"
+          >
+            撤销注销申请
+          </button>
+        </section>
+        <section
+          v-else
+          class="lp-card"
+        >
+          <p class="line">
+            注销申请提交后进入 7 天冷静期，冷静期内可随时撤销，到期后账号与个人信息将被删除且无法恢复。
+          </p>
+          <p class="line lp-subtle">
+            存在进行中的订单或退款时无法提交申请，请先处理完再试。
+          </p>
+          <button
+            type="button"
+            class="lp-btn lp-btn--ghost"
+            :disabled="busy"
+            @click="askApply"
+          >
+            申请注销账号
+          </button>
+        </section>
+      </template>
     </div>
   </main>
 </template>
@@ -186,4 +215,7 @@ onUnmounted(stopTimer)
 .notice { margin: 0 0 12px; padding: 10px 12px; border-radius: 8px; background: #fff4e5; color: var(--lp-warning); font-size: 14px; font-weight: 600; }
 .line { margin: 0 0 12px; font-size: 14px; line-height: 1.7; }
 .countdown { color: var(--lp-danger); font-family: ui-monospace, Menlo, monospace; }
+.lp-alert { margin: 0 0 12px; }
+.ok { margin: 0 0 12px; padding: 10px 12px; border-radius: var(--lp-radius-sm); background: #eaf6ef; color: var(--lp-success); font-size: 13px; }
+.lp-btn:disabled { opacity: 0.6; cursor: not-allowed; }
 </style>
