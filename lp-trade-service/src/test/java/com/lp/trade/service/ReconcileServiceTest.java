@@ -16,6 +16,7 @@ import com.lp.trade.entity.RefundRequest;
 import com.lp.trade.mapper.PaymentReconcileMapper;
 import com.lp.trade.reconcile.ReconcileBillCsvParser;
 import com.lp.trade.reconcile.ReconcileCalculator;
+import com.lp.trade.reconcile.ReconcilePageView;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -98,6 +99,49 @@ class ReconcileServiceTest {
         assertThrows(
                 BizException.class, () -> service.importBill(2, BILL_DATE, 1, csv("T1,,9.90,")));
         verify(reconcileMapper, never()).upsert(any());
+    }
+
+    @Test
+    void dailyReturnsPagedAggregatesWithClampedPaging() {
+        when(reconcileMapper.count(1, BILL_DATE, null)).thenReturn(1L);
+        when(reconcileMapper.page(1, BILL_DATE, null, 0, 100))
+                .thenReturn(List.of(aggregate(7L, 1)));
+
+        ReconcilePageView page = service.daily(1, BILL_DATE, null, 0, 500);
+
+        assertEquals(1, page.records().size());
+        assertEquals(Long.valueOf(7L), page.records().get(0).id());
+        assertEquals(1L, page.total());
+        assertEquals(1, page.pageNum());
+        assertEquals(100, page.pageSize());
+    }
+
+    @Test
+    void dailyRejectsMissingBillDate() {
+        assertThrows(BizException.class, () -> service.daily(1, null, null, 1, 20));
+        verify(reconcileMapper, never()).count(any(), any(), any());
+    }
+
+    @Test
+    void dailyRejectsUnknownStatus() {
+        assertThrows(BizException.class, () -> service.daily(1, BILL_DATE, 4, 1, 20));
+        verify(reconcileMapper, never()).count(any(), any(), any());
+    }
+
+    private PaymentReconcile aggregate(Long id, int status) {
+        PaymentReconcile row = new PaymentReconcile();
+        row.setId(id);
+        row.setChannel(1);
+        row.setBillDate(BILL_DATE);
+        row.setBillType(1);
+        row.setChannelCount(1);
+        row.setChannelAmount(new BigDecimal("9.90"));
+        row.setLocalCount(1);
+        row.setLocalAmount(new BigDecimal("9.90"));
+        row.setDiffCount(0);
+        row.setDiffAmount(BigDecimal.ZERO);
+        row.setStatus(status);
+        return row;
     }
 
     private PaymentReconcile captureUpsert() {
