@@ -1,0 +1,43 @@
+# Alerting rules for the account cancellation execution job (SPEC-PLAT-004, L1-8).
+# Only rules live here: no Grafana dashboards, no Alertmanager routes and no recording rules.
+# Metric contract, threshold rationale and local verification: infra/observability/README.md
+groups:
+  - name: lp-auth-account-cancellation
+    rules:
+      - alert: LpAuthAccountCancellationExecuteFailed
+        expr: |
+          sum by (userId) (
+            increase(lp_auth_account_cancellation_execute_failed_total[15m])
+          ) >= 3
+        for: 5m
+        labels:
+          severity: critical
+          service: auth-service
+          domain: account-cancellation
+        annotations:
+          summary: "Account cancellation keeps failing for userId {{ $labels.userId }}"
+          description: >-
+            The execution job retried the same account at least three times in fifteen minutes and
+            every attempt rolled back. There is no retry cap by design, so the request stays due and
+            the deletion never completes. Check auth-service logs for "account cancellation failed"
+            (the reason names the dependency that broke), then the trade-service
+            /internal/v1/account-deletion/anonymize endpoint and its database.
+          runbook: "infra/observability/README.md"
+      - alert: LpAuthAccountCancellationExecuteSkippedPersistent
+        expr: |
+          sum by (userId) (
+            increase(lp_auth_account_cancellation_execute_skipped_total[24h])
+          ) >= 48
+        for: 10m
+        labels:
+          severity: warning
+          service: auth-service
+          domain: account-cancellation
+        annotations:
+          summary: "Account cancellation skipped 48 times in 24h for userId {{ $labels.userId }}"
+          description: >-
+            AC-12: the request stayed due for a full day of scans, so the account remains in the
+            cooling-off state past its effective_at. Inspect the user's unfinished orders and refund
+            requests in trade. The skip log line separates "blocked" from "already-claimed" (another
+            replica won) and "status-changed" (the user withdrew first).
+          runbook: "infra/observability/README.md"
