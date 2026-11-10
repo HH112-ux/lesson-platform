@@ -1,11 +1,13 @@
 package com.lp.auth.service.impl;
 
 import com.lp.auth.client.AccountDeletionBlockerClient;
+import com.lp.auth.client.AccountDeletionCacheClient;
 import com.lp.auth.config.AccountDeletionProperties;
 import com.lp.auth.constant.AccountCancellationStatus;
 import com.lp.auth.constant.UserStatus;
 import com.lp.auth.dto.AccountCancellationView;
 import com.lp.auth.dto.AccountDeletionBlockerView;
+import com.lp.auth.dto.AccountDeletionStateView;
 import com.lp.auth.entity.UserAccount;
 import com.lp.auth.entity.UserAccountCancellation;
 import com.lp.auth.mapper.AuthUserMapper;
@@ -26,6 +28,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
  * Runs the account cancellation request flow inside {@code lp_ums}.
@@ -39,6 +43,10 @@ import org.springframework.transaction.annotation.Transactional;
  * <p>Blockers live in the trade domain, so this service asks the trade internal API instead of
  * reading trade tables. That probe fails closed: an unusable answer is surfaced as {@code 50401}
  * and no request row is written.
+ *
+ * <p>A successful apply or withdraw also drops the trade-side cached state. The call is registered
+ * for after commit and runs on a background thread, so a rollback cannot clear a cache that still
+ * matches the database and the user's response never waits for the invalidation.
  *
  * @author Caspian
  * @since 0.2.0
@@ -67,6 +75,8 @@ public class AccountCancellationServiceImpl implements AccountCancellationServic
 
     private final AccountDeletionBlockerClient blockerClient;
 
+    private final AccountDeletionCacheClient cacheClient;
+
     private final AccountDeletionProperties properties;
 
     private final MeterRegistry meterRegistry;
@@ -79,6 +89,7 @@ public class AccountCancellationServiceImpl implements AccountCancellationServic
      * @param authUserMapper account status and role queries
      * @param cancellationMapper cancellation request persistence
      * @param blockerClient trade-side blocker probe
+     * @param cacheClient trade-side cooling-off cache invalidation
      * @param properties cooling-off period and trade probe settings
      * @param meterRegistry registry for applied and withdrawn counters
      * @param clock clock used to fix deadlines and remaining seconds
@@ -89,12 +100,14 @@ public class AccountCancellationServiceImpl implements AccountCancellationServic
             AuthUserMapper authUserMapper,
             UserAccountCancellationMapper cancellationMapper,
             AccountDeletionBlockerClient blockerClient,
+            AccountDeletionCacheClient cacheClient,
             AccountDeletionProperties properties,
             MeterRegistry meterRegistry,
             Clock clock) {
         this.authUserMapper = authUserMapper;
         this.cancellationMapper = cancellationMapper;
         this.blockerClient = blockerClient;
+        this.cacheClient = cacheClient;
         this.properties = properties;
         this.meterRegistry = meterRegistry;
         this.clock = clock;
@@ -135,6 +148,7 @@ public class AccountCancellationServiceImpl implements AccountCancellationServic
                     userId,
                     existing.getEffectiveAt(),
                     source);
+            invalidateTradeCacheAfterCommit(userId);
             return viewOf(existing, now());
         }
 
@@ -171,6 +185,7 @@ public class AccountCancellationServiceImpl implements AccountCancellationServic
 
         authUserMapper.updateStatusIfCurrent(userId, UserStatus.ACTIVE, UserStatus.COOLING_OFF);
         meterRegistry.counter(METRIC_APPLIED).increment();
+        invalidateTradeCacheAfterCommit(userId);
         LOG.info(
                 "account cancellation applied userId={} effectiveAt={} source={}",
                 userId,
@@ -205,6 +220,7 @@ public class AccountCancellationServiceImpl implements AccountCancellationServic
         }
         authUserMapper.updateStatusIfCurrent(userId, UserStatus.COOLING_OFF, UserStatus.ACTIVE);
         meterRegistry.counter(METRIC_WITHDRAWN).increment();
+        invalidateTradeCacheAfterCommit(userId);
         LOG.info(
                 "account cancellation withdrawn userId={} effectiveAt={} source={}",
                 userId,
@@ -227,6 +243,55 @@ public class AccountCancellationServiceImpl implements AccountCancellationServic
             return new AccountCancellationView(null, null, 0);
         }
         return viewOf(latest, now());
+    }
+
+    /**
+     * Reports whether a user is inside the cooling-off period for other services.
+     *
+     * @param userId account owner
+     * @return cooling-off decision plus the deadline when one is active
+     * @author Caspian
+     * @since 0.3.0
+     */
+    @Override
+    public AccountDeletionStateView state(long userId) {
+        UserAccountCancellation latest = cancellationMapper.selectLatestByUserId(userId);
+        boolean coolingOff =
+                latest != null
+                        && latest.getStatus() != null
+                        && latest.getStatus() == AccountCancellationStatus.COOLING_OFF;
+        return new AccountDeletionStateView(
+                userId,
+                coolingOff,
+                coolingOff && latest.getEffectiveAt() != null
+                        ? latest.getEffectiveAt().format(DEADLINE_FORMAT)
+                        : null);
+    }
+
+    /**
+     * Registers the trade cache invalidation to run after the current transaction commits.
+     *
+     * <p>Registering instead of calling directly keeps a rolled back request from clearing the
+     * cache, and the invalidation client hands the call to a background thread, so the response
+     * never waits for trade. Outside a transaction the call is made immediately, which is correct
+     * because there is no commit to wait for.
+     *
+     * @param userId account owner whose cached state must be dropped
+     * @author Caspian
+     * @since 0.3.0
+     */
+    private void invalidateTradeCacheAfterCommit(long userId) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            cacheClient.invalidate(userId);
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(
+                new TransactionSynchronization() {
+                    @Override
+                    public void afterCommit() {
+                        cacheClient.invalidate(userId);
+                    }
+                });
     }
 
     /**

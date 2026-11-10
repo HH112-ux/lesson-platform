@@ -22,6 +22,8 @@ public class AccountDeletionProperties {
 
     private Duration coolingOffPeriod = Duration.ofDays(7);
 
+    private Duration cacheInvalidateReadTimeout = Duration.ofMillis(200);
+
     /**
      * Returns the base URL of the trade-service internal API.
      *
@@ -89,5 +91,30 @@ public class AccountDeletionProperties {
      */
     public void setCoolingOffPeriod(Duration coolingOffPeriod) {
         this.coolingOffPeriod = coolingOffPeriod;
+    }
+
+    /**
+     * Returns the read timeout applied to trade cache invalidation calls.
+     *
+     * <p>The call runs off the request thread, so the timeout bounds only how long a background
+     * worker waits; it never adds latency to the user's response.
+     *
+     * @return read timeout, defaults to 200 milliseconds
+     * @author Caspian
+     * @since 0.3.0
+     */
+    public Duration getCacheInvalidateReadTimeout() {
+        return cacheInvalidateReadTimeout;
+    }
+
+    /**
+     * Sets the read timeout applied to trade cache invalidation calls.
+     *
+     * @param cacheInvalidateReadTimeout read timeout, must be positive
+     * @author Caspian
+     * @since 0.3.0
+     */
+    public void setCacheInvalidateReadTimeout(Duration cacheInvalidateReadTimeout) {
+        this.cacheInvalidateReadTimeout = cacheInvalidateReadTimeout;
     }
 }

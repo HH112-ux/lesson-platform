@@ -10,11 +10,13 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.lp.auth.client.AccountDeletionBlockerClient;
+import com.lp.auth.client.AccountDeletionCacheClient;
 import com.lp.auth.config.AccountDeletionProperties;
 import com.lp.auth.constant.AccountCancellationStatus;
 import com.lp.auth.constant.UserStatus;
 import com.lp.auth.dto.AccountCancellationView;
 import com.lp.auth.dto.AccountDeletionBlockerView;
+import com.lp.auth.dto.AccountDeletionStateView;
 import com.lp.auth.entity.UserAccount;
 import com.lp.auth.entity.UserAccountCancellation;
 import com.lp.auth.mapper.AuthUserMapper;
@@ -33,6 +35,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
  * Covers the apply, withdraw and query branches without a database or a live trade service.
@@ -53,6 +57,8 @@ class AccountCancellationServiceImplTest {
     @Mock private UserAccountCancellationMapper cancellationMapper;
 
     @Mock private AccountDeletionBlockerClient blockerClient;
+
+    @Mock private AccountDeletionCacheClient cacheClient;
 
     private AccountDeletionProperties properties;
 
@@ -75,6 +81,7 @@ class AccountCancellationServiceImplTest {
                         authUserMapper,
                         cancellationMapper,
                         blockerClient,
+                        cacheClient,
                         properties,
                         meterRegistry,
                         Clock.fixed(NOW.toInstant(ZoneOffset.UTC), ZoneOffset.UTC));
@@ -108,6 +115,7 @@ class AccountCancellationServiceImplTest {
         assertThat(view.effectiveAt()).isEqualTo("2026-11-17T10:00:00");
         assertThat(view.remainingSeconds()).isEqualTo(Duration.ofDays(7).getSeconds());
         verify(authUserMapper).updateStatusIfCurrent(7L, UserStatus.ACTIVE, UserStatus.COOLING_OFF);
+        verify(cacheClient).invalidate(7L);
         assertThat(
                         meterRegistry
                                 .get(AccountCancellationServiceImpl.METRIC_APPLIED)
@@ -141,6 +149,8 @@ class AccountCancellationServiceImplTest {
                         anyLong(),
                         org.mockito.ArgumentMatchers.anyInt(),
                         org.mockito.ArgumentMatchers.anyInt());
+        // A retry may follow a failed invalidation, so the replay re-sends it.
+        verify(cacheClient).invalidate(7L);
         assertThat(meterRegistry.find(AccountCancellationServiceImpl.METRIC_APPLIED).counter())
                 .isNull();
     }
@@ -253,6 +263,7 @@ class AccountCancellationServiceImplTest {
 
         verify(cancellationMapper).withdraw(11L, NOW);
         verify(authUserMapper).updateStatusIfCurrent(7L, UserStatus.COOLING_OFF, UserStatus.ACTIVE);
+        verify(cacheClient).invalidate(7L);
         assertThat(
                         meterRegistry
                                 .get(AccountCancellationServiceImpl.METRIC_WITHDRAWN)
@@ -354,6 +365,75 @@ class AccountCancellationServiceImplTest {
         assertThat(view.status()).isNull();
         assertThat(view.effectiveAt()).isNull();
         assertThat(view.remainingSeconds()).isZero();
+    }
+
+    /**
+     * Reports cooling off while the request is active so trade can refuse checkout.
+     *
+     * @author Caspian
+     * @since 0.3.0
+     */
+    @Test
+    void stateReportsCoolingOffForActiveRequest() {
+        when(cancellationMapper.selectLatestByUserId(7L))
+                .thenReturn(request(11L, AccountCancellationStatus.COOLING_OFF, NOW.plusDays(7)));
+
+        AccountDeletionStateView state = service.state(7L);
+
+        assertThat(state.userId()).isEqualTo(7L);
+        assertThat(state.coolingOff()).isTrue();
+        assertThat(state.effectiveAt()).isEqualTo("2026-11-17T10:00:00");
+    }
+
+    /**
+     * A user whose latest request is withdrawn or absent buys normally.
+     *
+     * @author Caspian
+     * @since 0.3.0
+     */
+    @Test
+    void stateReportsNoCoolingOffAfterWithdrawalOrWithoutRequest() {
+        when(cancellationMapper.selectLatestByUserId(7L))
+                .thenReturn(request(11L, AccountCancellationStatus.WITHDRAWN, NOW.plusDays(7)));
+        when(cancellationMapper.selectLatestByUserId(8L)).thenReturn(null);
+
+        AccountDeletionStateView withdrawn = service.state(7L);
+        AccountDeletionStateView absent = service.state(8L);
+
+        assertThat(withdrawn.coolingOff()).isFalse();
+        assertThat(withdrawn.effectiveAt()).isNull();
+        assertThat(absent.coolingOff()).isFalse();
+        assertThat(absent.effectiveAt()).isNull();
+    }
+
+    /**
+     * Invalidates trade only after the transaction commits, so a rollback that keeps the database
+     * unchanged cannot leave trade with a cleared cache.
+     *
+     * @author Caspian
+     * @since 0.3.0
+     */
+    @Test
+    void invalidatesTradeCacheOnlyAfterCommit() {
+        when(authUserMapper.selectById(7L)).thenReturn(account(UserStatus.ACTIVE));
+        when(authUserMapper.selectRoleCodes(7L)).thenReturn(List.of("STUDENT"));
+        when(cancellationMapper.selectActiveByUserId(7L)).thenReturn(null);
+        when(blockerClient.blockers(7L))
+                .thenReturn(new AccountDeletionBlockerView(7L, 0, 0, false));
+
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            service.apply(7L, "user");
+
+            verify(cacheClient, never()).invalidate(anyLong());
+
+            TransactionSynchronizationManager.getSynchronizations()
+                    .forEach(TransactionSynchronization::afterCommit);
+
+            verify(cacheClient).invalidate(7L);
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
     }
 
     /**
