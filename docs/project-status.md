@@ -111,7 +111,7 @@
 | L1-7 | 统一操作审计 | SPEC-PLAT-010（10/10） | 已完成 | 三类审核的统一审计已完成；原同层级的账号注销已按门槛编号移到 L1-8 | 2026-11-10 |
 | L1-8 | 账号注销 | SPEC-PLAT-004（26/33） | 进行中 | 已实现 26 条：AC-1/2/3/4/5/7/8/10/11/12/13/14/15/18/19/20/21/23/24/26/27/28/29/30/31/32，覆盖申请与撤销、7 天冷静期落库、重复申请幂等、阻塞失败关闭、员工账号拒绝、查询与状态门禁、trade 冷静期守卫、执行任务与匿名化、环境变量与指标。剩余 7 条均为「部分」：AC-6、AC-9、AC-16、AC-17 已有单测但未在真实链路复核；AC-25 日志字段已补齐，尚无日志断言与真实采样；AC-33 三条规则已就位，但没有 Prometheus/Alertmanager 进程加载求值，随 L1-10 关闭；AC-22 的 Web 侧已于 2026-11-10 用真实账号浏览器实跑（申请/倒计时/撤销/67003 常驻提示/67005 下单与支付门禁），小程序真机预览受外部条件阻塞（无 AppID） | 2026-11-10 |
 | L1-9 | 支付对账 | SPEC-TRADE-014（0/4） | 未开始 | 「未完成对账能力不得开启真实收款」已写在 4.1「支付宝对账」行，并由 SPEC-TRADE-014 AC-4 约束；层级为「真实收款前置」 | 2026-11-10 |
-| L1-10 | 发布前工程化验证 | 无对应规格条目 | 进行中 | 依赖与镜像漏洞扫描已进 CI（`.github/workflows/supply-chain-ci.yml`，Trivy 固定版本，非阻断基线期，报告落 artifact）；备份恢复演练与 E2E 冒烟进 CI 未做，见 3.5 与第 5 章 | 2026-11-10 |
+| L1-10 | 发布前工程化验证 | 无对应规格条目 | 进行中 | 依赖与镜像漏洞扫描已进 CI（`.github/workflows/supply-chain-ci.yml`，Trivy 固定版本，非阻断基线期，报告落 artifact）；备份恢复演练脚本已落地并在本地跑通（`scripts/backup-drill.sh`，逻辑备份、无 binlog PITR、耗时不代表生产 RTO）；E2E 冒烟进 CI 未做，见 3.5 与第 5 章 | 2026-11-10 |
 | L1-11 | 内容生产通路（上传→处理→播放链路，教师端或运营后台任一） | SPEC-PLAT-006（0/6） | 未开始 | 2026-11-10 补入，理由：缺少可用上传链路时课程内容无法生产 | 2026-11-10 |
 
 ---
@@ -180,9 +180,10 @@
 | 验收与演练 | 冒烟、outbox 故障演练、退款闭环演练、一条命令验收 | `scripts/smoke.sh`、`scripts/outbox-fault-drill.sh`、`scripts/refund-drill.sh`、`scripts/verify-all.sh` | 2026-11-09 |
 | CI | `backend-build`/`backend-test`、`frontend-check`、`miniapp-check`、`docs-check` | `.github/workflows/backend-ci.yml`、`frontend-ci.yml`、`docs-ci.yml` | 2026-11-09 |
 | 依赖与镜像漏洞扫描 | Trivy 固定 0.76.2，扫 Maven `pom.xml`、`pnpm-lock.yaml` 与基础镜像；基线期只报告不阻断，不进五项必需检查；基础镜像周扫在 `schedule` 与手动触发时跑；`.trivyignore.yaml` 规定每条必须带 `id`/`paths`/`statement`/`expired_at` | `.github/workflows/supply-chain-ci.yml`、`.trivyignore.yaml` | 2026-11-10 |
+| 备份恢复演练 | `mysqldump` 七个库 → 隔离恢复实例（`--rm`、无卷、临时端口）→ 比对表清单、逐表行数、`CHECKSUM TABLE`、`flyway_schema_history` 最大版本；MinIO `mc mirror --preserve` 双向（桶→宿主机备份树→新桶）→ 比对对象数、字节数与 ETag。边界：逻辑备份、RPO = 两次 dump 间隔且无 binlog PITR、本机耗时不代表生产 RTO | `scripts/backup-drill.sh` | 2026-11-10 |
 | 本地钩子 | `pre-commit` 跑文档校验与 Spotless，`commit-msg` 跑提交信息校验 | `.githooks/pre-commit`、`.githooks/commit-msg`、`scripts/install-hooks.sh` | 2026-11-09 |
 | 测试 | 47 个后端测试类、6 个前端 spec；无端到端测试进入 CI | `lp-*/src/test/**`、`apps/*/src/**/*.spec.ts` | 2026-11-09 |
-| 未做 | 镜像构建与推送、staging/prod 部署、监控栈编排、告警规则、备份演练 | `.github/workflows/**`、`infra/**` | 2026-11-10 |
+| 未做 | 镜像构建与推送、staging/prod 部署、监控栈编排、告警规则 | `.github/workflows/**`、`infra/**` | 2026-11-10 |
 
 ---
 
@@ -240,7 +241,7 @@
 | 统一分页参数 | 课程列表用 `page/size`，订单与后台用 `pageNum/pageSize`，前端需分别适配，易出错 | 小 | 2026-11-09 |
 | 接口契约文档或 OpenAPI | 前后端 TypeScript 类型手工维护，字段漂移只能靠评审发现 | 中 | 2026-11-09 |
 | CI 内端到端冒烟 | `smoke.sh` 依赖本地栈，CI 只跑单测，合并前无法验证跨服务链路 | 中 | 2026-11-09 |
-| 数据库备份与恢复演练脚本 | 目前只有迁移脚本，无备份、恢复与演练步骤 | 中 | 2026-11-09 |
+| 备份脚本接入定时与异地留存 | 演练脚本已验证备份可恢复，但仍是手动执行，dump 落本机 `logs/`，无异地副本与保留策略 | 中 | 2026-11-10 |
 | 自建镜像漏洞扫描 | 依赖与基础镜像扫描已进 CI 基线（`supply-chain-ci.yml`），自建镜像要等 E2E 建栈后才能扫 | 小 | 2026-11-10 |
 | 管理操作统一审计 | 已覆盖课程、退款、教师三类审核并支持按对象与按操作人查询；用户、订单、角色等管理操作仍无统一留痕 | 中 | 2026-11-10 |
 | MinIO 孤儿对象清理 | 课程/课时删除后对象仍占用存储，长期累积成本 | 小 | 2026-11-09 |
