@@ -75,7 +75,7 @@ lp:
       cache-invalidate-read-timeout: ${LP_AUTH_CANCELLATION_CACHE_INVALIDATE_TIMEOUT:200ms}
       # Off by default so a new environment never cancels accounts before its salt and the trade
       # service are configured; staging and production switch it on deliberately.
-      execution-enabled: ${LP_AUTH_CANCELLATION_EXECUTION_ENABLED:false}
+      execution-enabled: ${LP_AUTH_ACCOUNT_DELETION_EXECUTION_ENABLED:false}
       # Salt of the irreversible digests written on execution. Required when execution-enabled is
       # true: the job refuses to start without it, because a digest without a secret salt is
       # reversible by anyone holding the same openid.
