@@ -377,7 +377,7 @@ class IdempotencyServiceTest {
 
         private final CountDownLatch ownerFinished;
 
-        private final AtomicInteger acquireCalls = new AtomicInteger();
+        private final Map<String, AtomicInteger> attempts = new ConcurrentHashMap<>();
 
         GatedStore(CountDownLatch claiming, CountDownLatch ownerFinished) {
             this.claiming = claiming;
@@ -398,12 +398,15 @@ class IdempotencyServiceTest {
                 String keyHash,
                 String ownerToken,
                 Duration ttl) {
-            if (acquireCalls.incrementAndGet() == 1) {
+            String key = key(scope, userId, keyHash);
+            AtomicInteger attemptsForKey =
+                    attempts.computeIfAbsent(key, ignored -> new AtomicInteger());
+            if (attemptsForKey.incrementAndGet() == 1) {
                 return false;
             }
             claiming.countDown();
             await(ownerFinished);
-            return leases.putIfAbsent(key(scope, userId, keyHash), ownerToken) == null;
+            return leases.putIfAbsent(key, ownerToken) == null;
         }
 
         @Override
