@@ -10,6 +10,9 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.lp.auth.client.AccountDeletionBlockerClient;
 import com.lp.auth.client.AccountDeletionCacheClient;
 import com.lp.auth.config.AccountDeletionProperties;
@@ -30,12 +33,14 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.slf4j.LoggerFactory;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
@@ -67,8 +72,13 @@ class AccountCancellationServiceImplTest {
 
     private AccountCancellationServiceImpl service;
 
+    private Logger serviceLogger;
+
+    private ListAppender<ILoggingEvent> appender;
+
     /**
-     * Builds the service under test with a fixed clock and in-memory metrics.
+     * Builds the service under test with a fixed clock, in-memory metrics and a log appender that
+     * captures the structured apply and withdraw lines.
      *
      * @author Caspian
      * @since 0.2.0
@@ -78,6 +88,16 @@ class AccountCancellationServiceImplTest {
         properties = new AccountDeletionProperties();
         meterRegistry = new SimpleMeterRegistry();
         service = serviceAt(NOW);
+        serviceLogger = (Logger) LoggerFactory.getLogger(AccountCancellationServiceImpl.class);
+        appender = new ListAppender<>();
+        appender.start();
+        serviceLogger.addAppender(appender);
+    }
+
+    /** Detaches the appender so the other tests of this module keep their own log state. */
+    @AfterEach
+    void detachLogAppender() {
+        serviceLogger.detachAppender(appender);
     }
 
     /**
@@ -380,6 +400,49 @@ class AccountCancellationServiceImplTest {
         assertThat(renewed.getRequestedAt()).isEqualTo(NOW.plusDays(1));
         assertThat(renewed.getEffectiveAt()).isEqualTo(NOW.plusDays(8));
         assertThat(second.effectiveAt()).isEqualTo("2026-11-18T10:00:00");
+    }
+
+    /**
+     * AC-25: applying and withdrawing each leave one structured line with the user id, the promised
+     * deadline and the trigger source.
+     *
+     * @author Caspian
+     * @since 0.3.0
+     */
+    @Test
+    void applyAndWithdrawLogTheDeadlineAndSource() {
+        UserAccountCancellation active =
+                request(11L, AccountCancellationStatus.COOLING_OFF, NOW.plusDays(7));
+        when(authUserMapper.selectById(7L)).thenReturn(account(UserStatus.ACTIVE));
+        when(authUserMapper.selectRoleCodes(7L)).thenReturn(List.of("STUDENT"));
+        when(cancellationMapper.selectActiveByUserId(7L)).thenReturn(null, active);
+        when(cancellationMapper.insert(any(UserAccountCancellation.class))).thenReturn(1);
+        when(cancellationMapper.withdraw(11L, NOW)).thenReturn(1);
+        when(blockerClient.blockers(7L))
+                .thenReturn(new AccountDeletionBlockerView(7L, 0, 0, false));
+
+        service.apply(7L, "user");
+        service.withdraw(7L, "user");
+
+        List<String> lines =
+                appender.list.stream().map(ILoggingEvent::getFormattedMessage).toList();
+        assertThat(lines)
+                .anySatisfy(
+                        line ->
+                                assertThat(line)
+                                        .contains(
+                                                "account cancellation applied",
+                                                "userId=7",
+                                                "effectiveAt=" + NOW.plusDays(7),
+                                                "source=user"))
+                .anySatisfy(
+                        line ->
+                                assertThat(line)
+                                        .contains(
+                                                "account cancellation withdrawn",
+                                                "userId=7",
+                                                "effectiveAt=" + NOW.plusDays(7),
+                                                "source=user"));
     }
 
     /**

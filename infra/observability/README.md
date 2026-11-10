@@ -36,9 +36,9 @@ Micrometer 计数器经 `/actuator/prometheus` 暴露时统一带 `_total` 后�
 |---|---|---|---|---|
 | `LpAuthAccountCancellationExecuteFailed` | `sum by (userId)(increase(...execute_failed_total[15m])) >= 3` | 5 分钟 | critical | 扫描间隔默认 60 秒，同一账号 15 分钟内失败 3 次说明重试没有收敛（trade 不可达、匿名化写入被拒），删除永远不会完成 |
 | `LpAuthAccountCancellationExecuteSkippedPersistent` | `sum by (userId)(increase(...execute_skipped_total[24h])) >= 48` | 10 分钟 | warning | 直接取 AC-12 的「同一用户 24 小时内跳过达到 48 次」；按 60 秒扫描换算约等于持续阻塞 48 分钟 |
-| `LpAuthAccountCancellationCacheInvalidateFailed` | `sum(increase(...cache_invalidate_failed_total[5m])) >= 3` | 1 分钟 | warning | 直接取 AC-33 的「任意 5 分钟窗口内累计达到 3 次即触发」；该计数器不带标签，只能按服务整体速率判断，单账号线索在 WARN 日志里 |
+| `LpAuthAccountCancellationCacheInvalidateFailed` | `sum(increase(...cache_invalidate_failed_total[15m])) >= 3` | 5 分钟 | warning | AC-33：15 分钟内累计 3 次失败且条件持续 5 分钟即告警；该计数器不带标签，只能按服务整体速率判断，单账号线索在 WARN 日志里 |
 
-AC-33 的 `for` 是 1 分钟而不是 5 分钟：`increase(...[5m]) >= 3` 只统计最近 5 分钟，单批 3 次失败在 t=0 写入，条件最多维持到 t=5m，而 `for: 5m` 恰好在 t=5m 才满足持续要求，此刻最早的事件已滑出窗口，pending 必然重置——原值对单批失败永远不 firing。`for: 1m` 保留「持续时间」意图（过滤瞬时抖动），又能在窗口内触发；门槛与窗口都未改。
+AC-33 的窗口是 15 分钟、`for` 是 5 分钟，两者必须留出足够差距：`for` 要求条件连续为真，而 `increase(...[5m])` 与 `for: 5m` 等长时，单批 3 次失败在 t=0 写入后条件最多维持到 t=5m，恰在 pending 满足的那一刻最早事件滑出窗口、pending 重置，结果单批突发永远不 firing。把窗口放宽到 15 分钟、门槛与 `for` 都不动，一批突发就能在 5 分钟后正常触发，同时 5 分钟去抖仍能过滤零星抖动。**`for` 必须显著短于范围窗口**，否则条件会在 pending 期间滑出；禁止为了演练跑通去缩短 `for`。
 
 跳过的三种原因共用一条计数。`already-claimed` 在多副本竞争时属正常现象，只有在 24 小时内达到 48 次才值得关注：要么副本在空转，要么另一副本把同一条申请长期占而不用。
 

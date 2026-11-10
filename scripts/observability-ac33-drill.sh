@@ -15,15 +15,14 @@
 # invalidation calls have timed out, then resumed: it is shared with every other local check.
 #
 # The rule is
-#   sum(increase(...cache_invalidate_failed_total[5m])) >= 3   for: 5m
-# `for` is as long as the range itself, so one burst can never fire: three events at t=0 keep the
-# expression true only until t=5m, exactly when pending would complete, then the oldest event leaves
-# the range and pending re-arms from zero.  The condition has to stay true for a full five minutes,
-# which is also what the rule means in production: a sustained invalidation outage, not one blip.
-# The drill therefore injects two batches of three failures three minutes apart.  Batch one starts
-# pending at t=0; batch two refreshes the window at t=3m, so the expression stays >= 3 until t=8m
-# and pending completes at t=5m.  Never shorten `for` to make the drill cheaper: the debounce is a
-# product threshold and the drill adapts to the rule, not the other way round.
+#   sum(increase(...cache_invalidate_failed_total[15m])) >= 3   for: 5m
+# `for` must stay well inside the range it debounces.  With a fifteen minute range one burst of
+# three failures keeps the expression true for the whole five minute hold, so the alert fires at
+# t+5m and only clears once the last event leaves the range at t+15m.  An earlier revision used
+# [5m] with for: 5m: the condition drained exactly when pending completed, so no single burst could
+# ever fire and the drill had to inject two batches.  The window was wrong, not the hold; the
+# threshold (3) and the five minute debounce are product settings.  Never shorten `for` to make the
+# drill cheaper: the drill adapts to the rule, not the other way round.
 #
 # Ordering follows the guard asymmetry in auth-service: applying probes trade and fails closed
 # (50401) when trade is unreachable, while withdrawing does not probe at all.  Every account must
@@ -31,9 +30,9 @@
 #
 # One more trap: Micrometer registers the counter on first increment, so a freshly started
 # auth-service exposes no series to Prometheus at all.  A series that first appears at 3 is invisible
-# to increase() -- there is no older sample to subtract -- so batch 1 alone would leave the
+# to increase() -- there is no older sample to subtract -- so the batch alone would leave the
 # expression at 0.  When that is the case the script spends one extra account on a warm-up failure
-# and waits for two scrapes before the measured batches start.
+# and waits for two scrapes before the measured batch starts.
 #
 # Usage:
 #   bash scripts/observability-ac33-drill.sh
@@ -59,10 +58,8 @@ ALERT="LpAuthAccountCancellationCacheInvalidateFailed"
 DEMO_PASSWORD="${LP_DEMO_PASSWORD:-Demo@123456}"
 RUN_ID="$(date +%d%H%M%S)"
 BATCH=3
-BATCHES=2
-GAP=180
 FIRING_TIMEOUT=420
-RESOLVE_TIMEOUT=420
+RESOLVE_TIMEOUT=1200
 COUNTER=lp_auth_account_cancellation_cache_invalidate_failed_total
 NEED_WARMUP=0
 TRADE_PAUSED=0
@@ -145,6 +142,26 @@ for g in json.load(sys.stdin)["data"]["groups"]:
 ' "$ALERT"
 }
 
+rule_query() { # the expression Prometheus actually loaded for the alert
+  curl -s "$PROM_URL/api/v1/rules?type=alert" | python3 -c '
+import json,sys
+name=sys.argv[1]
+for g in json.load(sys.stdin)["data"]["groups"]:
+    for r in g.get("rules", []):
+        if r.get("name")==name:
+            print(r.get("query") or r.get("expr") or "")
+            break
+' "$ALERT"
+}
+
+window_increase() { # sum(increase(...[15m])) right now, 0 when the series is absent
+  curl -s --get "$PROM_URL/api/v1/query" \
+    --data-urlencode "query=sum(increase(${COUNTER}[15m]))" |
+    python3 -c 'import json,sys
+r=json.load(sys.stdin)["data"]["result"]
+print(r[0]["value"][1] if r else "0")' 2>/dev/null
+}
+
 prom_alerts() { # "<state> <value> <activeAt>" for the alert, empty when absent
   curl -s "$PROM_URL/api/v1/alerts" | python3 -c '
 import json,sys
@@ -182,10 +199,21 @@ pass "gateway, prometheus, alertmanager and trade-service are up"
 RULE="$(rule_state)"
 [ -n "$RULE" ] || die "$ALERT is not loaded; mount infra/observability/prometheus-rules.yml"
 info "rule before the drill: health/lastEvaluation = $RULE"
+QUERY="$(rule_query)"
+case "$QUERY" in
+  *"[15m]"*) pass "the loaded rule evaluates a 15m range: $QUERY" ;;
+  *) die "the loaded rule does not use a 15m range, reload Prometheus: $QUERY" ;;
+esac
 BASELINE="$(metric)"
 info "cache_invalidate_failed_total before the drill: $BASELINE"
+IN_WINDOW="$(window_increase)"
+info "failures still inside the 15m window before the drill: ${IN_WINDOW:-0}"
+# The alert can only be absent because an earlier run already drained; if the window still holds
+# three failures the drill would inherit them and the firing time would prove nothing.
+awk -v v="${IN_WINDOW:-0}" 'BEGIN { exit !(v + 0 >= 3) }' &&
+  die "the 15m window still holds ${IN_WINDOW} earlier failures; wait for it to drain and re-run"
 PRE_ALERTS="$(prom_alerts)"
-[ -z "$PRE_ALERTS" ] || die "$ALERT is already firing from an earlier run: $PRE_ALERTS"
+[ -z "$PRE_ALERTS" ] || die "$ALERT is already pending or firing from an earlier run: $PRE_ALERTS"
 pass "the alert is inactive before any failure is injected"
 SAMPLES="$(series_samples)"
 # Compare as numbers: series_samples can return an empty string when the response does not parse,
@@ -193,7 +221,7 @@ SAMPLES="$(series_samples)"
 if ! awk -v n="${SAMPLES:-0}" 'BEGIN { exit !(n + 0 >= 2) }'; then
   NEED_WARMUP=1
 fi
-ACCOUNTS=$(( BATCH * BATCHES + NEED_WARMUP ))
+ACCOUNTS=$(( BATCH + NEED_WARMUP ))
 info "counter samples in prometheus over 2m: ${SAMPLES:-0}; warm-up account: $NEED_WARMUP"
 
 step "1. register $ACCOUNTS accounts and apply while trade is still reachable"
@@ -235,7 +263,7 @@ run_batch() { # label first-index count delta-from-baseline
   pass "$label: cache_invalidate_failed_total = $now (target $target)"
 }
 
-step "2. warm up the counter series so increase() can see batch 1"
+step "2. warm up the counter series so increase() can see the batch"
 if [ "$NEED_WARMUP" = 1 ]; then
   run_batch "warm-up" 1 1 1
   info "waiting for two scrapes of $COUNTER"
@@ -253,27 +281,12 @@ BASELINE="$(metric)"
 info "cache_invalidate_failed_total at baseline: $BASELINE"
 FIRST=$(( 1 + NEED_WARMUP ))
 
-step "3. batch 1: freeze trade, withdraw accounts $FIRST-$(( FIRST + BATCH - 1 )), release trade"
-run_batch "batch 1" "$FIRST" "$BATCH" "$BATCH"
-BATCH1_AT="$(date +%s)"
-
-step "4. hold ${GAP}s so batch 2 lands inside batch 1's 5m range"
-# Sampling here is the evidence that the expression stays >= 3 across the gap instead of draining:
-# an empty or dropped result would mean pending had re-armed before batch 2.
-while :; do
-  REMAIN=$(( BATCH1_AT + GAP - $(date +%s) ))
-  [ "$REMAIN" -le 0 ] && break
-  info "t+$(( $(date +%s) - BATCH1_AT ))s: $(prom_alerts)"
-  [ "$REMAIN" -gt 45 ] && REMAIN=45
-  sleep "$REMAIN"
-done
-pass "batch 1 is still inside the 5m range at t+${GAP}s"
-
-step "5. batch 2: freeze trade again, withdraw the last $BATCH accounts, release trade"
-run_batch "batch 2" $(( FIRST + BATCH )) "$BATCH" $(( BATCH * BATCHES ))
+step "3. one batch: freeze trade, withdraw accounts $FIRST-$(( FIRST + BATCH - 1 )), release trade"
+run_batch "the batch" "$FIRST" "$BATCH" "$BATCH"
+BATCH_AT="$(date +%s)"
 AFTER_BATCH="$(metric)"
 
-step "6. confirm the rule is still evaluated"
+step "4. confirm the rule is still evaluated"
 RULE_A="$(rule_state)"
 info "rule after the failures: $RULE_A"
 sleep 20
@@ -285,7 +298,7 @@ info "rule 20s later:          $RULE_B"
   die "lastEvaluation did not advance ($RULE_A -> $RULE_B); the rule is not being evaluated"
 pass "health=ok and lastEvaluation advances (${RULE_A##* } -> ${RULE_B##* })"
 
-step "7. wait for the alert to fire in Prometheus"
+step "5. wait for the alert to fire in Prometheus"
 # Sample while pending: a stable activeAt is the proof that the expression never dropped below 3
 # during the whole 5m hold.  If pending re-arms, activeAt jumps forward and the run is invalid.
 PENDING_ACTIVE_AT=""
@@ -294,7 +307,7 @@ FIRED_ELAPSED=""
 DEADLINE=$(( $(date +%s) + FIRING_TIMEOUT ))
 while [ "$(date +%s)" -lt "$DEADLINE" ]; do
   LINE="$(prom_alerts)"
-  ELAPSED=$(( $(date +%s) - BATCH1_AT ))
+  ELAPSED=$(( $(date +%s) - BATCH_AT ))
   case "$LINE" in
     firing\ *)
       printf '  t+%ss firing:  %s\n' "$ELAPSED" "$LINE"
@@ -321,13 +334,13 @@ done
 printf '  raw /api/v1/alerts: %s\n' "$FIRED"
 FIRED_VALUE="$(printf '%s' "$FIRED" | awk '{print $2}')"
 EXPECTED="$(awk -v a="$AFTER_BATCH" -v b="$BASELINE" 'BEGIN { printf "%.0f", a - b }')"
-# The alert value is increase(...[5m]) at the evaluation that fired, not the cumulative counter:
-# older failures have already left the range, so the value tracks the threshold (3), not the total.
+# The alert value is increase(...[15m]) at the evaluation that fired, not the cumulative counter:
+# it tracks the failure rate inside the window (at least the threshold 3), not the total.
 awk -v v="$FIRED_VALUE" -v t="$BATCH" 'BEGIN { exit !(v + 0 >= t - 0.01) }' ||
   die "alert value $FIRED_VALUE is below the rule threshold $BATCH"
 pass "fired at t+${FIRED_ELAPSED}s with value $FIRED_VALUE (threshold $BATCH, $EXPECTED failures generated)"
 
-step "8. the same alert becomes visible in Alertmanager"
+step "6. the same alert becomes visible in Alertmanager"
 AM_FIRED=""
 for _ in $(seq 1 18); do
   AM_LINE="$(am_alerts)"
@@ -340,8 +353,8 @@ done
 printf '  raw /api/v2/alerts: %s\n' "$AM_FIRED"
 pass "alertmanager has the alert in the active state"
 
-step "9. wait for the alert to return to inactive"
-info "the last failure leaves the 5m range 5m after batch 2; the alert resolves after that"
+step "7. wait for the alert to return to inactive"
+info "the last failure leaves the 15m range 15m after the batch; the alert resolves after that"
 # Resolved alerts disappear from /api/v1/alerts instead of turning into an inactive entry, so stop
 # on either an inactive state or an empty result; waiting only for "inactive" burns the full timeout.
 DEADLINE=$(( $(date +%s) + RESOLVE_TIMEOUT ))
@@ -368,8 +381,8 @@ esac
 info "alertmanager after resolution: $(am_alerts)"
 
 printf '\n\033[0;32mAC-33 drill passed.\033[0m\n'
-printf 'counter: baseline %s -> %s (%s failures in %s batches, %ss apart)\n' \
-  "$BASELINE" "$AFTER_BATCH" "$EXPECTED" "$BATCHES" "$GAP"
+printf 'counter: baseline %s -> %s (%s failures in one batch)\n' \
+  "$BASELINE" "$AFTER_BATCH" "$EXPECTED"
 printf 'rule: health=ok, lastEvaluation advanced %s -> %s\n' "${RULE_A##* }" "${RULE_B##* }"
 printf 'fired at t+%ss with value %s (activeAt %s)\n' \
   "$FIRED_ELAPSED" "$FIRED_VALUE" "$(printf '%s' "$FIRED" | awk '{print $3}')"
