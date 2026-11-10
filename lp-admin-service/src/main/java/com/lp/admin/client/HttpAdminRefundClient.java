@@ -104,6 +104,7 @@ public class HttpAdminRefundClient implements AdminRefundClient {
      * @param approved {@code true} to approve, {@code false} to reject
      * @param rejectReason rejection reason
      * @param reviewerId operations user id
+     * @param operatorRole operator role code, 0 operations, 1 administrator
      * @return refund state after the decision
      * @throws BizException when the upstream call fails or rejects the decision
      * @author Caspian
@@ -111,13 +112,17 @@ public class HttpAdminRefundClient implements AdminRefundClient {
      */
     @Override
     public AdminRefundView review(
-            long refundId, boolean approved, String rejectReason, long reviewerId) {
+            long refundId,
+            boolean approved,
+            String rejectReason,
+            long reviewerId,
+            int operatorRole) {
         try {
             Result<AdminRefundView> result =
                     restClient
                             .post()
                             .uri("/internal/v1/refunds/{refundId}/review", refundId)
-                            .body(new ReviewBody(approved, rejectReason, reviewerId))
+                            .body(new ReviewBody(approved, rejectReason, reviewerId, operatorRole))
                             .retrieve()
                             .body(VIEW_TYPE);
             return requireData(result);
@@ -142,8 +147,10 @@ public class HttpAdminRefundClient implements AdminRefundClient {
      * @param approved whether the request is approved
      * @param rejectReason rejection reason
      * @param reviewerId operations user id
+     * @param operatorRole operator role code, 0 operations, 1 administrator
      * @author Caspian
      * @since 0.1.0
      */
-    private record ReviewBody(Boolean approved, String rejectReason, Long reviewerId) {}
+    private record ReviewBody(
+            Boolean approved, String rejectReason, Long reviewerId, Integer operatorRole) {}
 }
