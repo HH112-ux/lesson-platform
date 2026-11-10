@@ -188,9 +188,12 @@ public class CourseInternalServiceImpl implements CourseInternalService {
     /**
      * Approves or rejects a pending course; approval publishes it in the same step.
      *
+     * <p>The price the teacher proposed is read before the update, so the audit row of an approval
+     * can state both amounts when operations confirm a different final price.
+     *
      * @param courseId course primary key
      * @param approved {@code true} to publish, {@code false} to send back to draft
-     * @param priceFen price in fen set on approval, {@code null} keeps the current price
+     * @param priceFen final price in fen set on approval, {@code null} keeps the current price
      * @param remark rejection remark, required when rejecting
      * @param reviewerId operator user id
      * @param operatorRole operator role code, 0 operations, 1 administrator
@@ -216,6 +219,8 @@ public class CourseInternalServiceImpl implements CourseInternalService {
             throw new BizException(ErrorCode.PARAM_INVALID, "price is invalid");
         }
         LocalDateTime reviewedAt = LocalDateTime.now();
+        // Read before the update: after approval the column already holds the final price.
+        Long beforePriceFen = approved ? currentPriceFenOrNull(courseId) : null;
         String remarkText = null;
         int updated;
         if (approved) {
@@ -232,13 +237,14 @@ public class CourseInternalServiceImpl implements CourseInternalService {
         if (updated == 0) {
             throw new BizException(ErrorCode.COURSE_REVIEW_STATE_INVALID);
         }
+        String auditRemark = approved ? priceChangeNote(beforePriceFen, priceFen) : remarkText;
         CourseReviewAudit audit = new CourseReviewAudit();
         audit.setCourseId(courseId);
         audit.setAction(approved ? ACTION_APPROVE : ACTION_REJECT);
         audit.setFromStatus(STATUS_PENDING_REVIEW);
         audit.setToStatus(approved ? STATUS_PUBLISHED : STATUS_DRAFT);
         audit.setReviewerId(reviewerId);
-        audit.setRemark(remarkText);
+        audit.setRemark(auditRemark);
         audit.setCreatedAt(reviewedAt);
         courseReviewAuditMapper.insert(audit);
         // Same transaction as the status update above: either both the course and the unified
@@ -252,7 +258,7 @@ public class CourseInternalServiceImpl implements CourseInternalService {
                         courseId,
                         STATUS_PENDING_REVIEW,
                         approved ? STATUS_PUBLISHED : STATUS_DRAFT,
-                        remarkText,
+                        auditRemark,
                         traceId,
                         null,
                         reviewedAt));
@@ -305,13 +311,46 @@ public class CourseInternalServiceImpl implements CourseInternalService {
      * Reads the current price of a course and converts it to fen.
      *
      * @param courseId course primary key
+     * @return price in fen, {@code null} when the column is empty
+     * @author Caspian
+     * @since 0.11.0
+     */
+    private Long currentPriceFenOrNull(long courseId) {
+        BigDecimal price = courseMapper.selectPrice(courseId);
+        return price == null ? null : Money.toFen(price);
+    }
+
+    /**
+     * Reads the current price of a course and converts it to fen.
+     *
+     * @param courseId course primary key
      * @return price in fen, {@code 0} when the column is missing
      * @author Caspian
      * @since 0.1.0
      */
     private long currentPriceFen(long courseId) {
-        BigDecimal price = courseMapper.selectPrice(courseId);
-        return price == null ? 0L : Money.toFen(price);
+        Long fen = currentPriceFenOrNull(courseId);
+        return fen == null ? 0L : fen;
+    }
+
+    /**
+     * Describes a price change for the review audit trail.
+     *
+     * <p>The audit tables have no dedicated detail column and this slice adds no migration, so the
+     * before and after amounts are appended to the existing remark text; operator and decision time
+     * already have their own columns.
+     *
+     * @param beforeFen price before the decision, {@code null} when the column is empty
+     * @param afterFen final price confirmed by operations, {@code null} when it is not overridden
+     * @return note such as {@code priceFen 19900 -> 29900}, {@code null} when nothing changed
+     * @author Caspian
+     * @since 0.11.0
+     */
+    private String priceChangeNote(Long beforeFen, Long afterFen) {
+        if (beforeFen == null || afterFen == null || beforeFen.equals(afterFen)) {
+            return null;
+        }
+        return "priceFen " + beforeFen + " -> " + afterFen;
     }
 
     private CourseInternalView toView(Course course) {

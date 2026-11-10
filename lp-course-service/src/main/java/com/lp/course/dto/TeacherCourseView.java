@@ -5,16 +5,16 @@ import java.time.LocalDateTime;
 /**
  * One course as shown in the teacher console.
  *
- * <p>{@code price} is converted to fen so the console never parses decimal strings. The review
- * remark is present only after a rejection, which tells the teacher what to fix before
- * resubmitting.
+ * <p>{@code price} is converted to fen so the console never parses decimal strings. The request
+ * carries yuan instead; the server owns that conversion. The review remark is present only after a
+ * rejection, which tells the teacher what to fix before resubmitting.
  *
  * @param courseId course primary key
  * @param title course title
  * @param subtitle optional selling point
  * @param coverUrl cover image address
  * @param description optional long description
- * @param price sale price in fen
+ * @param price proposed sale price in fen, the response unit of this path
  * @param originalPrice crossed out price in fen, {@code null} when unset
  * @param categoryId target category
  * @param level 1 beginner, 2 intermediate, 3 advanced
