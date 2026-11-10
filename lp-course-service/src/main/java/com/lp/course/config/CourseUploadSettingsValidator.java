@@ -32,6 +32,12 @@ public class CourseUploadSettingsValidator implements InitializingBean {
     private static final long MAX_VIDEO_BYTES = 2_147_483_648L;
 
     /**
+     * Lower bound of a presigned playback credential. Below one second the signed lifetime and the
+     * reported expiry disagree, because presigning takes whole seconds.
+     */
+    private static final Duration MIN_PLAY_URL_TTL = Duration.ofSeconds(1);
+
+    /**
      * Upper bound of a presigned playback credential. A longer lifetime turns the signed URL into a
      * reusable handle, which defeats the point of signing on every preview.
      */
@@ -74,8 +80,7 @@ public class CourseUploadSettingsValidator implements InitializingBean {
         }
         Duration playUrlTtl = properties.playUrlTtl();
         if (playUrlTtl == null
-                || playUrlTtl.isZero()
-                || playUrlTtl.isNegative()
+                || playUrlTtl.compareTo(MIN_PLAY_URL_TTL) < 0
                 || playUrlTtl.compareTo(MAX_PLAY_URL_TTL) > 0) {
             throw new IllegalStateException(
                     "lp.course.upload.play-url-ttl must be between 1s and "

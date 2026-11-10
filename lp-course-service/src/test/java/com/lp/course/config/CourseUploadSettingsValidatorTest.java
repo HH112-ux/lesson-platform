@@ -79,6 +79,38 @@ class CourseUploadSettingsValidatorTest {
         assertTrue(exception.getMessage().contains("play-url-ttl"));
     }
 
+    @Test
+    void rejectsPlayUrlTtlBelowOneSecond() {
+        IllegalStateException exception =
+                assertThrows(
+                        IllegalStateException.class,
+                        () ->
+                                new CourseUploadSettingsValidator(
+                                                properties(
+                                                        209_715_200L,
+                                                        "real-key",
+                                                        "real-secret",
+                                                        Duration.ofMillis(500)),
+                                                environment("dev"))
+                                        .afterPropertiesSet());
+
+        assertTrue(exception.getMessage().contains("play-url-ttl"));
+    }
+
+    @Test
+    void acceptsPlayUrlTtlOfExactlyOneSecond() {
+        assertDoesNotThrow(
+                () ->
+                        new CourseUploadSettingsValidator(
+                                        properties(
+                                                209_715_200L,
+                                                "real-key",
+                                                "real-secret",
+                                                Duration.ofSeconds(1)),
+                                        environment("dev"))
+                                .afterPropertiesSet());
+    }
+
     private MockEnvironment environment(String profile) {
         MockEnvironment environment = new MockEnvironment();
         environment.setActiveProfiles(profile);
