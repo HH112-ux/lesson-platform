@@ -36,6 +36,11 @@ req() {
   if [ -n "$token" ]; then
     args+=(-H "Authorization: Bearer $token")
   fi
+  # Payment initiation enforces the idempotency header contract; without it the
+  # request is rejected with 40001 before any channel logic runs.
+  case "$path" in
+    */pay) args+=(-H "Idempotency-Key: pay-$RUN_KEY") ;;
+  esac
   if [ -n "$data" ]; then
     args+=(-H 'Content-Type: application/json' -d "$data")
   fi
