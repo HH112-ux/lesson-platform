@@ -25,6 +25,10 @@
 | SPEC-PLAT-012 | 网关基础限流 | engineering-plan 5.2（42901）、L1-6 | 已完成 | L1-6 | 2026-11-10 | AC-1 网关对 `/api/v1/**` 按调用方分桶限流，默认 300 次/分钟/实例，由 `lp.rate-limit.gateway.limit-per-minute` 配置<br>AC-2 分桶键优先取网关注入的 `X-User-Id`，匿名请求取受信链解析的真实客户端 IP<br>AC-3 限流为每实例内存实现，集群有效容量等于每实例阈值乘以副本数，重启后桶状态清零<br>AC-4 阈值不是正整数时网关启动失败<br>AC-5 超限返回 HTTP 429、`Retry-After` 与统一 `Result` 信封（业务码 42901），不返回裸 429<br>AC-6 非 `/api/v1/` 路径（含 `/internal/**` 与 `/actuator/**`）不参与限流，内部服务间调用不被误伤<br>AC-7 `/actuator/**` 没有网关路由，请求不会被转发到下游服务<br>AC-8 `lp.rate-limit.gateway.enabled=false` 时关闭限流 |
 | SPEC-PLAT-013 | 网关 CORS 白名单 | L1-6、AGENTS 高风险改动区 | 已完成 | L1-6 | 2026-11-10 | AC-1 允许来源为显式白名单，凭据允许；来源含 `*` 时启动失败<br>AC-2 仅 dev profile 在未配置来源时使用 `http://localhost:5173` 与 `http://localhost:5174` 默认值<br>AC-3 staging/prod 未配置来源时启动失败，不回退 localhost<br>AC-4 预检请求在路由与鉴权之前完成，不经过 `JwtAuthFilter`、不注入身份头、不转发下游<br>AC-5 预检放行 `Authorization`、`Content-Type`、`Idempotency-Key`、`X-Request-Id`、`X-Device-Id` 等白名单头<br>AC-6 非白名单来源或请求了未列入白名单的头时，预检返回 403 且不带允许来源头<br>AC-7 响应允许浏览器读取 `X-Request-Id`，预检结果缓存时长可配置 |
 
+## SPEC-PLAT-010 审计范围扩展（2026-11-10）
+
+结算作废（动作 6 `SETTLE_VOID`、对象 3 `SETTLE_BATCH`）已接入同一审计链路：trade-service 在作废事务内写 `lp_oms.audit_outbox`，由既有中继投递到 `lp_cms.admin_audit_log`，复用 AC-5/AC-6/AC-7 的同事务意图、去重与退避规则，作废原因写入 `remark`。该行为的验收登记在 SPEC-TRADE-014 AC-3，本条目因此不新增 AC，标题仍保留"三类审核"以对应已交付的十条验收。
+
 ## SPEC-PLAT-004 冷静期判定补充（2026-11-10）
 
 trade 判定买家是否处于冷静期时固定三项口径，避免实现漂移：
