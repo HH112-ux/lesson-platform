@@ -55,6 +55,13 @@ lp:
       mock-enabled: ${LP_MINIAPP_LOGIN_MOCK_ENABLED:false}
       app-id: ${LP_MINIAPP_APP_ID:}
       app-secret: ${LP_MINIAPP_APP_SECRET:}
+    # Per IP backstop plus 5/min per device. Redis outages fail open with a WARN and the
+    # lp.auth.miniapp_login.rate_limit.degraded metric; counters restart at zero after recovery.
+    miniapp-login-rate-limit:
+      ip-limit: ${LP_MINIAPP_LOGIN_IP_LIMIT:30}
+      device-limit: ${LP_MINIAPP_LOGIN_DEVICE_LIMIT:5}
+      window-seconds: ${LP_MINIAPP_LOGIN_WINDOW_SECONDS:60}
+      trusted-proxies: ${LP_TRUSTED_PROXIES:127.0.0.1,::1}
 
 management:
   endpoints:
