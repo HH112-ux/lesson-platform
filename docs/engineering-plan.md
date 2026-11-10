@@ -945,7 +945,7 @@ erDiagram
 | 支付回调 | 以 `uk_pay_no` + `uk_channel_trade(channel, channel_trade_no)` 双唯一约束保证幂等；事务内更新 `payment_record` → `trade_order` → 写权益 → 发 MQ（事务消息或本地消息表）；重复回调直接返回渠道要求的成功应答 |
 | 发放权益 | 消费 MQ 幂等：`uk_user_course` 唯一约束 + 重复消费直接忽略 |
 | 退款 | 准入校验（付款后 7 天内且学习进度 ≤ 20%，15.2 D6）→ 生成 `status=0` 待审核单（**不同步调渠道，不自动退款**；超期或进度超限直接 `62007`，不落单）→ 运营审核通过（**先置 `status=1` 并提交事务**）→ 按 `payment_record.channel` 调对应渠道退款（仅全额，当前仅支付宝）→ 成功后置订单 `已退款` + `payment_record.status=3` + 权益失效（优惠券不退回，视为已使用）；驳回置 `status=3` 并保留原因、恢复可申请；渠道失败置 `status=4` 并告警人工介入 |
-| 分渠道对账 | `job-worker` 每日拉取支付宝账单（`channel=1`；微信历史数据不新增对账任务） → 写 `payment_reconcile`（`uk_channel_date_type` 覆盖更新）→ `diff_count>0` 置 `status=2` 并告警 |
+| 分渠道对账 | 运营上传支付宝账单 CSV（`POST /api/v1/reconcile/import`；**当前不直连支付宝账单接口**，自动拉取需商户号与账单权限，登记为待办）→ 写 `payment_reconcile`（`uk_channel_date_type` 覆盖更新）→ `diff_count>0` 置 `status=2` 并打 ERROR 与 `reconcile_diff_total{channel}`；差异只记录、只告警、只允许人工标记已处理，**不自动冲正、不动用户资金** |
 | 教师数据范围 | 所有 `/api/v1/teacher/**` 在 service 层按 `owner_teacher_id = 当前教师ID` 过滤，不接受前端传教师 ID；看板只读 `course_daily_stat` |
 | 课程/教师审核审计 | 状态更新与 `admin_audit_log` 写入在 `lp_cms` 同一事务提交；任一失败整体回滚，不存在"改了状态没审计"或"审计了没改" |
 | 退款审核审计 | 状态更新在 `lp_oms`、审计表在 `lp_cms`，无法跨库同事务；审核事务内写 `audit_outbox` 投递意图，由 trade-service 中继至少一次投递，`dedupe_key` 去重，超过重试上限置"已放弃"并告警人工对账（见 5.9.1） |
@@ -998,7 +998,7 @@ erDiagram
 | 50201 | 下游服务失败 | Feign 超时/错误 |
 | 50202 | 支付宝渠道失败 | 支付宝下单/退款返回失败 |
 | 50203 | 已移除（原微信支付渠道失败） | 微信支付已下线，保留编码不复用 |
-| 50204 | 对账存在未处理差异 | 查询/结算前置校验 |
+| 50204 | 对账存在未处理差异 | 重跑对账后仍为 `status=2` 时返回；结算前置校验沿用该码（日结接口尚未实现，见 SPEC-TRADE-014） |
 | 50205 | 支付渠道或验签未配置 | 未配置密钥时发起支付与回调，禁止伪造成功 |
 | 50206 | 对象存储未配置或签名失败 | 播放签名缺少 MinIO 凭据时显式失败，禁止伪造 URL |
 | 50301 | AI 服务暂不可用 | 熔断/内部错误，AI 入口整体不可用 |
@@ -1129,8 +1129,12 @@ spec:
 | POST | `/api/v1/payments/alipay/notify` | 支付宝异步通知（公开，RSA2 验签） | `application/x-www-form-urlencoded` 原文 | 纯文本 `success`/`failure`；验签未配置时返回 `failure` | 50205 |
 | POST | `/api/v1/orders/{orderId}/refund` | 申请全额退款（付款后 7 天内且学习进度 ≤ 20%，15.2 D6） | `{reason}` + `Idempotency-Key`（必填） | `{refundId,refundNo,channel,status:0}` | 40001,40301,40901,40902,62001,62004,62007 |
 | GET | `/api/v1/refunds/{refundId}` | 退款进度（用户自查） | — | `{refundNo,channel,amount,status,reason,reviewReason?,failReason?,refundedAt}` | 40301,40401 |
-| GET | `/api/v1/reconcile/daily` | 分渠道对账查询（运营/管理员；当前仅支付宝） | query:`channel(1),date,pageNum,pageSize` | 分页 `{records:[{id,channel,billDate,billType,channelCount,channelAmount,localCount,localAmount,diffCount,diffAmount,status}],total,pageNum,pageSize}` | 40101,40301 |
-| POST | `/api/v1/reconcile/{reconcileId}/recheck` | 重跑对账（运营/管理员） | `{}` | `{status,diffCount,diffAmount}` | 40301,40401,50204 |
+| GET | `/api/v1/reconcile/daily` | 分渠道对账查询（运营/管理员；权限码 `admin:reconcile:view`；当前仅支付宝） | query:`channel(1),billDate,status,pageNum,pageSize` | 分页 `{records:[{id,channel,billDate,billType,channelCount,channelAmount,localCount,localAmount,diffCount,diffAmount,status,handledBy,handledAt}],total,pageNum,pageSize}` | 40001,40101,40301 |
+| POST | `/api/v1/reconcile/import` | 导入一个账单日账单（运营/管理员；权限码 `admin:reconcile:handle`） | `multipart/form-data`：`channel(默认 1)`、`billDate`、`billType(1 支付/2 退款)`、`file`（UTF-8 CSV） | `{id,channel,billDate,billType,channelCount,channelAmount,localCount,localAmount,diffCount,diffAmount,status}` | 40001,40101,40301 |
+| POST | `/api/v1/reconcile/{reconcileId}/recheck` | 重跑对账（运营/管理员；权限码 `admin:reconcile:recheck`） | `{}` | `{status,diffCount,diffAmount}`；重算结果先落库再返回 | 40101,40301,40401,50204 |
+| POST | `/api/v1/reconcile/{reconcileId}/handle` | 人工标记差异已处理（运营/管理员；权限码 `admin:reconcile:handle`；操作人取网关注入的 `X-User-Id`） | `{}` | `{status:3,handledBy,handledAt}` | 40001,40101,40301,40401,40901 |
+
+> **对账口径（SPEC-TRADE-014）**：账单来源**仅 CSV 上传**，UTF-8，表头 `tradeNo,merchantOrderNo,amount,occurredAt`，金额为元、两位小数、恒为正，账单日按 Asia/Shanghai 切分。**支付宝账单接口尚未接入**（需商户号与账单权限），自动拉取登记为待办，不得在文档或页面宣称已直连渠道。导入按 `uk_channel_date_type` 幂等覆盖，重复导入不产生重复差异。匹配规则：支付按 `payment_record.channel_trade_no` + 金额，退款按 `refund_request.channel_refund_no` + 金额；渠道多收为正差。差异只落 `payment_reconcile.diff_detail` 并告警，处置手段只有人工标记已处理，**不做任何自动冲正或资金操作**。日结与结算接口未实现，`50204` 为该场景保留。
 
 > **金额单位**：本表与 5.9、5.10 的交易、支付、退款金额字段（`totalAmount`、`discountAmount`、`payAmount`、`amount` 等）对外一律以**分**表示；库内 `DECIMAL(10,2)` 存元，换算在服务边界完成（SPEC-TRADE-013）。
 
@@ -1560,7 +1564,7 @@ flowchart LR
 - 订单金额以服务端计算为准，绝不信任客户端金额；发起支付时如发现 `amount` 与订单不符直接拒绝。
 - 渠道由来源端固定（当前仅 Web→支付宝；小程序下单返回 62011），重新支付仅限原渠道，**不提供跨渠道切换**（见 2.3、SPEC-TRADE-004）。
 - 退款必须走审核 + 渠道退款接口，禁止只改数据库状态；首版仅全额退款（= 实付金额），准入为付款后 7 天内且学习进度 ≤ 20%（15.2 D6）；金额超限 `62004`、准入不满足 `62007`。
-- 对账：每日 T+1 拉取支付宝账单（支付 + 退款），写入 `payment_reconcile`；差异 `status=2` 并进入运营工单，**未处理差异不影响用户侧，但阻断结算**。**未完成对账能力不得开启真实收款**（SPEC-TRADE-014）。
+- 对账：每日 T+1 由运营上传支付宝账单 CSV（支付 + 退款）写入 `payment_reconcile`（**账单接口自动拉取尚未接入**，需商户号与账单权限）；差异 `status=2` 并进入运营工单，**未处理差异不影响用户侧，但阻断结算**。**未完成对账能力不得开启真实收款**（SPEC-TRADE-014）。
 
 **支付宝（Web 端）**：
 
@@ -1771,7 +1775,7 @@ flowchart LR
 | `pay_success_rate{channel}` | 支付（分渠道） | 任一渠道 < 97% 持续 10min 告警 |
 | `pay_callback_lag_ms{channel}` | 支付（分渠道） | P95 > 30s 告警（回调堆积） |
 | `pay_callback_verify_fail_total{channel}` | 支付安全 | 5min 内 > 10 次告警（疑似伪造/密钥错误） |
-| `reconcile_diff_count{channel}` | 对账 | 任一渠道 `diff_count > 0` 立即告警；连续 2 天未处理升级 P1 |
+| `reconcile_diff_total{channel}` | 对账 | 每次导入或重跑检测到差异即按差异条数累加；`diff_count > 0` 立即告警，连续 2 天未处理升级 P1 |
 | `reconcile_job_age_hours` | 对账 | > 26h 未完成当日对账告警（T+1 账单应在 12:00 前完成） |
 | `refund_fail_total{channel}` | 退款 | 1h 内 > 3 笔告警 |
 | `miniapp_login_success_rate` | 小程序 | < 95% 告警（jscode2session 失败） |
@@ -1805,7 +1809,7 @@ flowchart LR
 | MinIO | 多副本/纠删码；跨节点冗余 |
 | 对象存储 | 视频源文件保留，CDN 可回源 |
 | MQ | 主从 + 消息持久化；消费失败进死信队列 |
-| 对账文件 | 渠道账单原始文件与差异明细（MinIO `reconcile/` 前缀）保留 **3 年**（财务要求），单独配置生命周期规则 |
+| 对账文件 | 账单原文与差异明细当前存于 `payment_reconcile.raw_bill` / `diff_detail`，随交易记录保留 **3 年**（财务要求）；后续账单文件归档到 MinIO `reconcile/` 前缀时再单独配置生命周期规则 |
 | 故障切换 | 单可用区故障：同城双可用区；RTO ≤ 30min，RPO ≤ 5min |
 
 ---
@@ -2288,7 +2292,7 @@ DoD：学伴无法回答率 ≤ 30%、找课点击率 +10%、售后 FAQ 命中�
 - [ ] 教师端全流程演练：入驻审核 → 建课 → 提交 → 运营审核 → 上架 → 看板
 
 **对账**
-- [ ] 支付宝 T+1 拉账任务可执行（微信支付已移除，无对应任务）
+- [ ] 支付宝账单 CSV 可按账单日导入并由重跑复算（自动拉账任务待接入商户号与账单权限，微信支付已移除，无对应任务）
 - [ ] 连续 3 日 `payment_reconcile` 差异为 0
 - [ ] `50204` 与对账差异告警已配置
 
