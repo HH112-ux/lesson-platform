@@ -131,9 +131,11 @@ public class AccountCancellationExecutionJob {
                         .counter(METRIC_FAILED, "userId", String.valueOf(request.getUserId()))
                         .increment();
                 LOG.error(
-                        "account cancellation failed: userId={}, requestId={}, reason={}",
+                        "account cancellation failed: userId={}, requestId={}, effectiveAt={}, "
+                                + "reason={}, source=job",
                         request.getUserId(),
                         request.getId(),
+                        request.getEffectiveAt(),
                         exception.getMessage());
             }
         }
@@ -156,19 +158,19 @@ public class AccountCancellationExecutionJob {
     boolean executeOne(UserAccountCancellation request, LocalDateTime now) {
         long userId = request.getUserId();
         if (blockerClient.blockers(userId).blocked()) {
-            skip(userId, request.getId(), "blocked");
+            skip(request, "blocked");
             return false;
         }
         Boolean executed =
                 transactionTemplate.execute(
                         status -> {
                             if (cancellationMapper.markExecuted(request.getId(), now) == 0) {
-                                skip(userId, request.getId(), "already-claimed");
+                                skip(request, "already-claimed");
                                 return Boolean.FALSE;
                             }
                             if (!anonymizationService.anonymize(userId)) {
                                 status.setRollbackOnly();
-                                skip(userId, request.getId(), "status-changed");
+                                skip(request, "status-changed");
                                 return Boolean.FALSE;
                             }
                             return Boolean.TRUE;
@@ -176,7 +178,8 @@ public class AccountCancellationExecutionJob {
         if (Boolean.TRUE.equals(executed)) {
             meterRegistry.counter(METRIC_EXECUTED).increment();
             LOG.info(
-                    "account cancellation executed: userId={}, requestId={}, effectiveAt={}",
+                    "account cancellation executed: userId={}, requestId={}, effectiveAt={}, "
+                            + "source=job",
                     userId,
                     request.getId(),
                     request.getEffectiveAt());
@@ -185,12 +188,15 @@ public class AccountCancellationExecutionJob {
         return false;
     }
 
-    private void skip(long userId, Long requestId, String reason) {
+    private void skip(UserAccountCancellation request, String reason) {
+        long userId = request.getUserId();
         meterRegistry.counter(METRIC_SKIPPED, "userId", String.valueOf(userId)).increment();
         LOG.warn(
-                "account cancellation skipped: userId={}, requestId={}, reason={}",
+                "account cancellation skipped: userId={}, requestId={}, effectiveAt={}, reason={}, "
+                        + "source=job",
                 userId,
-                requestId,
+                request.getId(),
+                request.getEffectiveAt(),
                 reason);
     }
 }
