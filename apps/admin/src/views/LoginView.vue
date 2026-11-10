@@ -8,7 +8,7 @@
 import { ref } from 'vue'
 import { loadProfile, login } from '../api/auth'
 import { clearSession, storeTokens, storeUser } from '../api/client'
-import { currentUser, navigate } from '../router'
+import { currentUser, defaultRouteFor, navigate } from '../router'
 import { describeError } from '../utils/errors'
 
 const account = ref('')
@@ -16,8 +16,8 @@ const password = ref('')
 const submitting = ref(false)
 const notice = ref('')
 
-function hasConsoleRole(roles: string[]): boolean {
-  return roles.includes('ADMIN') || roles.includes('OPS')
+function hasConsoleAccess(roles: string[]): boolean {
+  return roles.includes('ADMIN') || roles.includes('OPS') || roles.includes('TEACHER')
 }
 
 async function submit(): Promise<void> {
@@ -31,14 +31,14 @@ async function submit(): Promise<void> {
     const result = await login(account.value.trim(), password.value)
     storeTokens(result.accessToken, result.refreshToken)
     const profile = await loadProfile()
-    if (!hasConsoleRole(profile.roles)) {
+    if (!hasConsoleAccess(profile.roles)) {
       clearSession()
-      notice.value = '当前账号没有后台权限，请使用运营或管理员账号'
+      notice.value = '当前账号没有后台权限，请使用运营、管理员或教师账号'
       return
     }
     storeUser({ id: profile.id, nickname: profile.nickname, avatarUrl: profile.avatarUrl, roles: profile.roles })
     currentUser.value = { id: profile.id, nickname: profile.nickname, roles: profile.roles }
-    navigate('/', true)
+    navigate(defaultRouteFor(profile.roles), true)
   } catch (error) {
     clearSession()
     notice.value = describeError(error, '登录失败，请检查账号和密码')
@@ -56,7 +56,7 @@ async function submit(): Promise<void> {
     >
       <h1>课程平台运营后台</h1>
       <p class="lp-muted">
-        请使用运营或管理员账号登录
+        请使用运营、管理员或教师账号登录
       </p>
 
       <label class="lp-field">
