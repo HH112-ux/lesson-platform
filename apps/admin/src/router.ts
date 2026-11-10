@@ -17,6 +17,7 @@ export type RouteName =
   | 'refunds'
   | 'users'
   | 'orders'
+  | 'lesson-video'
   | 'login'
   | 'not-found'
 
@@ -53,6 +54,9 @@ export function resolveRoute(pathname: string): Route {
   }
   if (segments.length === 1 && segments[0] === 'refunds') {
     return { name: 'refunds', params: {} }
+  }
+  if (segments.length === 1 && segments[0] === 'lesson-videos') {
+    return { name: 'lesson-video', params: {} }
   }
   return { name: 'not-found', params: {} }
 }
