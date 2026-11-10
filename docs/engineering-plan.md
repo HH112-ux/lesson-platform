@@ -215,9 +215,13 @@ stateDiagram-v2
 | `tomcat-embed-core` / `-el` / `-websocket` | 10.1.61 | 显式 `dependencyManagement`，覆盖 BOM 的 10.1.55 |
 | `io.netty:netty-bom` | 4.1.140.Final | 先于 Boot BOM 导入，覆盖 4.1.135.Final |
 | `bcprov-jdk18on` | 1.86 | 显式钉版；经 `io.minio:minio` 传递，Boot 与 Cloud 均不管理 |
+| `com.fasterxml.jackson:jackson-bom` | 2.21.7 | 先于 Boot BOM 导入，覆盖 BOM 的 2.21.4 |
+| `io.minio:minio` | 8.6.0 | 显式条目，模块 POM 不再各写版本 |
+| `com.google.guava:guava` | 33.7.2-jre | 显式条目，经 minio 传递 |
+| `org.xerial.snappy:snappy-java` | 1.1.10.9 | 显式条目，经 minio 传递 |
 | `mybatis-flex` | 1.10.9 | 未升级，随 Boot 3.5 实测兼容 |
 
-Trivy 基线升级后仍有 3 条 critical：`spring-webmvc`/`spring-webflux` 6.2.19 的 CVE-2026-47884、CVE-2026-47890、CVE-2026-47892，其修复版本只有 7.0.9，Boot 3.5 线暂无修复版本，需等 3.5 线回补或评估升到 Boot 4。
+Trivy 基线升级后 HIGH 已清空，仍有 3 条 critical：`spring-webmvc`/`spring-webflux` 6.2.19 的 CVE-2026-47884、CVE-2026-47890、CVE-2026-47892，其修复版本只有 7.0.9，Boot 3.5 线暂无修复版本，需等 3.5 线回补或评估升到 Boot 4。
 
 ## 3.2 模块划分与服务边界
 

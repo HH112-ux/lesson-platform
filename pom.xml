@@ -66,6 +66,26 @@
         <artifactId>tomcat-embed-websocket</artifactId>
         <version>${tomcat.version}</version>
       </dependency>
+      <!-- Same-line patch overrides for the remaining HIGH findings. Jackson is managed
+           by the Boot BOM, so the override has to be an import placed before it. -->
+      <dependency>
+        <groupId>com.fasterxml.jackson</groupId>
+        <artifactId>jackson-bom</artifactId>
+        <version>2.21.7</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+      <!-- guava and snappy arrive through io.minio:minio, which is pinned below. -->
+      <dependency>
+        <groupId>com.google.guava</groupId>
+        <artifactId>guava</artifactId>
+        <version>33.7.2-jre</version>
+      </dependency>
+      <dependency>
+        <groupId>org.xerial.snappy</groupId>
+        <artifactId>snappy-java</artifactId>
+        <version>1.1.10.9</version>
+      </dependency>
       <!-- Imported before the Boot BOM: for conflicting entries the first import wins,
            so this BOM replaces the netty versions the Boot BOM would otherwise bring. -->
       <dependency>
@@ -82,6 +102,13 @@
         <groupId>org.bouncycastle</groupId>
         <artifactId>bcprov-jdk18on</artifactId>
         <version>1.86</version>
+      </dependency>
+      <!-- Used by the course and learn services for upload and playback signing.
+           8.6.0 is the first release above CVE-2025-59952. -->
+      <dependency>
+        <groupId>io.minio</groupId>
+        <artifactId>minio</artifactId>
+        <version>8.6.0</version>
       </dependency>
       <dependency>
         <groupId>org.springframework.boot</groupId>
