@@ -13,6 +13,7 @@ import MyCoursesView from './views/MyCoursesView.vue'
 import OrdersView from './views/OrdersView.vue'
 import PlayerView from './views/PlayerView.vue'
 import PurchaseView from './views/PurchaseView.vue'
+import AccountView from './views/AccountView.vue'
 
 const focused = computed(() => currentRoute.value.name === 'purchase')
 
@@ -50,6 +51,7 @@ onUnmounted(() => {
   <OrderResultView v-else-if="currentRoute.name === 'order-result'" />
   <MyCoursesView v-else-if="currentRoute.name === 'my-courses'" />
   <OrdersView v-else-if="currentRoute.name === 'orders'" />
+  <AccountView v-else-if="currentRoute.name === 'account'" />
   <PlayerView v-else-if="currentRoute.name === 'player'" />
   <main
     v-else

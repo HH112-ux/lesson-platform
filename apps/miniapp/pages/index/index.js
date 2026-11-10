@@ -92,4 +92,8 @@ Page({
   goMyCourses() {
     wx.navigateTo({ url: '/pages/my-courses/my-courses' })
   },
+
+  goAccount() {
+    wx.navigateTo({ url: '/pages/account/account' })
+  },
 })

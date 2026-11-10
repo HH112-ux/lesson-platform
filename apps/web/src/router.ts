@@ -22,6 +22,7 @@ export type RouteName =
   | 'login'
   | 'register'
   | 'orders'
+  | 'account'
   | 'purchase'
   | 'health'
   | 'not-found'
@@ -75,6 +76,8 @@ export function resolveRoute(pathname: string, search = ''): RouteLocation {
         return route('register')
       case 'orders':
         return route('orders')
+      case 'account':
+        return route('account')
       case 'purchase':
         return route('purchase')
       case 'health':
