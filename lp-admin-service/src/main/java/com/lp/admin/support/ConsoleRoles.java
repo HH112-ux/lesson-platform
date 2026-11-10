@@ -33,6 +33,9 @@ public final class ConsoleRoles {
     /** Permission code guarding the teacher onboarding queue and its decisions. */
     public static final String TEACHER_AUDIT = "admin:teacher:audit";
 
+    /** Permission code guarding the unified operations audit log. */
+    public static final String AUDIT_LIST = "admin:audit:list";
+
     private ConsoleRoles() {}
 
     /**
