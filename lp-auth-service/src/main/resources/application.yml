@@ -73,9 +73,13 @@ lp:
       # Cache invalidation runs after commit on a background thread, so this timeout bounds a
       # worker rather than the user's response. A failed call leaves trade on its 45 s ttl.
       cache-invalidate-read-timeout: ${LP_AUTH_CANCELLATION_CACHE_INVALIDATE_TIMEOUT:200ms}
-      # Disabled until anonymization lands: this slice only claims and flips the status, so
-      # enabling it earlier would cancel accounts with their personal data still readable.
+      # Off by default so a new environment never cancels accounts before its salt and the trade
+      # service are configured; staging and production switch it on deliberately.
       execution-enabled: ${LP_AUTH_CANCELLATION_EXECUTION_ENABLED:false}
+      # Salt of the irreversible digests written on execution. Required when execution-enabled is
+      # true: the job refuses to start without it, because a digest without a secret salt is
+      # reversible by anyone holding the same openid.
+      anonymize-salt: ${LP_ANONYMIZE_SALT:}
 
 management:
   endpoints:

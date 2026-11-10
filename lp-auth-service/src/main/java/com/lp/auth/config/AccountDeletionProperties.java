@@ -24,6 +24,33 @@ public class AccountDeletionProperties {
 
     private Duration cacheInvalidateReadTimeout = Duration.ofMillis(200);
 
+    private String anonymizeSalt = "";
+
+    /**
+     * Returns the secret salt mixed into every anonymisation digest.
+     *
+     * <p>One value is used for both sides: auth-service hashes the WeChat openid and passes the
+     * same salt to the trade service, so rotating it only ever affects rows not yet anonymised.
+     *
+     * @return configured salt, empty when the operator never supplied it
+     * @author Caspian
+     * @since 0.3.0
+     */
+    public String getAnonymizeSalt() {
+        return anonymizeSalt;
+    }
+
+    /**
+     * Sets the secret salt mixed into every anonymisation digest.
+     *
+     * @param anonymizeSalt salt from {@code LP_ANONYMIZE_SALT}
+     * @author Caspian
+     * @since 0.3.0
+     */
+    public void setAnonymizeSalt(String anonymizeSalt) {
+        this.anonymizeSalt = anonymizeSalt;
+    }
+
     /**
      * Returns the base URL of the trade-service internal API.
      *

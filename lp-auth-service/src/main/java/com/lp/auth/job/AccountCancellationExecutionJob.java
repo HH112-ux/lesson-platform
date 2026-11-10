@@ -1,10 +1,10 @@
 package com.lp.auth.job;
 
 import com.lp.auth.client.AccountDeletionBlockerClient;
-import com.lp.auth.constant.UserStatus;
+import com.lp.auth.config.AccountDeletionProperties;
 import com.lp.auth.entity.UserAccountCancellation;
-import com.lp.auth.mapper.AuthUserMapper;
 import com.lp.auth.mapper.UserAccountCancellationMapper;
+import com.lp.auth.service.AccountAnonymizationService;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -18,11 +18,11 @@ import org.springframework.transaction.support.TransactionTemplate;
 /**
  * Executes account cancellations whose cooling-off period has ended.
  *
- * <p>Execution claims the request ({@code status 0 -> 2}) and flips the account ({@code
- * sys_user.status 2 -> 3}) in one transaction, so concurrent replicas cancel each account once and
- * the losers count as skipped. The blocker probe runs before the claim; the bean stays disabled
- * until anonymization lands, otherwise an account would reach status 3 with its personal data still
- * readable.
+ * <p>Execution claims the request ({@code status 0 -> 2}) and anonymises the account in one
+ * transaction, so concurrent replicas cancel each account once and the losers count as skipped. The
+ * anonymisation calls the trade service inside the same transaction: a remote failure rolls the
+ * claim back, leaves the request for the next scan and every write is idempotent, so the retry
+ * cannot hash a value twice. The blocker probe runs before the claim.
  *
  * @author Caspian
  * @since 0.3.0
@@ -50,34 +50,45 @@ public class AccountCancellationExecutionJob {
 
     private final UserAccountCancellationMapper cancellationMapper;
 
-    private final AuthUserMapper authUserMapper;
-
     private final AccountDeletionBlockerClient blockerClient;
+
+    private final AccountAnonymizationService anonymizationService;
 
     private final TransactionTemplate transactionTemplate;
 
     private final MeterRegistry meterRegistry;
 
     /**
-     * Creates the job with its persistence, probe, transaction and metric dependencies.
+     * Creates the job with its persistence, probe, anonymisation, transaction and metric
+     * dependencies.
      *
      * @param cancellationMapper cancellation request persistence
-     * @param authUserMapper account persistence
      * @param blockerClient trade-side blocker probe
+     * @param anonymizationService account and payment anonymisation
+     * @param properties cancellation settings carrying the anonymisation salt
      * @param transactionTemplate one transaction per request
      * @param meterRegistry registry for executed, skipped and failed counters
+     * @throws IllegalStateException when the anonymisation salt is blank, because a digest without
+     *     a secret salt is reversible and a missing salt must fail at startup, not mid-execution
      * @author Caspian
      * @since 0.3.0
      */
     public AccountCancellationExecutionJob(
             UserAccountCancellationMapper cancellationMapper,
-            AuthUserMapper authUserMapper,
             AccountDeletionBlockerClient blockerClient,
+            AccountAnonymizationService anonymizationService,
+            AccountDeletionProperties properties,
             TransactionTemplate transactionTemplate,
             MeterRegistry meterRegistry) {
+        String salt = properties.getAnonymizeSalt();
+        if (salt == null || salt.isBlank()) {
+            throw new IllegalStateException(
+                    "lp.auth.account-deletion.anonymize-salt is required when the execution job is"
+                            + " enabled");
+        }
         this.cancellationMapper = cancellationMapper;
-        this.authUserMapper = authUserMapper;
         this.blockerClient = blockerClient;
+        this.anonymizationService = anonymizationService;
         this.transactionTemplate = transactionTemplate;
         this.meterRegistry = meterRegistry;
     }
@@ -132,9 +143,9 @@ public class AccountCancellationExecutionJob {
     /**
      * Executes one due request after probing its trade-side blockers.
      *
-     * <p>The claim and the status flip share a transaction: when the account is no longer in the
-     * cooling-off period the claim is rolled back, so a later scan still sees the request as active
-     * and the user keeps the deadline already promised.
+     * <p>The claim and the anonymisation share a transaction: when the account is no longer in the
+     * cooling-off period, or the trade call fails, everything is rolled back, so a later scan still
+     * sees the request as active and the user keeps the deadline already promised.
      *
      * @param request due cancellation request
      * @param now execution time
@@ -155,9 +166,7 @@ public class AccountCancellationExecutionJob {
                                 skip(userId, request.getId(), "already-claimed");
                                 return Boolean.FALSE;
                             }
-                            if (authUserMapper.updateStatusIfCurrent(
-                                            userId, UserStatus.COOLING_OFF, UserStatus.CANCELLED)
-                                    == 0) {
+                            if (!anonymizationService.anonymize(userId)) {
                                 status.setRollbackOnly();
                                 skip(userId, request.getId(), "status-changed");
                                 return Boolean.FALSE;
