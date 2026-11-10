@@ -7,7 +7,15 @@
  */
 import { computed, onMounted } from 'vue'
 import { accessToken, clearSession } from './api/client'
-import { currentRoute, currentUser, navigate, syncRoute } from './router'
+import {
+  canAccess,
+  currentRoute,
+  currentUser,
+  defaultRouteFor,
+  navigate,
+  syncRoute,
+  visibleMenu,
+} from './router'
 import DashboardView from './views/DashboardView.vue'
 import LessonVideoView from './views/LessonVideoView.vue'
 import LoginView from './views/LoginView.vue'
@@ -18,10 +26,30 @@ import UsersView from './views/UsersView.vue'
 
 const signedIn = computed(() => Boolean(accessToken.value) && Boolean(currentUser.value))
 
-const showLogin = computed(() => !signedIn.value || currentRoute.value.name === 'login')
+const showLogin = computed(() => !signedIn.value)
 
-/** Teacher entry only: the menu hides it for other roles, the backend still checks ownership. */
-const isTeacher = computed(() => (currentUser.value?.roles ?? []).includes('TEACHER'))
+const roles = computed(() => currentUser.value?.roles ?? [])
+
+const menu = computed(() => visibleMenu(roles.value))
+
+const renderable = computed(() => canAccess(currentRoute.value, roles.value))
+
+/**
+ * Redirects signed-in users away from screens their roles do not open.
+ *
+ * <p>Disallowed routes are never rendered, so no request reaches the backend before the redirect.
+ * This is convenience only: the backend keeps its own role and ownership checks.</p>
+ */
+function guard(): void {
+  syncRoute()
+  if (!signedIn.value) {
+    return
+  }
+  const route = currentRoute.value
+  if (route.name === 'login' || !canAccess(route, roles.value)) {
+    navigate(defaultRouteFor(roles.value), true)
+  }
+}
 
 function signOut(): void {
   clearSession()
@@ -30,7 +58,8 @@ function signOut(): void {
 }
 
 onMounted(() => {
-  window.addEventListener('popstate', syncRoute)
+  guard()
+  window.addEventListener('popstate', guard)
 })
 </script>
 
@@ -46,30 +75,11 @@ onMounted(() => {
       </div>
       <nav>
         <a
-          href="/"
-          :class="{ active: currentRoute.name === 'overview' }"
-        >数据看板</a>
-        <a
-          href="/courses"
-          :class="{ active: currentRoute.name === 'review' }"
-        >课程审核</a>
-        <a
-          href="/users"
-          :class="{ active: currentRoute.name === 'users' }"
-        >用户管理</a>
-        <a
-          href="/orders"
-          :class="{ active: currentRoute.name === 'orders' }"
-        >订单管理</a>
-        <a
-          href="/refunds"
-          :class="{ active: currentRoute.name === 'refunds' }"
-        >退款审核</a>
-        <a
-          v-if="isTeacher"
-          href="/lesson-videos"
-          :class="{ active: currentRoute.name === 'lesson-video' }"
-        >课时视频</a>
+          v-for="item in menu"
+          :key="item.path"
+          :href="item.path"
+          :class="{ active: currentRoute.name === item.name }"
+        >{{ item.label }}</a>
       </nav>
       <div class="account">
         <span>{{ currentUser?.nickname }}</span>
@@ -83,17 +93,25 @@ onMounted(() => {
     </aside>
 
     <main class="content">
-      <DashboardView v-if="currentRoute.name === 'overview'" />
-      <ReviewQueueView v-else-if="currentRoute.name === 'review'" />
-      <UsersView v-else-if="currentRoute.name === 'users'" />
-      <OrdersView v-else-if="currentRoute.name === 'orders'" />
-      <RefundQueueView v-else-if="currentRoute.name === 'refunds'" />
-      <LessonVideoView v-else-if="currentRoute.name === 'lesson-video'" />
+      <template v-if="renderable">
+        <DashboardView v-if="currentRoute.name === 'overview'" />
+        <ReviewQueueView v-else-if="currentRoute.name === 'review'" />
+        <UsersView v-else-if="currentRoute.name === 'users'" />
+        <OrdersView v-else-if="currentRoute.name === 'orders'" />
+        <RefundQueueView v-else-if="currentRoute.name === 'refunds'" />
+        <LessonVideoView v-else-if="currentRoute.name === 'lesson-video'" />
+        <p
+          v-else
+          class="lp-empty"
+        >
+          页面不存在，<a href="/">返回数据看板</a>
+        </p>
+      </template>
       <p
         v-else
         class="lp-empty"
       >
-        页面不存在，<a href="/">返回数据看板</a>
+        正在跳转…
       </p>
     </main>
   </div>

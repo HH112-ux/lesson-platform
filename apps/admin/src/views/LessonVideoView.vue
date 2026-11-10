@@ -53,7 +53,7 @@ async function loadCourses(): Promise<void> {
     courses.value = page.items
   } catch (error) {
     courses.value = []
-    errorText.value = describeError(error, '课程列表加载失败')
+    errorText.value = describeTeacherError(error, '课程列表加载失败')
   } finally {
     loading.value = false
   }
@@ -70,7 +70,7 @@ async function loadChapters(): Promise<void> {
   try {
     chapters.value = await listTeacherChapters(id)
   } catch (error) {
-    errorText.value = describeError(error, '课时列表加载失败')
+    errorText.value = describeTeacherError(error, '课时列表加载失败')
   } finally {
     loading.value = false
   }
@@ -193,7 +193,20 @@ function fail(error: unknown): void {
     target.value = null
   }
   phase.value = ''
-  failure.value = describeError(error, '上传失败，请重试')
+  failure.value = describeTeacherError(error, '上传失败，请重试')
+}
+
+/**
+ * Maps a teacher endpoint failure to user facing text.
+ *
+ * <p>{@code 40301} here means the caller holds the teacher role but has no teacher profile yet, so
+ * the message points at onboarding instead of a generic permission error.</p>
+ */
+function describeTeacherError(error: unknown, fallback: string): string {
+  if (error instanceof ApiError && error.code === 40301) {
+    return '当前账号尚未完成教师入驻，请完成入驻审核后再上传'
+  }
+  return describeError(error, fallback)
 }
 
 /** Reads the duration locally so a wrong file fails before a session is created. */
