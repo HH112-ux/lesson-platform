@@ -20,6 +20,8 @@ import java.math.BigDecimal;
  * @param price proposed sale price in yuan, never negative
  * @param originalPrice optional crossed out price in yuan, never negative
  * @param level difficulty, 1 beginner, 2 intermediate, 3 advanced
+ * @param clearOriginalPrice set {@code true} to remove the crossed out price; must be omitted when
+ *     {@code originalPrice} is present
  * @author Caspian
  * @since 0.1.0
  */
@@ -31,4 +33,5 @@ public record TeacherCourseRequest(
         String description,
         BigDecimal price,
         BigDecimal originalPrice,
-        Integer level) {}
+        Integer level,
+        Boolean clearOriginalPrice) {}
