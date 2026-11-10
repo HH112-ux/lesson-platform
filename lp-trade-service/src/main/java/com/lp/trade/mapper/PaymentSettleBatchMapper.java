@@ -33,11 +33,20 @@ public interface PaymentSettleBatchMapper {
      * @since 0.6.2
      */
     @Select(
-            "SELECT id, channel, bill_date, channel_pay_count, channel_pay_amount, "
-                    + "channel_refund_count, channel_refund_amount, local_pay_count, "
-                    + "local_pay_amount, local_refund_count, local_refund_amount, "
-                    + "net_channel_amount, net_local_amount, diff_count, diff_amount, status, "
-                    + "closed_by, closed_at, void_by, void_at FROM payment_settle_batch "
+            "SELECT id, channel, bill_date AS billDate, "
+                    + "channel_pay_count AS channelPayCount, "
+                    + "channel_pay_amount AS channelPayAmount, "
+                    + "channel_refund_count AS channelRefundCount, "
+                    + "channel_refund_amount AS channelRefundAmount, "
+                    + "local_pay_count AS localPayCount, "
+                    + "local_pay_amount AS localPayAmount, "
+                    + "local_refund_count AS localRefundCount, "
+                    + "local_refund_amount AS localRefundAmount, "
+                    + "net_channel_amount AS netChannelAmount, "
+                    + "net_local_amount AS netLocalAmount, diff_count AS diffCount, "
+                    + "diff_amount AS diffAmount, status, closed_by AS closedBy, "
+                    + "closed_at AS closedAt, void_by AS voidBy, void_at AS voidAt "
+                    + "FROM payment_settle_batch "
                     + "WHERE channel = #{channel} AND bill_date = #{billDate}")
     PaymentSettleBatch selectByKey(
             @Param("channel") Integer channel, @Param("billDate") LocalDate billDate);
@@ -51,11 +60,20 @@ public interface PaymentSettleBatchMapper {
      * @since 0.6.2
      */
     @Select(
-            "SELECT id, channel, bill_date, channel_pay_count, channel_pay_amount, "
-                    + "channel_refund_count, channel_refund_amount, local_pay_count, "
-                    + "local_pay_amount, local_refund_count, local_refund_amount, "
-                    + "net_channel_amount, net_local_amount, diff_count, diff_amount, status, "
-                    + "closed_by, closed_at, void_by, void_at FROM payment_settle_batch "
+            "SELECT id, channel, bill_date AS billDate, "
+                    + "channel_pay_count AS channelPayCount, "
+                    + "channel_pay_amount AS channelPayAmount, "
+                    + "channel_refund_count AS channelRefundCount, "
+                    + "channel_refund_amount AS channelRefundAmount, "
+                    + "local_pay_count AS localPayCount, "
+                    + "local_pay_amount AS localPayAmount, "
+                    + "local_refund_count AS localRefundCount, "
+                    + "local_refund_amount AS localRefundAmount, "
+                    + "net_channel_amount AS netChannelAmount, "
+                    + "net_local_amount AS netLocalAmount, diff_count AS diffCount, "
+                    + "diff_amount AS diffAmount, status, closed_by AS closedBy, "
+                    + "closed_at AS closedAt, void_by AS voidBy, void_at AS voidAt "
+                    + "FROM payment_settle_batch "
                     + "WHERE id = #{id}")
     PaymentSettleBatch selectById(@Param("id") Long id);
 
