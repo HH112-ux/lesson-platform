@@ -3,17 +3,21 @@ package com.lp.course.service;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import com.lp.common.audit.AuditAction;
 import com.lp.common.audit.AuditObject;
 import com.lp.common.audit.OperatorRole;
 import com.lp.common.exception.BizException;
 import com.lp.course.dto.AuditLogCreateRequest;
+import com.lp.course.dto.AuditLogPageView;
 import com.lp.course.entity.AdminAuditLog;
 import com.lp.course.mapper.AdminAuditLogMapper;
 import java.time.LocalDateTime;
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -22,7 +26,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 /**
- * Unit tests of the unified audit writer.
+ * Unit tests of the unified audit writer and the two query shapes.
  *
  * @author Caspian
  * @since 0.6.0
@@ -142,9 +146,99 @@ class AdminAuditServiceTest {
         assertEquals(40001, exception.getCode());
     }
 
+    /**
+     * Object mode queries only by object type and id.
+     *
+     * @author Caspian
+     * @since 0.6.0
+     */
+    @Test
+    void pagesByObject() {
+        when(adminAuditLogMapper.countByObject(AuditObject.REFUND, 21L)).thenReturn(1L);
+        when(adminAuditLogMapper.selectByObject(AuditObject.REFUND, 21L, 0L, 20))
+                .thenReturn(List.of(row()));
+
+        AuditLogPageView page = service.page(AuditObject.REFUND, 21L, null, null, null, 1, 20);
+
+        assertEquals(1, page.total());
+        assertEquals(1, page.records().size());
+        assertEquals(21L, page.records().get(0).objectId());
+        verify(adminAuditLogMapper, never())
+                .countByOperator(
+                        anyLong(),
+                        org.mockito.ArgumentMatchers.any(),
+                        org.mockito.ArgumentMatchers.any());
+    }
+
+    /**
+     * Operator mode requires the time range and clamps the page size.
+     *
+     * @author Caspian
+     * @since 0.6.0
+     */
+    @Test
+    void pagesByOperatorAndClampsPaging() {
+        LocalDateTime from = DECIDED_AT.minusDays(1);
+        LocalDateTime to = DECIDED_AT.plusDays(1);
+        when(adminAuditLogMapper.countByOperator(55L, from, to)).thenReturn(0L);
+
+        AuditLogPageView page = service.page(null, null, 55L, from, to, 0, 500);
+
+        assertEquals(0, page.total());
+        assertEquals(1, page.pageNum());
+        assertEquals(100, page.pageSize());
+        verify(adminAuditLogMapper).countByOperator(55L, from, to);
+    }
+
+    /**
+     * A half specified object filter is refused instead of silently widening the query.
+     *
+     * @author Caspian
+     * @since 0.6.0
+     */
+    @Test
+    void rejectsUnpairedObjectFilter() {
+        BizException exception =
+                assertThrows(
+                        BizException.class,
+                        () -> service.page(AuditObject.COURSE, null, null, null, null, 1, 20));
+
+        assertEquals(40001, exception.getCode());
+    }
+
+    /**
+     * An operator query without a range is refused to keep unbounded scans unreachable.
+     *
+     * @author Caspian
+     * @since 0.6.0
+     */
+    @Test
+    void rejectsOperatorQueryWithoutRange() {
+        BizException exception =
+                assertThrows(
+                        BizException.class, () -> service.page(null, null, 55L, null, null, 1, 20));
+
+        assertEquals(40001, exception.getCode());
+    }
+
     private AdminAuditLog captureInsert() {
         ArgumentCaptor<AdminAuditLog> captor = ArgumentCaptor.forClass(AdminAuditLog.class);
         verify(adminAuditLogMapper).insert(captor.capture());
         return captor.getValue();
+    }
+
+    private AdminAuditLog row() {
+        AdminAuditLog row = new AdminAuditLog();
+        row.setId(1L);
+        row.setOperatorId(55L);
+        row.setOperatorRole(OperatorRole.OPS);
+        row.setActionType(AuditAction.REFUND_REJECT);
+        row.setObjectType(AuditObject.REFUND);
+        row.setObjectId(21L);
+        row.setFromStatus(0);
+        row.setToStatus(3);
+        row.setTraceId("trace-1");
+        row.setCreatedAt(DECIDED_AT);
+        return row;
     }
 }
