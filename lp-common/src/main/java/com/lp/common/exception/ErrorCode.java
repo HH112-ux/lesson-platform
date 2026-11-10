@@ -84,6 +84,11 @@ public enum ErrorCode {
     /** The user already owns the course. */
     COURSE_ALREADY_OWNED(61002, "course already owned"),
 
+    /**
+     * The lesson video failed the container, codec, resolution, duration, size or integrity rules.
+     */
+    LESSON_UPLOAD_VIDEO_INVALID(61003, "lesson video is not accepted"),
+
     /** The course is not in the pending-review state, so a review decision is rejected. */
     COURSE_REVIEW_STATE_INVALID(61005, "course is not pending review"),
 
