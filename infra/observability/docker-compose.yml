@@ -1,0 +1,62 @@
+# Local observability stack (M0-41). Start the application stack first:
+#   docker compose -f infra/docker-compose.yml up -d
+#   docker compose -f infra/observability/docker-compose.yml up -d
+# Prometheus and Alertmanager join the application network so targets resolve by service name.
+name: lp-observability
+
+networks:
+  lp-dev:
+    external: true
+    name: lp-dev_default
+
+services:
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: lp-prometheus
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus-rules.yml:/etc/prometheus/rules/prometheus-rules.yml:ro
+      - lp-prometheus-data:/prometheus
+    ports:
+      - "127.0.0.1:9090:9090"
+    networks: [lp-dev]
+    depends_on: [alertmanager]
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: lp-alertmanager
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+    volumes:
+      - ./alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - lp-alertmanager-data:/alertmanager
+    ports:
+      - "127.0.0.1:9093:9093"
+    networks: [lp-dev]
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    container_name: lp-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${LP_GRAFANA_ADMIN_PASSWORD:-lp_grafana_dev}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - lp-grafana-data:/var/lib/grafana
+    ports:
+      - "127.0.0.1:3000:3000"
+    networks: [lp-dev]
+
+volumes:
+  lp-prometheus-data:
+  lp-alertmanager-data:
+  lp-grafana-data:
