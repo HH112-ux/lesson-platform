@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -76,15 +77,26 @@ class AccountCancellationServiceImplTest {
     void setUp() {
         properties = new AccountDeletionProperties();
         meterRegistry = new SimpleMeterRegistry();
-        service =
-                new AccountCancellationServiceImpl(
-                        authUserMapper,
-                        cancellationMapper,
-                        blockerClient,
-                        cacheClient,
-                        properties,
-                        meterRegistry,
-                        Clock.fixed(NOW.toInstant(ZoneOffset.UTC), ZoneOffset.UTC));
+        service = serviceAt(NOW);
+    }
+
+    /**
+     * Builds the service with the clock fixed at one instant.
+     *
+     * @param instant instant the service treats as now
+     * @return service under test
+     * @author Caspian
+     * @since 0.3.0
+     */
+    private AccountCancellationServiceImpl serviceAt(LocalDateTime instant) {
+        return new AccountCancellationServiceImpl(
+                authUserMapper,
+                cancellationMapper,
+                blockerClient,
+                cacheClient,
+                properties,
+                meterRegistry,
+                Clock.fixed(instant.toInstant(ZoneOffset.UTC), ZoneOffset.UTC));
     }
 
     /**
@@ -324,6 +336,50 @@ class AccountCancellationServiceImplTest {
                         anyLong(),
                         org.mockito.ArgumentMatchers.anyInt(),
                         org.mockito.ArgumentMatchers.anyInt());
+    }
+
+    /**
+     * AC-6: a withdrawn request is closed and the next application writes a brand new row.
+     *
+     * <p>The withdraw answer applies the same transition as the SQL ({@code status = 1}), and the
+     * active lookup only ever sees {@code status = 0}. The second application runs on a clock one
+     * day later, so reusing the withdrawn row would replay the old deadline instead of a new one.
+     *
+     * @author Caspian
+     * @since 0.3.0
+     */
+    @Test
+    void applyAfterWithdrawalCreatesANewRequestWithANewDeadline() {
+        UserAccountCancellation withdrawn =
+                request(11L, AccountCancellationStatus.COOLING_OFF, NOW.plusDays(7));
+        ArgumentCaptor<UserAccountCancellation> inserts =
+                ArgumentCaptor.forClass(UserAccountCancellation.class);
+        when(authUserMapper.selectById(7L)).thenReturn(account(UserStatus.ACTIVE));
+        when(authUserMapper.selectRoleCodes(7L)).thenReturn(List.of("STUDENT"));
+        when(cancellationMapper.selectActiveByUserId(7L)).thenReturn(null, withdrawn, null);
+        when(cancellationMapper.insert(any(UserAccountCancellation.class))).thenReturn(1);
+        when(cancellationMapper.withdraw(11L, NOW))
+                .thenAnswer(
+                        invocation -> {
+                            withdrawn.setStatus(AccountCancellationStatus.WITHDRAWN);
+                            return 1;
+                        });
+        when(blockerClient.blockers(7L))
+                .thenReturn(new AccountDeletionBlockerView(7L, 0, 0, false));
+
+        service.apply(7L, "user");
+        service.withdraw(7L, "user");
+        AccountCancellationView second = serviceAt(NOW.plusDays(1)).apply(7L, "user");
+
+        verify(cancellationMapper, times(2)).insert(inserts.capture());
+        UserAccountCancellation renewed = inserts.getAllValues().get(1);
+        assertThat(withdrawn.getStatus()).isEqualTo(AccountCancellationStatus.WITHDRAWN);
+        assertThat(renewed).isNotSameAs(withdrawn);
+        assertThat(renewed.getId()).isNull();
+        assertThat(renewed.getStatus()).isEqualTo(AccountCancellationStatus.COOLING_OFF);
+        assertThat(renewed.getRequestedAt()).isEqualTo(NOW.plusDays(1));
+        assertThat(renewed.getEffectiveAt()).isEqualTo(NOW.plusDays(8));
+        assertThat(second.effectiveAt()).isEqualTo("2026-11-18T10:00:00");
     }
 
     /**

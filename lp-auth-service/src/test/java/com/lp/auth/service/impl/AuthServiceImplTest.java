@@ -5,12 +5,15 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.lp.auth.client.AccountAnonymizationClient;
+import com.lp.auth.config.AccountDeletionProperties;
 import com.lp.auth.config.MiniappProperties;
 import com.lp.auth.constant.UserStatus;
 import com.lp.auth.dto.LoginRequest;
@@ -24,12 +27,14 @@ import com.lp.auth.dto.RefreshResponse;
 import com.lp.auth.dto.RegisterRequest;
 import com.lp.auth.entity.UserAccount;
 import com.lp.auth.entity.UserWechat;
+import com.lp.auth.mapper.AccountAnonymizationMapper;
 import com.lp.auth.mapper.AuthUserMapper;
 import com.lp.auth.security.JwtTokenService;
 import com.lp.auth.security.RefreshSession;
 import com.lp.auth.security.RefreshTokenStore;
 import com.lp.auth.security.WechatMiniappClient;
 import com.lp.auth.security.WechatSession;
+import com.lp.auth.service.AccountAnonymizationService;
 import com.lp.common.exception.BizException;
 import com.lp.common.exception.ErrorCode;
 import com.lp.common.identity.IdentityHeaders;
@@ -42,6 +47,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import javax.sql.DataSource;
+import org.apache.ibatis.session.SqlSessionFactory;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -50,16 +57,21 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.stubbing.Answer;
+import org.mybatis.spring.SqlSessionFactoryBean;
+import org.mybatis.spring.SqlSessionTemplate;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 /**
- * Covers the login, refresh and logout decision branches without a database or Redis.
+ * Covers the login, refresh and logout decision branches without Redis.
  *
  * <p>The token issuer is real and signs with a generated RSA key, while persistence and the refresh
  * whitelist are in-memory stand-ins, so the asserted tokens are genuinely verifiable and the
- * rotation rules are observable.
+ * rotation rules are observable. The openid rebind test additionally runs the real mappers against
+ * H2, because it has to prove what the unique openid index and the {@code anon:} rewrite do.
  *
  * @author Caspian
  * @since 0.1.0
@@ -68,6 +80,9 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 class AuthServiceImplTest {
 
     private static final String RAW_PASSWORD = "secret123";
+
+    private static final String REBIND_DB_URL =
+            "jdbc:h2:mem:lp_ums_rebind;MODE=MySQL;DB_CLOSE_DELAY=-1;DATABASE_TO_LOWER=TRUE";
 
     private static KeyPair keyPair;
 
@@ -105,22 +120,31 @@ class AuthServiceImplTest {
      */
     @BeforeEach
     void setUp() {
-        JwtTokenService tokenService =
-                new JwtTokenService(
-                        (RSAPrivateKey) keyPair.getPrivate(),
-                        "auth-service",
-                        Duration.ofMinutes(15),
-                        Duration.ofDays(7));
         miniappProperties = new MiniappProperties();
         miniappProperties.setEnabled(true);
         authService =
                 new AuthServiceImpl(
                         authUserMapper,
-                        tokenService,
+                        tokenService(),
                         refreshTokenStore,
                         passwordEncoder,
                         miniappProperties,
                         wechatMiniappClient);
+    }
+
+    /**
+     * Builds the real token issuer with the throwaway key pair.
+     *
+     * @return issuer signing with the test key
+     * @author Caspian
+     * @since 0.3.0
+     */
+    private static JwtTokenService tokenService() {
+        return new JwtTokenService(
+                (RSAPrivateKey) keyPair.getPrivate(),
+                "auth-service",
+                Duration.ofMinutes(15),
+                Duration.ofDays(7));
     }
 
     /**
@@ -783,6 +807,125 @@ class AuthServiceImplTest {
                                 assertThat(ex.getCode())
                                         .isEqualTo(ErrorCode.MINIAPP_LOGIN_BIZ_ERROR.getCode()));
         verify(authUserMapper, never()).selectByOpenid(any());
+    }
+
+    /**
+     * AC-16: an anonymised openid binds to a brand new account that cannot see the old one.
+     *
+     * <p>The real mappers run against H2, so the unique openid index, the {@code anon:} rewrite and
+     * the generated ids behave as in production; only the trade call is mocked, because trade owns
+     * a different database. Trade rows stay attached to the old user id, so a query keyed by the
+     * new id never matches them.
+     *
+     * @throws Exception when the schema or the MyBatis factory cannot be built
+     * @author Caspian
+     * @since 0.3.0
+     */
+    @Test
+    void anonymizedOpenidRegistersANewAccountThatCannotSeeTheOldOne() throws Exception {
+        DriverManagerDataSource dataSource = new DriverManagerDataSource(REBIND_DB_URL, "sa", "");
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        createMiniappSchema(jdbc);
+        SqlSessionFactory factory = mybatisFactory(dataSource);
+        AuthUserMapper mapper = new SqlSessionTemplate(factory).getMapper(AuthUserMapper.class);
+        AccountAnonymizationService anonymization =
+                new AccountAnonymizationService(
+                        new SqlSessionTemplate(factory).getMapper(AccountAnonymizationMapper.class),
+                        mock(AccountAnonymizationClient.class),
+                        deletionProperties(),
+                        passwordEncoder);
+        AuthServiceImpl realService =
+                new AuthServiceImpl(
+                        mapper,
+                        tokenService(),
+                        refreshTokenStore,
+                        passwordEncoder,
+                        miniappProperties,
+                        wechatMiniappClient);
+        when(wechatMiniappClient.exchange("code-rebind"))
+                .thenReturn(new WechatSession("openid-rebind", null, "session-rebind"));
+
+        long oldUserId = realService.miniappLogin(miniappRequest("code-rebind")).getUser().getId();
+        jdbc.update("UPDATE sys_user SET status = 2 WHERE id = ?", oldUserId);
+        assertThat(anonymization.anonymize(oldUserId)).isTrue();
+
+        MiniappLoginResponse second = realService.miniappLogin(miniappRequest("code-rebind"));
+        long newUserId = second.getUser().getId();
+
+        assertThat(second.isNewUser()).isTrue();
+        assertThat(newUserId).isNotEqualTo(oldUserId);
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT COUNT(*) FROM sys_user_wechat "
+                                        + "WHERE user_id = ? AND deleted = 0 AND openid = ?",
+                                Integer.class,
+                                newUserId,
+                                "openid-rebind"))
+                .isEqualTo(1);
+        Map<String, Object> oldBinding =
+                jdbc.queryForMap(
+                        "SELECT openid, deleted FROM sys_user_wechat WHERE user_id = ?", oldUserId);
+        assertThat(oldBinding.get("openid").toString()).startsWith("anon:");
+        assertThat(((Number) oldBinding.get("deleted")).intValue()).isEqualTo(1);
+        assertThat(mapper.selectByOpenid("openid-rebind").getUserId()).isEqualTo(newUserId);
+        assertThat(realService.me(newUserId).getUsername()).startsWith("mp_");
+        assertThat(mapper.selectById(newUserId).getStatus()).isEqualTo(UserStatus.ACTIVE);
+        assertThat(mapper.selectById(oldUserId).getStatus()).isEqualTo(UserStatus.CANCELLED);
+    }
+
+    /**
+     * Builds the MyBatis factory with the two mappers under test bound to the H2 data source.
+     *
+     * @param dataSource H2 data source carrying the {@code lp_ums} tables
+     * @return factory whose configuration exposes the production mapper statements
+     * @throws Exception when the factory cannot be built
+     * @author Caspian
+     * @since 0.3.0
+     */
+    private static SqlSessionFactory mybatisFactory(DataSource dataSource) throws Exception {
+        SqlSessionFactoryBean factory = new SqlSessionFactoryBean();
+        factory.setDataSource(dataSource);
+        SqlSessionFactory sessionFactory = factory.getObject();
+        sessionFactory.getConfiguration().addMapper(AuthUserMapper.class);
+        sessionFactory.getConfiguration().addMapper(AccountAnonymizationMapper.class);
+        return sessionFactory;
+    }
+
+    /**
+     * Creates the account and role tables the miniapp login path reads, with the default role row.
+     *
+     * @param jdbc template bound to the H2 data source
+     * @author Caspian
+     * @since 0.3.0
+     */
+    private static void createMiniappSchema(JdbcTemplate jdbc) {
+        jdbc.execute("CREATE ALIAS IF NOT EXISTS SHA2 FOR \"com.lp.auth.support.Sha2Alias.sha2\"");
+        jdbc.execute(
+                "CREATE TABLE sys_user (id BIGINT AUTO_INCREMENT PRIMARY KEY, username VARCHAR(32) NOT NULL UNIQUE, password_hash VARCHAR(100) NOT NULL, nickname VARCHAR(32), avatar_url VARCHAR(255), email VARCHAR(64), phone VARCHAR(20), gender TINYINT NOT NULL DEFAULT 0, status TINYINT NOT NULL DEFAULT 1, deleted TINYINT NOT NULL DEFAULT 0, last_login_at DATETIME, created_at DATETIME, updated_at DATETIME)");
+        jdbc.execute(
+                "CREATE TABLE sys_user_wechat (id BIGINT AUTO_INCREMENT PRIMARY KEY, user_id BIGINT NOT NULL, openid VARCHAR(128) NOT NULL UNIQUE, unionid VARCHAR(128), session_key VARCHAR(255), deleted TINYINT NOT NULL DEFAULT 0, created_at DATETIME, updated_at DATETIME)");
+        jdbc.execute(
+                "CREATE TABLE sys_role (id BIGINT PRIMARY KEY, code VARCHAR(32) NOT NULL, status TINYINT NOT NULL DEFAULT 1, deleted TINYINT NOT NULL DEFAULT 0)");
+        jdbc.execute(
+                "CREATE TABLE sys_user_role (id BIGINT AUTO_INCREMENT PRIMARY KEY, user_id BIGINT NOT NULL, role_id BIGINT NOT NULL, deleted TINYINT NOT NULL DEFAULT 0)");
+        jdbc.execute(
+                "CREATE TABLE sys_menu (id BIGINT PRIMARY KEY, permission_code VARCHAR(64), status TINYINT NOT NULL DEFAULT 1, deleted TINYINT NOT NULL DEFAULT 0)");
+        jdbc.execute(
+                "CREATE TABLE sys_role_menu (id BIGINT AUTO_INCREMENT PRIMARY KEY, role_id BIGINT NOT NULL, menu_id BIGINT NOT NULL, deleted TINYINT NOT NULL DEFAULT 0)");
+        jdbc.update("INSERT INTO sys_role (id, code) VALUES (5, 'STUDENT')");
+    }
+
+    /**
+     * Builds deletion settings whose salt is fixed for the deterministic openid digest.
+     *
+     * @return settings accepted by the anonymisation service
+     * @author Caspian
+     * @since 0.3.0
+     */
+    private static AccountDeletionProperties deletionProperties() {
+        AccountDeletionProperties properties = new AccountDeletionProperties();
+        properties.setAnonymizeSalt("rebind-salt");
+        return properties;
     }
 
     /**

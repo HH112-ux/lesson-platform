@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.lp.trade.service.AccountDeletionBlockerQuery;
 import java.time.LocalDateTime;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
@@ -24,7 +25,8 @@ import org.springframework.test.context.ActiveProfiles;
  *
  * <p>Two workers race on the same order; the conditional status update must let exactly one win.
  * The second test pins the callback-first ordering: an order already paid stays paid and its
- * payment record and coupon are left untouched.
+ * payment record and coupon are left untouched. The last test proves the close also releases the
+ * account deletion blocker, which is what lets a user apply for cancellation again.
  *
  * @author Caspian
  * @since 0.2.0
@@ -40,12 +42,16 @@ class OrderTimeoutConcurrencyTest {
 
     private static final long ORDER_ID = 11L;
 
+    private static final long USER_ID = 1001L;
+
     @Autowired private OrderTimeoutJob orderTimeoutJob;
+
+    @Autowired private AccountDeletionBlockerQuery blockerQuery;
 
     @Autowired private JdbcTemplate jdbcTemplate;
 
     /**
-     * Recreates the three tables with one expired order, one pending payment and one used coupon.
+     * Recreates the four tables with one expired order, one pending payment and one used coupon.
      *
      * @author Caspian
      * @since 0.2.0
@@ -54,15 +60,23 @@ class OrderTimeoutConcurrencyTest {
     void prepareSchema() {
         jdbcTemplate.execute("DROP TABLE IF EXISTS payment_record");
         jdbcTemplate.execute("DROP TABLE IF EXISTS user_coupon");
+        jdbcTemplate.execute("DROP TABLE IF EXISTS refund_request");
         jdbcTemplate.execute("DROP TABLE IF EXISTS trade_order");
         jdbcTemplate.execute(
                 "CREATE TABLE trade_order ("
                         + "id BIGINT AUTO_INCREMENT PRIMARY KEY,"
+                        + "user_id BIGINT NOT NULL DEFAULT 0,"
                         + "status TINYINT NOT NULL,"
                         + "pay_expire_at DATETIME,"
                         + "closed_at DATETIME,"
                         + "cancel_reason VARCHAR(200),"
                         + "deleted TINYINT NOT NULL DEFAULT 0)");
+        jdbcTemplate.execute(
+                "CREATE TABLE refund_request ("
+                        + "id BIGINT AUTO_INCREMENT PRIMARY KEY,"
+                        + "user_id BIGINT NOT NULL,"
+                        + "order_id BIGINT NOT NULL,"
+                        + "status TINYINT NOT NULL DEFAULT 0)");
         jdbcTemplate.execute(
                 "CREATE TABLE payment_record ("
                         + "id BIGINT AUTO_INCREMENT PRIMARY KEY,"
@@ -79,9 +93,10 @@ class OrderTimeoutConcurrencyTest {
                         + "used_at DATETIME,"
                         + "deleted TINYINT NOT NULL DEFAULT 0)");
         jdbcTemplate.update(
-                "INSERT INTO trade_order (id, status, pay_expire_at, deleted) "
-                        + "VALUES (?, 0, ?, 0)",
+                "INSERT INTO trade_order (id, user_id, status, pay_expire_at, deleted) "
+                        + "VALUES (?, ?, 0, ?, 0)",
                 ORDER_ID,
+                USER_ID,
                 java.sql.Timestamp.valueOf(LocalDateTime.now().minusMinutes(1)));
         jdbcTemplate.update(
                 "INSERT INTO payment_record (id, order_id, status, deleted) VALUES (1, ?, 0, 0)",
@@ -142,6 +157,26 @@ class OrderTimeoutConcurrencyTest {
         assertEquals(1, status("trade_order"));
         assertEquals(0, status("payment_record"));
         assertEquals(1, status("user_coupon"));
+    }
+
+    /**
+     * AC-9: a closed unfinished order stops blocking the account deletion request.
+     *
+     * <p>The order is seeded in the status the blocker counts ({@code pending}) and the job's own
+     * close path flips it to the timed-out status; the close time is passed explicitly, so the test
+     * does not depend on the wall clock.
+     *
+     * @author Caspian
+     * @since 0.3.0
+     */
+    @Test
+    void timedOutOrderNoLongerBlocksAccountDeletion() {
+        assertTrue(blockerQuery.blockers(USER_ID).blocked());
+
+        assertTrue(orderTimeoutJob.closeOne(ORDER_ID, LocalDateTime.now()));
+
+        assertEquals(3, status("trade_order"));
+        assertFalse(blockerQuery.blockers(USER_ID).blocked());
     }
 
     private int status(String table) {
