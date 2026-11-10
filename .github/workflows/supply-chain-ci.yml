@@ -101,9 +101,13 @@ jobs:
       - name: Warm the Maven repository
         # Trivy resolves pom.xml over the network. Maven Central answered the runner with
         # 429 and Retry-After 1800s on the first attempt, which is what Trivy's own error
-        # message tells you to prevent by populating ~/.m2 first. Same cache key as the
-        # backend jobs, so a warm run only re-confirms what is already there.
-        run: ./mvnw -B -q -DskipTests dependency:resolve
+        # message tells you to prevent by populating ~/.m2 first.
+        #
+        # install rather than dependency:resolve: the modules depend on each other
+        # (lp-auth-service needs lp-common), and resolution fails until those snapshots
+        # are in the local repository. Tests are skipped; the same cache key as the
+        # backend jobs keeps a warm run cheap.
+        run: ./mvnw -B -q -DskipTests install
 
       - name: Scan Maven and pnpm dependencies
         run: |
