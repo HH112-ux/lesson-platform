@@ -142,7 +142,7 @@ async function save(): Promise<void> {
   errorText.value = ''
   notice.value = ''
   const price = parseAmount(form.price)
-  const originalPrice = parseAmount(form.originalPrice)
+  const originalPrice = form.clearOriginalPrice ? null : parseAmount(form.originalPrice)
   if (!form.title.trim()) {
     errorText.value = '请填写课程标题'
   } else if (form.categoryId === null) {
@@ -396,7 +396,7 @@ onMounted(() => {
                   <button
                     class="lp-btn lp-btn--primary"
                     type="button"
-                    :disabled="submittingId !== null"
+                    :disabled="submittingId !== null || formOpen"
                     @click="submitReview(course)"
                   >
                     {{ submittingId === course.courseId ? '提交中…' : '提交审核' }}
