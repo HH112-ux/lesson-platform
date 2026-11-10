@@ -93,6 +93,7 @@
 | SPEC-PLAT-009 | 分页约定 | 已完成 | — | 5/5 |
 | SPEC-PLAT-010 | 统一操作审计（三类审核） | 已完成 | L1-7 | 10/10 |
 | SPEC-PLAT-011 | 小程序登录频控 | 已完成 | L1-6 | 8/8 |
+| SPEC-PLAT-012 | 网关基础限流 | 已完成 | L1-6 | 8/8 |
 
 ---
 
@@ -104,7 +105,7 @@
 |---|---|---|---|
 | 账号与 JWT | 注册、密码登录、刷新、登出、`/me` 可用；密码 BCrypt 存储；无资料修改与注销 | `lp-auth-service/.../controller/AuthController.java`、`db/migration/auth/V2__user_auth.sql` | 2026-11-09 |
 | 小程序 code 登录 | 接口与真实 `jscode2session` 客户端均已实现，默认关闭；本地可用 mock 客户端；登录入口按真实 IP 与 `X-Device-Id` 双维度频控，Redis 故障放行并打点 | `AuthController.java`、`security/HttpWechatMiniappClient.java`、`security/MiniappLoginRateLimitFilter.java`、`config/MiniappProperties.java` | 2026-11-10 |
-| 网关 | 7 条服务路由、身份头剥离与注入、JWT 三态校验，默认 `hard`；未实现限流 | `lp-gateway/src/main/resources/application.yml`、`filter/HeaderSanitizeFilter.java`、`filter/JwtAuthFilter.java` | 2026-11-09 |
+| 网关 | 7 条服务路由、身份头剥离与注入、JWT 三态校验，默认 `hard`；`/api/v1/**` 按用户或真实客户端 IP 做每实例内存限流（默认 300 次/分钟/实例，集群容量 = 阈值 × 副本数），超限返回 429 + `Retry-After` + 统一信封；`/internal/**` 与 `/actuator/**` 不经路由 | `lp-gateway/src/main/resources/application.yml`、`filter/HeaderSanitizeFilter.java`、`filter/JwtAuthFilter.java`、`filter/GatewayRateLimitFilter.java` | 2026-11-10 |
 | 课程浏览 | 已上架课程分页、分类、关键词（`LIKE` 标题/副标题）、详情、目录；下架课程对非持有者按 404 处理 | `lp-course-service/.../controller/CoursePublicController.java`、`mapper/CourseMapper.java` | 2026-11-09 |
 | 教师课程 API | 建课、改课、提交审核、章节课时增删改、状态计数；按 `owner_teacher_id` 做归属校验；建课与改课在服务层校验教师入驻审核状态，未通过返回 `61006` 且不写课程 | `controller/TeacherCourseController.java`、`service/impl/TeacherCourseServiceImpl.java` | 2026-11-09 |
 | 课程审核 | 待审队列、通过并定价上架、驳回、审核审计查询；审核动作同时写入统一审计表（含操作人角色、前后状态、traceId），与状态更新同事务 | `lp-admin-service/.../controller/AdminCourseController.java`、`db/migration/course/V4__course_review_audit.sql`、`db/migration/course/V7__admin_audit_log.sql` | 2026-11-10 |
@@ -161,7 +162,7 @@
 | CI | `backend-build`/`backend-test`、`frontend-check`、`miniapp-check`、`docs-check` | `.github/workflows/backend-ci.yml`、`frontend-ci.yml`、`docs-ci.yml` | 2026-11-09 |
 | 本地钩子 | `pre-commit` 跑文档校验与 Spotless，`commit-msg` 跑提交信息校验 | `.githooks/pre-commit`、`.githooks/commit-msg`、`scripts/install-hooks.sh` | 2026-11-09 |
 | 测试 | 47 个后端测试类、6 个前端 spec；无端到端测试进入 CI | `lp-*/src/test/**`、`apps/*/src/**/*.spec.ts` | 2026-11-09 |
-| 未做 | 镜像构建与推送、staging/prod 部署、监控栈编排、告警规则、备份演练、限流 | `.github/workflows/**`、`infra/**` | 2026-11-09 |
+| 未做 | 镜像构建与推送、staging/prod 部署、监控栈编排、告警规则、备份演练 | `.github/workflows/**`、`infra/**` | 2026-11-10 |
 
 ---
 
@@ -203,7 +204,6 @@
 | 监控栈与告警 | engineering-plan 13.6 M0-40/M0-41 | 各服务暴露 `/actuator/prometheus`，trade 有 outbox 指标；无 Prometheus/Grafana 编排与告警规则 | 未排期 | 2026-11-09 |
 | 小程序 CI 上传 | engineering-plan 13.6 M0-49 | CI 仅做静态检查，无 `miniprogram-ci` 上传 | 缺 AppID 与上传私钥 | 2026-11-09 |
 | staging/prod 部署 | engineering-plan 3.3、3.4、13.2 M5 | 无镜像构建、K8s 清单或部署 workflow | 缺服务器、域名、备案与凭据 | 2026-11-09 |
-| 网关限流 | engineering-plan 5.2（42901） | 网关无请求限流实现 | 未排期 | 2026-11-09 |
 
 ---
 

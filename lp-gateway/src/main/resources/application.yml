@@ -75,6 +75,15 @@ lp:
     jwt:
       issuer: auth-service
       public-key-path: ${LP_JWT_PUBLIC_KEY_PATH:}
+  # Per-instance token bucket for /api/v1/**, keyed by X-User-Id or the trusted client IP.
+  # The bucket starts full, so limit-per-minute is also the burst capacity. With N replicas the
+  # cluster admits up to limit-per-minute * N per key per minute. A non positive value fails
+  # startup. /internal/** is not routed here and non /api/v1/ paths are skipped.
+  rate-limit:
+    gateway:
+      enabled: ${LP_GATEWAY_RATE_LIMIT_ENABLED:true}
+      limit-per-minute: ${LP_GATEWAY_RATE_LIMIT_PER_MINUTE:300}
+      trusted-proxies: ${LP_TRUSTED_PROXIES:127.0.0.1,::1}
 
 # Health is exposed for the M0-26 acceptance check: curl :8080/actuator/health returns UP.
 management:
