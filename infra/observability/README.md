@@ -19,6 +19,7 @@ Micrometer 计数器经 `/actuator/prometheus` 暴露时统一带 `_total` 后�
 | `lp_auth_account_cancellation_executed_total` | counter | 无 | `AccountCancellationExecutionJob.METRIC_EXECUTED` | 每成功执行一条到期申请 +1 |
 | `lp_auth_account_cancellation_execute_failed_total` | counter | `userId` | `AccountCancellationExecutionJob.METRIC_FAILED` | 单条申请在扫描中抛错、整体回滚 +1；下一轮仍会被扫描 |
 | `lp_auth_account_cancellation_execute_skipped_total` | counter | `userId` | `AccountCancellationExecutionJob.METRIC_SKIPPED` | 到期但未执行 +1，原因见 WARN 日志的 `reason`：`blocked` / `already-claimed` / `status-changed` |
+| `lp_auth_account_cancellation_cache_invalidate_failed_total` | counter | 无 | `AccountDeletionCacheClient.METRIC_INVALIDATE_FAILED` | 提交后通知 trade 清缓存的调用失败 +1；失败时 trade 只能等 45 秒 TTL 自然过期 |
 
 使用注意：
 
@@ -33,6 +34,7 @@ Micrometer 计数器经 `/actuator/prometheus` 暴露时统一带 `_total` 后�
 |---|---|---|---|---|
 | `LpAuthAccountCancellationExecuteFailed` | `sum by (userId)(increase(...execute_failed_total[15m])) >= 3` | 5 分钟 | critical | 扫描间隔默认 60 秒，同一账号 15 分钟内失败 3 次说明重试没有收敛（trade 不可达、匿名化写入被拒），删除永远不会完成 |
 | `LpAuthAccountCancellationExecuteSkippedPersistent` | `sum by (userId)(increase(...execute_skipped_total[24h])) >= 48` | 10 分钟 | warning | 直接取 AC-12 的「同一用户 24 小时内跳过达到 48 次」；按 60 秒扫描换算约等于持续阻塞 48 分钟 |
+| `LpAuthAccountCancellationCacheInvalidateFailed` | `sum(increase(...cache_invalidate_failed_total[5m])) >= 3` | 5 分钟 | warning | 直接取 AC-33 的「5 分钟内失败达到 3 次」；该计数器不带标签，只能按服务整体速率判断，单账号线索在 WARN 日志里 |
 
 跳过的三种原因共用一条计数。`already-claimed` 在多副本竞争时属正常现象，只有在 24 小时内达到 48 次才值得关注：要么副本在空转，要么另一副本把同一条申请长期占而不用。
 
@@ -56,11 +58,11 @@ promtool check rules infra/observability/prometheus-rules.yml
 # 兜底：仅验证 YAML 语法
 python3 -c "import yaml;yaml.safe_load(open('infra/observability/prometheus-rules.yml'));print('yaml ok')"
 
-# 指标形状：打开执行任务后观察三类计数
+# 指标形状：打开执行任务后观察四类计数
 curl -s http://127.0.0.1:8101/actuator/prometheus | grep lp_auth_account_cancellation
 ```
 
 ## 6. 边界
 
-- 申请、撤销两个动作的计数器（`applied`、`withdrawn`）与缓存失效失败（`cache_invalidate.failed`，AC-33）、trade 侧降级（`order.account_guard.degraded`，AC-24）不在本片范围，后续按同样方式补规则。
+- 申请、撤销两个动作的计数器（`applied`、`withdrawn`）与 trade 侧降级（`order.account_guard.degraded`，AC-24）不在本片范围，后续按同样方式补规则。AC-33 的缓存失效失败已在本文件中。
 - 规则不判断「多久没有执行过任何申请」。静默可能只是没有到期申请，纳入告警会产生大量误报；需要时用运营看板而不是告警表达。
