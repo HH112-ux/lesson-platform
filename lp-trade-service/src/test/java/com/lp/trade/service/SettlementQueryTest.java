@@ -8,6 +8,7 @@ import static org.mockito.Mockito.when;
 import com.lp.common.exception.BizException;
 import com.lp.common.exception.ErrorCode;
 import com.lp.trade.entity.PaymentSettleBatch;
+import com.lp.trade.mapper.AuditOutboxMapper;
 import com.lp.trade.mapper.PaymentReconcileMapper;
 import com.lp.trade.mapper.PaymentSettleBatchMapper;
 import com.lp.trade.reconcile.SettlementPageView;
@@ -31,11 +32,13 @@ class SettlementQueryTest {
 
     @Mock private PaymentSettleBatchMapper settleBatchMapper;
 
+    @Mock private AuditOutboxMapper auditOutboxMapper;
+
     private SettlementService service;
 
     @BeforeEach
     void setUp() {
-        service = new SettlementService(reconcileMapper, settleBatchMapper);
+        service = new SettlementService(reconcileMapper, settleBatchMapper, auditOutboxMapper);
     }
 
     @Test
