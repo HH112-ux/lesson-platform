@@ -27,6 +27,11 @@
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-actuator</artifactId>
     </dependency>
+    <!-- Prometheus scrape endpoint required by M0-40; exposes the cancellation counters as text. -->
+    <dependency>
+      <groupId>io.micrometer</groupId>
+      <artifactId>micrometer-registry-prometheus</artifactId>
+    </dependency>
     <dependency>
       <groupId>com.lp</groupId>
       <artifactId>lp-common</artifactId>
