@@ -103,9 +103,15 @@ public class AdminCourseController {
         if (userId == null || userId <= 0) {
             throw new BizException(ErrorCode.UNAUTHENTICATED);
         }
+        int operatorRole = ConsoleRoles.operatorRole(roles);
         return Result.ok(
                 adminCourseReviewService.review(
-                        courseId, body.isApproved(), body.getPriceFen(), body.getRemark(), userId),
+                        courseId,
+                        body.isApproved(),
+                        body.getPriceFen(),
+                        body.getRemark(),
+                        userId,
+                        operatorRole),
                 TraceIds.resolve(request));
     }
 

@@ -10,6 +10,7 @@ import static org.mockito.Mockito.when;
 import com.lp.admin.client.CourseReviewClient;
 import com.lp.admin.dto.AdminPendingCoursePageView;
 import com.lp.admin.dto.AdminReviewResultView;
+import com.lp.common.audit.OperatorRole;
 import com.lp.common.exception.BizException;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -57,10 +58,10 @@ class AdminCourseReviewServiceImplTest {
      */
     @Test
     void forwardsApproval() {
-        when(courseReviewClient.review(7L, true, 9900L, null, 55L))
+        when(courseReviewClient.review(7L, true, 9900L, null, 55L, OperatorRole.OPS))
                 .thenReturn(new AdminReviewResultView(7L, 2, 9900L, null));
 
-        AdminReviewResultView result = service.review(7L, true, 9900L, null, 55L);
+        AdminReviewResultView result = service.review(7L, true, 9900L, null, 55L, OperatorRole.OPS);
 
         assertEquals(2, result.status());
         assertTrue(result.priceFen() == 9900L);
@@ -75,7 +76,9 @@ class AdminCourseReviewServiceImplTest {
     @Test
     void rejectsBlankRemark() {
         BizException exception =
-                assertThrows(BizException.class, () -> service.review(7L, false, null, "  ", 55L));
+                assertThrows(
+                        BizException.class,
+                        () -> service.review(7L, false, null, "  ", 55L, OperatorRole.OPS));
 
         assertEquals(40001, exception.getCode());
         assertFalse(exception.getMessage().isBlank());

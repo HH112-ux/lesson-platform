@@ -32,12 +32,18 @@ public interface AdminCourseReviewService {
      * @param priceFen price in fen set on approval, {@code null} keeps the current price
      * @param remark rejection remark, required when rejecting
      * @param reviewerId operator user id
+     * @param operatorRole operator role code, 0 operations, 1 administrator
      * @return course state after the decision
      * @author Caspian
      * @since 0.1.0
      */
     AdminReviewResultView review(
-            long courseId, boolean approved, Long priceFen, String remark, long reviewerId);
+            long courseId,
+            boolean approved,
+            Long priceFen,
+            String remark,
+            long reviewerId,
+            int operatorRole);
 
     /**
      * Lists the review audit history of one course, newest decision first.
