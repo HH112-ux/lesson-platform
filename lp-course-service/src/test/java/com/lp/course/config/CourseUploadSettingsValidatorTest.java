@@ -56,7 +56,7 @@ class CourseUploadSettingsValidatorTest {
                 IllegalStateException.class,
                 () ->
                         new CourseUploadSettingsValidator(
-                                        properties(209_715_201L, "real-key", "real-secret"),
+                                        properties(2_147_483_649L, "real-key", "real-secret"),
                                         environment("dev"))
                                 .afterPropertiesSet());
     }

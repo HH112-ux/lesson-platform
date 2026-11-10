@@ -24,8 +24,11 @@ public class CourseUploadSettingsValidator implements InitializingBean {
     /** Local credentials of {@code application-dev.yml}, refused outside the dev profile. */
     private static final Set<String> DEV_CREDENTIALS = Set.of("lpminio", "lp_minio_dev");
 
-    /** Ceiling enforced by {@code chk_lesson_upload_size} in {@code V8__lesson_upload.sql}. */
-    private static final long MAX_VIDEO_BYTES = 209_715_200L;
+    /**
+     * Ceiling enforced by {@code chk_lesson_upload_size} in {@code
+     * V9__lesson_upload_size_limit.sql}.
+     */
+    private static final long MAX_VIDEO_BYTES = 2_147_483_648L;
 
     private final CourseUploadProperties properties;
 
