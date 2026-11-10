@@ -38,6 +38,25 @@ public interface UserAccountCancellationMapper {
     UserAccountCancellation selectActiveByUserId(@Param("userId") long userId);
 
     /**
+     * Finds the most recent request of a user regardless of status.
+     *
+     * <p>Used by the query endpoint so a client can render the last outcome, such as the fixed
+     * deadline of a withdrawn or executed request.
+     *
+     * @param userId authentic user id
+     * @return latest request, or {@code null} when the user never applied
+     * @author Caspian
+     * @since 0.2.0
+     */
+    @Select(
+            "SELECT id, user_id AS userId, status, requested_at AS requestedAt, "
+                    + "effective_at AS effectiveAt, withdrawn_at AS withdrawnAt, "
+                    + "executed_at AS executedAt, created_at AS createdAt, "
+                    + "updated_at AS updatedAt FROM user_account_cancellation "
+                    + "WHERE user_id = #{userId} ORDER BY requested_at DESC, id DESC LIMIT 1")
+    UserAccountCancellation selectLatestByUserId(@Param("userId") long userId);
+
+    /**
      * Inserts a cooling-off request.
      *
      * @param request request carrying user id, requested time and fixed effective time

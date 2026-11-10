@@ -20,6 +20,8 @@ public class AccountDeletionProperties {
 
     private Duration tradeReadTimeout = Duration.ofSeconds(2);
 
+    private Duration coolingOffPeriod = Duration.ofDays(7);
+
     /**
      * Returns the base URL of the trade-service internal API.
      *
@@ -62,5 +64,30 @@ public class AccountDeletionProperties {
      */
     public void setTradeReadTimeout(Duration tradeReadTimeout) {
         this.tradeReadTimeout = tradeReadTimeout;
+    }
+
+    /**
+     * Returns the cooling-off period applied when a cancellation is requested.
+     *
+     * <p>The value is only read while creating a request; the resulting {@code effective_at} is
+     * stored, so changing this setting never moves a promise already made to a user.
+     *
+     * @return cooling-off period, defaults to seven days
+     * @author Caspian
+     * @since 0.2.0
+     */
+    public Duration getCoolingOffPeriod() {
+        return coolingOffPeriod;
+    }
+
+    /**
+     * Sets the cooling-off period applied when a cancellation is requested.
+     *
+     * @param coolingOffPeriod cooling-off period, must be positive
+     * @author Caspian
+     * @since 0.2.0
+     */
+    public void setCoolingOffPeriod(Duration coolingOffPeriod) {
+        this.coolingOffPeriod = coolingOffPeriod;
     }
 }

@@ -171,6 +171,25 @@ public interface AuthUserMapper {
     int touchLastLogin(@Param("userId") long userId);
 
     /**
+     * Switches the account status only when it still holds the expected value.
+     *
+     * <p>The conditional update keeps a repeated or racing cancellation request from overwriting a
+     * status written by another transition, such as the execution job.
+     *
+     * @param userId authentic user id
+     * @param expected status the row must currently hold
+     * @param next status to write
+     * @return 1 when the row matched, 0 when it was already changed or absent
+     * @author Caspian
+     * @since 0.2.0
+     */
+    @Update(
+            "UPDATE sys_user SET status = #{next} "
+                    + "WHERE id = #{userId} AND deleted = 0 AND status = #{expected}")
+    int updateStatusIfCurrent(
+            @Param("userId") long userId, @Param("expected") int expected, @Param("next") int next);
+
+    /**
      * Counts every live account.
      *
      * @return total accounts that are not logically deleted
