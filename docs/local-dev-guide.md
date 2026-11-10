@@ -147,6 +147,9 @@ docker compose -f infra/docker-compose.yml down -v
 - **MySQL 端口冲突**：宿主机原生 `/usr/local/mysql/bin/mysqld` 占用 `3306`，`infra/.env` 已覆盖 `LP_MYSQL_PORT=3307`；连接串一律用 `3307`，不要硬写 `3306`。本机重建 MySQL 容器时务必 `docker compose -f infra/docker-compose.yml down -v mysql` 后再 `up -d mysql`，让 compose 重新读取 `.env`。
 - **Redis 端口冲突**：宿主机原生 `redis-server` 占用 `6379`，compose 无法抢占；宿主机直连 `redis-cli ping` 命中的是原生实例而非容器。容器内验证：`docker exec lp-redis redis-cli ping` 应返回 `PONG`。
 - **RocketMQ `brokerIP1` 副作用**：compose 的 broker.conf 写了 `brokerIP1=127.0.0.1`，这是让**宿主**客户端能连上的必要设置。但容器内执行 `mqadmin clusterList -n 127.0.0.1:9876` 会看到 `RemotingConnectException`（broker 注册地址在容器内指向自身），属预期；mqadmin 验证统一从宿主发起。
+- **MinIO 有两个视角的地址，混用会 `connection refused`**：`LP_MINIO_PUBLIC_ENDPOINT`（宿主机 LAN IP）只给宿主机侧的浏览器和播放器用；容器内的 course-service 在确认上传时要回读对象，必须走 compose 网络地址 `http://minio:9000`，compose 已默认注入 `LP_COURSE_UPLOAD_MINIO_ENDPOINT`。把容器内端点写成宿主机 LAN IP 会失败，因为 compose 只把 MinIO 发布到 `127.0.0.1`，容器访问该地址会 `connection refused`。
+- **预签名上传 URL 的主机名就是 `minio:9000`**：宿主机上的 `scripts/smoke.sh`、`scripts/outbox-fault-drill.sh`、`scripts/refund-drill.sh` 用 `curl --resolve minio:9000:127.0.0.1` 保留签名 Host 直连回环端口；在浏览器里走教师上传则需要在宿主机 `/etc/hosts` 增加 `127.0.0.1 minio`，否则该域名无法解析。
+- **course-service 运行时镜像自带静态 `ffprobe`**：上传确认要探测视频，镜像用多阶段构建从 `mwader/static-ffmpeg` 复制单个二进制。Docker Hub 不可达时在 `infra/.env` 覆盖 `LP_FFPROBE_IMAGE` 为可用镜像地址即可，compose 默认值不需要改。
 
 
 ## 4. 后端

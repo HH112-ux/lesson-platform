@@ -194,15 +194,21 @@ services:
   course-service:
     build:
       context: ..
-      dockerfile: docker/backend.Dockerfile
+      # Upload confirmation probes the stored video, so this image carries a static ffprobe.
+      dockerfile: docker/course-service.Dockerfile
       args:
         JAR_FILE: lp-course-service/target/lp-course-service-0.1.0-SNAPSHOT.jar
+        FFPROBE_IMAGE: ${LP_FFPROBE_IMAGE:-mwader/static-ffmpeg:7.1}
     container_name: lp-course-service
     restart: unless-stopped
     environment:
       <<: *service-env
       LP_COURSE_DB_URL: jdbc:mysql://mysql:3306/lp_cms?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
       LP_LEARN_BASE_URL: http://learn-service:8104
+      # Confirmation reads the uploaded object back from inside the compose network, so the
+      # endpoint must be the service name. The same host ends up in presigned PUT URLs handed to
+      # the browser, see the MinIO section of docs/local-dev-guide.md.
+      LP_COURSE_UPLOAD_MINIO_ENDPOINT: ${LP_COURSE_UPLOAD_MINIO_ENDPOINT:-http://minio:9000}
     ports:
       - "127.0.0.1:8102:8102"
     depends_on:
