@@ -53,6 +53,12 @@ lp:
     web-base-url: ${LP_WEB_BASE_URL:http://127.0.0.1:5173}
     # auth-service internal session API, called after a ticket is redeemed.
     auth-base-url: ${LP_AUTH_SERVICE_BASE_URL:http://127.0.0.1:8101}
+    # Cooling-off state query sits on the checkout path: 200 ms keeps a slow auth from delaying
+    # the buyer, and a failed probe refuses the purchase instead of guessing.
+    auth-state-read-timeout: ${LP_AUTH_STATE_READ_TIMEOUT:200ms}
+    # Per user cache of that answer. Also the worst case window when auth's active invalidation
+    # call fails; 45 s bounds the mistake without quadrupling the probe rate.
+    account-guard-cache-ttl: ${LP_ACCOUNT_GUARD_CACHE_TTL:45s}
   internal:
     # Shared secret for /internal/v1/**; no default, so a missing LP_INTERNAL_TOKEN fails startup.
     token: ${LP_INTERNAL_TOKEN}

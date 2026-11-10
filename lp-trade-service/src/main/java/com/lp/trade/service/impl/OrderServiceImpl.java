@@ -27,6 +27,7 @@ import com.lp.trade.mapper.CouponMapper;
 import com.lp.trade.mapper.PaymentMapper;
 import com.lp.trade.mapper.RefundRequestMapper;
 import com.lp.trade.mapper.TradeOrderMapper;
+import com.lp.trade.service.AccountDeletionGuard;
 import com.lp.trade.service.OrderService;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -88,6 +89,8 @@ public class OrderServiceImpl implements OrderService {
 
     private final TransactionTemplate transactionTemplate;
 
+    private final AccountDeletionGuard accountDeletionGuard;
+
     /**
      * Creates the service with its dependencies.
      *
@@ -98,6 +101,7 @@ public class OrderServiceImpl implements OrderService {
      * @param paymentMapper payment persistence used to close attempts on cancel
      * @param refundRequestMapper refund state embedded in order rows
      * @param transactionTemplate transaction boundary around order creation
+     * @param accountDeletionGuard cooling-off gate applied before a new order is created
      * @author Caspian
      * @since 0.1.0
      */
@@ -108,7 +112,8 @@ public class OrderServiceImpl implements OrderService {
             EntitlementService entitlementService,
             PaymentMapper paymentMapper,
             RefundRequestMapper refundRequestMapper,
-            TransactionTemplate transactionTemplate) {
+            TransactionTemplate transactionTemplate,
+            AccountDeletionGuard accountDeletionGuard) {
         this.tradeOrderMapper = tradeOrderMapper;
         this.couponMapper = couponMapper;
         this.courseInternalClient = courseInternalClient;
@@ -116,6 +121,7 @@ public class OrderServiceImpl implements OrderService {
         this.paymentMapper = paymentMapper;
         this.refundRequestMapper = refundRequestMapper;
         this.transactionTemplate = transactionTemplate;
+        this.accountDeletionGuard = accountDeletionGuard;
     }
 
     /**
@@ -140,6 +146,10 @@ public class OrderServiceImpl implements OrderService {
         if (existing != null) {
             return replay(existing, courseId, request.getCouponId());
         }
+
+        // Only a new order is gated: replaying one created before the cooling-off period keeps the
+        // idempotent answer a client already holds.
+        accountDeletionGuard.assertNotCoolingOff(userId);
 
         try {
             return Objects.requireNonNull(
