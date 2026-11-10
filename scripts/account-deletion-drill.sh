@@ -8,12 +8,17 @@
 #   3. moving effective_at into the past lets the scheduled job execute each request once;
 #   4. the account is anonymised in place, the WeChat binding and the payer openid are rewritten,
 #      and no business row is deleted;
-#   5. sessions of the deleted account are refused with 67001 (/me and refresh);
+#   5. sessions of the deleted account are refused with 67001 (/me, refresh and login under the
+#      anonymised username, which is the only login name that still exists);
 #   6. the original username, email, phone and WeChat openid can be registered again;
 #   7. a repeated anonymisation rewrites nothing.
 #
 # Usage:
 #   bash scripts/account-deletion-drill.sh
+#
+#   LP_ENV_FILE points at an existing infra/.env when the script runs from a secondary worktree
+#   that only has the Compose file, for example:
+#   LP_ENV_FILE="/path/to/main/infra/.env" bash scripts/account-deletion-drill.sh
 #
 # Prerequisites:
 #   bash scripts/dev-up.sh          # mysql, redis, nacos, gateway, auth, trade, learn
@@ -21,14 +26,15 @@
 #
 # Environment variables. 变量名均按 application.yml 属性名松弛绑定核对，逐个对照如下：
 #   property lp.auth.account-deletion.execution-enabled
-#     yml 78  execution-enabled: ${LP_AUTH_CANCELLATION_EXECUTION_ENABLED:false}
-#     alias also accepted by relaxed binding: LP_AUTH_ACCOUNT_DELETION_EXECUTION_ENABLED
+#     yml 78  execution-enabled: ${LP_AUTH_ACCOUNT_DELETION_EXECUTION_ENABLED:false}
+#     the old name LP_AUTH_CANCELLATION_EXECUTION_ENABLED no longer binds anything: relaxed
+#     binding would map it to lp.auth.cancellation.execution-enabled, not account-deletion
 #   property lp.auth.account-deletion.anonymize-salt
 #     yml 82  anonymize-salt: ${LP_ANONYMIZE_SALT:}      (blank salt aborts startup on purpose)
 #   property lp.auth.miniapp.enabled
-#     yml 55  enabled: ${LP_MINIAPP_LOGIN_ENABLED:false}
+#     yml 54  enabled: ${LP_MINIAPP_LOGIN_ENABLED:false}
 #   property lp.auth.miniapp.mock-enabled
-#     yml 56  mock-enabled: ${LP_MINIAPP_LOGIN_MOCK_ENABLED:false}
+#     yml 55  mock-enabled: ${LP_MINIAPP_LOGIN_MOCK_ENABLED:false}
 #   property lp.auth.account-deletion.scan-delay-ms has no yml placeholder; the drill keeps the
 #   default 60 s delay and 30 s initial delay and therefore waits up to 150 s in step 5.
 #
@@ -36,19 +42,25 @@
 # exactly like trade-service forwards LP_PAY_MOCK_ENABLED.  Without the passthrough the container
 # keeps its defaults and the drill would silently pass against a job that never ran, so step 1
 # reads them back with printenv and aborts.  Required block under auth-service > environment:
-#   LP_AUTH_CANCELLATION_EXECUTION_ENABLED: ${LP_AUTH_CANCELLATION_EXECUTION_ENABLED:-false}
+#   LP_AUTH_TRADE_BASE_URL: ${LP_AUTH_TRADE_BASE_URL:-http://trade-service:8103}
+#   LP_AUTH_ACCOUNT_DELETION_EXECUTION_ENABLED: ${LP_AUTH_ACCOUNT_DELETION_EXECUTION_ENABLED:-false}
 #   LP_ANONYMIZE_SALT: ${LP_ANONYMIZE_SALT:-}
 #   LP_MINIAPP_LOGIN_ENABLED: ${LP_MINIAPP_LOGIN_ENABLED:-false}
 #   LP_MINIAPP_LOGIN_MOCK_ENABLED: ${LP_MINIAPP_LOGIN_MOCK_ENABLED:-false}
+# The trade base URL is not a switch but a required address: its property default is
+# http://127.0.0.1:8103, which inside the auth container points at auth itself, so the blocker
+# probe fails closed with 50401 and step 4 cannot pass.
 #
-# Two assertions need a fixture because the production path cannot reach them any more:
+# One assertion needs a fixture because the production path cannot produce it:
 #   * payment_record.payer_openid has no writer in trade, so step 3 seeds it with SQL.  The
 #     anonymised value still comes from the real job; the seed only stands in for the missing
 #     miniapp payment path.
-#   * login() checks the password before the status gate and anonymisation randomises that
-#     password, so a deleted account can never be reached through /auth/login again.  Step 7
-#     therefore proves 67001 on /me and refresh with the real account, and proves the login-path
-#     gate with a status-only fixture account (step 7c).
+#
+# Login after deletion follows SPEC-PLAT-004 AC-13: status 3 is checked before the password, and
+# only that status precedes the password check.  Anonymisation renames the account to
+# deleted_{id}, so the original username no longer exists and /auth/login answers 40101, while
+# deleted_{id} with any password answers 67001.  Step 7 asserts both codes; step 7c keeps a
+# status-only fixture to prove the status-before-password ordering with unchanged credentials.
 #
 # Deferred to L1-10: two-replica concurrency (claim executed exactly once across processes).
 #
@@ -63,8 +75,10 @@ INTERNAL_TOKEN="${LP_INTERNAL_TOKEN:-lp_internal_dev_token}"
 DEMO_PASSWORD="${LP_DEMO_PASSWORD:-Demo@123456}"
 RUN_ID="$(date +%Y%m%d%H%M%S)"
 SALT="${LP_DRILL_SALT:-lp_drill_salt_${RUN_ID}}"
-COMPOSE=(docker compose -f "$ROOT/infra/docker-compose.yml" --env-file "$ROOT/infra/.env")
+ENV_FILE="${LP_ENV_FILE:-$ROOT/infra/.env}"
+COMPOSE=(docker compose -f "$ROOT/infra/docker-compose.yml" --env-file "$ENV_FILE")
 AUTH_TOGGLED=0
+PAY_TOGGLED=0
 
 step() { printf '\n\033[1;34m== %s\033[0m\n' "$1"; }
 pass() { printf '\033[0;32m  PASS\033[0m %s\n' "$1"; }
@@ -77,7 +91,9 @@ expect_eq() { # label expected actual
 }
 
 sql() {
-  "${COMPOSE[@]}" exec -T mysql mysql -uroot -p"$MYSQL_PASSWORD" -N -B -e "$1" 2>/dev/null
+  # The mysql client inside the container defaults to latin1, which prints utf8mb4 columns as
+  # question marks; force the client charset so assertions on "已注销用户" read the stored value.
+  "${COMPOSE[@]}" exec -T mysql mysql --default-character-set=utf8mb4 -uroot -p"$MYSQL_PASSWORD" -N -B -e "$1" 2>/dev/null
 }
 
 json_get() { # dotted path; reads stdin
@@ -92,7 +108,11 @@ api() { # method path token body
   local args=(-s -X "$1" "$BASE$2" -H 'Content-Type: application/json')
   [ -n "$3" ] && args+=(-H "Authorization: Bearer $3")
   [ -n "${4:-}" ] && args+=(-d "$4")
-  curl "${args[@]}"
+  local body
+  body="$(curl "${args[@]}")"
+  # Opt-in raw transcript for the PR body; assertions still read only the returned value.
+  [ -n "${LP_DRILL_HTTP_LOG:-}" ] && printf '%s %s -> %s\n' "$1" "$2" "$body" >>"$LP_DRILL_HTTP_LOG"
+  printf '%s' "$body"
 }
 
 wait_sql() { # sql expected attempts
@@ -121,14 +141,19 @@ counts() {
         (SELECT COUNT(*) FROM lp_ums.user_account_cancellation))"
 }
 
-restore_auth() {
+restore_stack() {
+  if [ "$PAY_TOGGLED" = 1 ]; then
+    printf '\n\033[1;34m== restore trade-service\033[0m\n'
+    "${COMPOSE[@]}" up -d --no-deps --force-recreate trade-service >/dev/null 2>&1
+    wait_http "$TRADE_INTERNAL/actuator/health" 40 || printf 'WARN trade-service not healthy after restore\n'
+  fi
   if [ "$AUTH_TOGGLED" = 1 ]; then
     printf '\n\033[1;34m== restore auth-service\033[0m\n'
     "${COMPOSE[@]}" up -d --no-deps --force-recreate auth-service >/dev/null 2>&1
     wait_http "$AUTH_URL/actuator/health" 40 || printf 'WARN auth-service not healthy after restore\n'
   fi
 }
-trap restore_auth EXIT
+trap restore_stack EXIT
 
 step "0. stack and fixture checks"
 wait_http "$BASE/api/v1/courses" 20 || die "gateway is not serving $BASE"
@@ -137,14 +162,25 @@ COURSE_ID="$(sql 'SELECT id FROM lp_cms.course WHERE status = 2 AND price > 0 OR
 pass "gateway reachable, paid course id=$COURSE_ID"
 info "baseline rows $(counts)"
 
-step "1. enable the execution job and verify the switch reached the process"
-LP_AUTH_CANCELLATION_EXECUTION_ENABLED=true \
+step "1. enable the execution job and mock payment, then verify the switches reached the process"
+if grep -q '^LP_PAY_MOCK_ENABLED=true' "$ENV_FILE" 2>/dev/null; then
+  pass "mock payment already enabled in infra/.env"
+else
+  LP_PAY_MOCK_ENABLED=true \
+  LP_PAY_MOCK_SECRET="${LP_PAY_MOCK_SECRET:-lp_mock_drill_secret}" \
+    "${COMPOSE[@]}" up -d --no-deps --force-recreate trade-service >/dev/null 2>&1 \
+    || die "cannot recreate trade-service with mock payment enabled"
+  PAY_TOGGLED=1
+  wait_http "$TRADE_INTERNAL/actuator/health" 40 || die "trade-service did not become healthy"
+  pass "mock payment enabled for this run (infra/.env untouched)"
+fi
+LP_AUTH_ACCOUNT_DELETION_EXECUTION_ENABLED=true \
 LP_ANONYMIZE_SALT="$SALT" \
 LP_MINIAPP_LOGIN_ENABLED=true \
 LP_MINIAPP_LOGIN_MOCK_ENABLED=true \
   "${COMPOSE[@]}" up -d --no-deps --force-recreate auth-service >/dev/null 2>&1
 wait_http "$AUTH_URL/actuator/health" 40 || die "auth-service did not start; a blank salt aborts the execution job on purpose"
-for pair in "LP_AUTH_CANCELLATION_EXECUTION_ENABLED=true" "LP_ANONYMIZE_SALT=$SALT" \
+for pair in "LP_AUTH_ACCOUNT_DELETION_EXECUTION_ENABLED=true" "LP_ANONYMIZE_SALT=$SALT" \
             "LP_MINIAPP_LOGIN_ENABLED=true" "LP_MINIAPP_LOGIN_MOCK_ENABLED=true"; do
   name="${pair%%=*}"
   want="${pair#*=}"
@@ -169,7 +205,7 @@ REFRESH_A="$(printf '%s' "$LOGIN_A" | json_get data.refreshToken)"
 LOGIN_B="$(api POST /api/v1/auth/miniapp-login '' "{\"code\":\"$CODE_B\"}")"
 expect_eq "miniapp login B" 0 "$(printf '%s' "$LOGIN_B" | json_get code)"
 TOKEN_B="$(printf '%s' "$LOGIN_B" | json_get data.accessToken)"
-ID_B="$(sql "SELECT id FROM lp_ums.sys_user_wechat WHERE openid='mock-openid-$CODE_B'")"
+ID_B="$(sql "SELECT user_id FROM lp_ums.sys_user_wechat WHERE openid='mock-openid-$CODE_B'")"
 [ -n "$ID_B" ] || die "miniapp binding for B not found"
 pass "A id=$ID_A, B id=$ID_B, wechat openid=mock-openid-$CODE_B"
 
@@ -184,7 +220,7 @@ case "$PAY_URL" in
   http*) CALLBACK_URL="$PAY_URL" ;;
   *) CALLBACK_URL="$BASE$PAY_URL" ;;
 esac
-curl -s "$CALLBACK_URL" >/dev/null || die "mock payment callback failed: $CALLBACK_URL"
+curl -sf "$CALLBACK_URL" >/dev/null || die "mock payment callback failed: $CALLBACK_URL"
 expect_eq "order paid" 1 "$(sql "SELECT status FROM lp_oms.trade_order WHERE order_no='$ORDER_NO'")"
 PAY_ID="$(sql "SELECT id FROM lp_oms.payment_record WHERE order_id=(SELECT id FROM lp_oms.trade_order WHERE order_no='$ORDER_NO') LIMIT 1")"
 [ -n "$PAY_ID" ] || die "payment row for $ORDER_NO not found"
@@ -215,6 +251,7 @@ COUNT_BEFORE_EXECUTION="$(counts)"
 info "rows before execution $COUNT_BEFORE_EXECUTION"
 
 step "5. move effective_at into the past and wait for the scheduled job"
+info "metric before execution: $(curl -s "$AUTH_URL/actuator/prometheus" | grep '^lp_auth_account_cancellation_executed_total' || echo 'absent, the counter starts at 0 after the container was recreated')"
 sql "UPDATE lp_ums.user_account_cancellation SET effective_at = DATE_SUB(NOW(3), INTERVAL 5 MINUTE) WHERE user_id IN ($ID_A,$ID_B)" >/dev/null
 STARTED_AT="$(date +%s)"
 wait_sql "SELECT status FROM lp_ums.user_account_cancellation WHERE user_id=$ID_A" 2 75 \
@@ -225,8 +262,9 @@ ELAPSED=$(( $(date +%s) - STARTED_AT ))
 pass "job executed both requests in ${ELAPSED}s"
 expect_eq "A executed_at recorded" 1 \
   "$(sql "SELECT IFNULL(executed_at,'') <> '' FROM lp_ums.user_account_cancellation WHERE user_id=$ID_A")"
-METRIC="$(curl -s "$AUTH_URL/actuator/prometheus" | grep '^lp_auth_account_cancellation_executed_total' | head -1)"
-[ -n "$METRIC" ] || die "executed metric missing; the job likely never ran"
+METRIC_BODY="$(curl -s "$AUTH_URL/actuator/prometheus")"
+METRIC="$(printf '%s\n' "$METRIC_BODY" | grep '^lp_auth_account_cancellation_executed_total' | head -1)"
+[ -n "$METRIC" ] || die "executed metric missing at $AUTH_URL/actuator/prometheus, first 200 bytes: $(printf '%s' "$METRIC_BODY" | head -c 200)"
 pass "metric: $METRIC"
 
 step "6. anonymised values"
@@ -257,23 +295,44 @@ expect_eq "me A code" 67001 "$(printf '%s' "$ME_A" | json_get code)"
 REFRESHED="$(api POST /api/v1/auth/refresh '' "{\"refreshToken\":\"$REFRESH_A\"}")"
 expect_eq "refresh A code" 67001 "$(printf '%s' "$REFRESHED" | json_get code)"
 expect_eq "me B code" 67001 "$(api GET /api/v1/auth/me "$TOKEN_B" | json_get code)"
-LOGIN_AGAIN="$(api POST /api/v1/auth/login '' "{\"account\":\"$USER_A\",\"password\":\"$DEMO_PASSWORD\"}")"
-info "login with the renamed account returns $(printf '%s' "$LOGIN_AGAIN" | json_get code) (password is randomised before the status gate)"
+LOGIN_ORIGINAL="$(api POST /api/v1/auth/login '' "{\"account\":\"$USER_A\",\"password\":\"$DEMO_PASSWORD\"}")"
+expect_eq "login with the original username code" 40101 "$(printf '%s' "$LOGIN_ORIGINAL" | json_get code)"
+info "the original username no longer exists after anonymisation, so it returns 40101"
+LOGIN_ANON="$(api POST /api/v1/auth/login '' "{\"account\":\"deleted_$ID_A\",\"password\":\"$DEMO_PASSWORD\"}")"
+expect_eq "login with the anonymised username code" 67001 "$(printf '%s' "$LOGIN_ANON" | json_get code)"
 step "7c. login-path gate fixture: status 3 with unchanged credentials"
 USER_C="cdg${RUN_ID}"                      # 17 chars
 api POST /api/v1/auth/register '' "{\"username\":\"$USER_C\",\"password\":\"$DEMO_PASSWORD\",\"nickname\":\"drill gate\"}" >/dev/null
 ID_C="$(sql "SELECT id FROM lp_ums.sys_user WHERE username='$USER_C'")"
 [ -n "$ID_C" ] || die "gate fixture account not found"
 sql "UPDATE lp_ums.sys_user SET status = 3 WHERE id = $ID_C" >/dev/null
+# Build the body in a variable before calling: macOS bash 3.2 mis-parses escaped quotes inside a
+# nested $(...) and would split this object on the comma.
+BODY_C="{\"account\":\"$USER_C\",\"password\":\"$DEMO_PASSWORD\"}"
+BODY_C_WRONG="{\"account\":\"$USER_C\",\"password\":\"WrongPass123\"}"
 expect_eq "login cancelled account code" 67001 \
-  "$(api POST /api/v1/auth/login '' "{\"account\":\"$USER_C\",\"password\":\"$DEMO_PASSWORD\"}" | json_get code)"
+  "$(api POST /api/v1/auth/login '' "$BODY_C" | json_get code)"
+expect_eq "login cancelled account wrong password code" 67001 \
+  "$(api POST /api/v1/auth/login '' "$BODY_C_WRONG" | json_get code)"
+step "7d. disabled accounts still check the password first (AC-13)"
+USER_D="cdd${RUN_ID}"                      # 17 chars
+api POST /api/v1/auth/register '' "{\"username\":\"$USER_D\",\"password\":\"$DEMO_PASSWORD\",\"nickname\":\"drill disabled\"}" >/dev/null
+ID_D="$(sql "SELECT id FROM lp_ums.sys_user WHERE username='$USER_D'")"
+[ -n "$ID_D" ] || die "disabled fixture account not found"
+sql "UPDATE lp_ums.sys_user SET status = 0 WHERE id = $ID_D" >/dev/null
+BODY_D="{\"account\":\"$USER_D\",\"password\":\"$DEMO_PASSWORD\"}"
+BODY_D_WRONG="{\"account\":\"$USER_D\",\"password\":\"WrongPass123\"}"
+expect_eq "disabled account wrong password code" 40101 \
+  "$(api POST /api/v1/auth/login '' "$BODY_D_WRONG" | json_get code)"
+expect_eq "disabled account correct password code" 40301 \
+  "$(api POST /api/v1/auth/login '' "$BODY_D" | json_get code)"
 
 step "8. the original identifiers can be registered again"
 REG_AGAIN="$(api POST /api/v1/auth/register '' "{\"username\":\"$USER_A\",\"password\":\"$DEMO_PASSWORD\",\"nickname\":\"drill a again\",\"email\":\"$MAIL_A\",\"phone\":\"$PHONE_A\"}")"
 expect_eq "re-register A" 0 "$(printf '%s' "$REG_AGAIN" | json_get code)"
 ID_A2="$(sql "SELECT id FROM lp_ums.sys_user WHERE username='$USER_A' AND status = 1")"
 [ -n "$ID_A2" ] && [ "$ID_A2" != "$ID_A" ] || die "username did not move to the new account (got [$ID_A2])"
-expect_eq "username rows" 2 "$(sql "SELECT COUNT(*) FROM lp_ums.sys_user WHERE username='$USER_A'")"
+expect_eq "username rows" 1 "$(sql "SELECT COUNT(*) FROM lp_ums.sys_user WHERE username='$USER_A'")"
 pass "A re-registered as id=$ID_A2 with the same email and phone"
 
 step "9. the same WeChat code binds a brand new account"
