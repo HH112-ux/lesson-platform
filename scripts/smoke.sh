@@ -15,6 +15,8 @@ BASE="${LP_SMOKE_BASE:-http://localhost:8080}"
 PASSWORD="${LP_SMOKE_PASSWORD:-Demo@123456}"
 COURSE_TITLE="冒烟验证课程 $(date +%H%M%S)"
 RUN_KEY="smoke-$(date +%Y%m%d%H%M%S)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+FIXTURE="$ROOT/scripts/fixtures/sample.mp4"
 
 HTTP_STATUS=""
 BODY=""
@@ -56,6 +58,24 @@ require_code() {
   [ "$code" = "0" ] || die "$1 (code=$code)"
 }
 
+# Uploads the fixture to a presigned PUT URL. The credential is signed for the compose host
+# (minio:9000), which the host itself cannot resolve, so curl connects to the published loopback
+# port while keeping the signed Host header.
+put_fixture() {
+  local url="$1" authority host port status
+  authority="${url#http://}"
+  authority="${authority%%/*}"
+  host="${authority%%:*}"
+  port="${authority##*:}"
+  [ "$port" = "$authority" ] && port=80
+  status="$(curl -sS -o /dev/null -w '%{http_code}' -X PUT \
+    --resolve "$host:$port:127.0.0.1" \
+    -H 'Content-Type: video/mp4' --data-binary "@$FIXTURE" "$url")" \
+    || die "upload PUT failed"
+  [ "$status" = "200" ] || die "upload PUT returned HTTP $status"
+  printf '  HTTP %s | fixture uploaded\n' "$status"
+}
+
 login() {
   local account="$1"
   req POST /api/v1/auth/login "" \
@@ -89,17 +109,29 @@ require_code "create course"
 COURSE_ID="$(jq -r '.data.courseId' <<<"$BODY")"
 pass "courseId=$COURSE_ID status=$(jq -r '.data.status' <<<"$BODY")"
 
-step 4 "teacher adds a chapter and a lesson"
+step 4 "teacher adds a chapter and a lesson with an uploaded video"
 req POST "/api/v1/teacher/courses/$COURSE_ID/chapters" "$TEACHER_TOKEN" \
   '{"title":"冒烟章节","sort":1,"status":1}'
 require_code "create chapter"
 CHAPTER_ID="$(jq -r '.data.chapterId' <<<"$BODY")"
 pass "chapterId=$CHAPTER_ID"
 req POST "/api/v1/teacher/courses/$COURSE_ID/chapters/$CHAPTER_ID/lessons" "$TEACHER_TOKEN" \
-  '{"title":"冒烟课时","videoUrl":"demo/course-1.mp4","durationSec":300,"isFree":0,"sort":1,"status":1}'
+  '{"title":"冒烟课时","isFree":0,"sort":1,"status":1}'
 require_code "create lesson"
 LESSON_ID="$(jq -r '.data.lessonId' <<<"$BODY")"
 pass "lessonId=$LESSON_ID"
+FIXTURE_SIZE="$(wc -c < "$FIXTURE" | tr -d '[:space:]')"
+req POST "/api/v1/teacher/courses/$COURSE_ID/chapters/$CHAPTER_ID/lessons/$LESSON_ID/upload-sessions" \
+  "$TEACHER_TOKEN" "$(jq -nc --argjson size "$FIXTURE_SIZE" '{expectedSizeBytes:$size}')"
+require_code "open upload session"
+UPLOAD_ID="$(jq -r '.data.uploadId' <<<"$BODY")"
+UPLOAD_URL="$(jq -r '.data.uploadUrl' <<<"$BODY")"
+pass "uploadId=$UPLOAD_ID expectedSizeBytes=$FIXTURE_SIZE"
+put_fixture "$UPLOAD_URL"
+req POST "/api/v1/teacher/courses/$COURSE_ID/chapters/$CHAPTER_ID/lessons/$LESSON_ID/upload-sessions/$UPLOAD_ID/confirm" \
+  "$TEACHER_TOKEN"
+require_code "confirm upload"
+pass "durationSec=$(jq -r '.data.durationSec' <<<"$BODY") codec=$(jq -r '.data.videoCodec' <<<"$BODY")"
 
 step 5 "teacher submits the course for review"
 req POST "/api/v1/teacher/courses/$COURSE_ID/submit" "$TEACHER_TOKEN"
@@ -170,8 +202,9 @@ pass "lessonId=$PLAY_LESSON playUrl=${PLAY_URL%%\?*}"
 [ -n "$PLAY_URL" ] && [ "$PLAY_URL" != "null" ] || die "play url is empty"
 
 step 13 "student reports playback progress"
+# The fixture is six seconds long, so the reported position must stay inside the video.
 req POST /api/v1/learning/progress "$STUDENT_TOKEN" \
-  "$(jq -nc --argjson lid "$PLAY_LESSON" '{lessonId:$lid,positionSeconds:30}')"
+  "$(jq -nc --argjson lid "$PLAY_LESSON" '{lessonId:$lid,positionSeconds:5}')"
 require_code "report progress"
 pass "progress=$(jq -r '.data.positionSeconds // .data.position' <<<"$BODY")"
 
