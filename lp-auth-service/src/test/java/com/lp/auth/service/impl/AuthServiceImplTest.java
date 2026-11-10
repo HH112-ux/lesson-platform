@@ -253,6 +253,53 @@ class AuthServiceImplTest {
     }
 
     /**
+     * Rejects a cancelled account with {@code 67001} even when the password does not match.
+     *
+     * <p>Anonymisation stores a random password, so a returning user cannot produce a matching one;
+     * reporting {@code 40101} would tell them the password is wrong instead of that the account was
+     * cancelled. This proves the status check runs before the password check.
+     *
+     * @author Caspian
+     * @since 0.3.0
+     */
+    @Test
+    void rejectsCancelledAccountBeforeCheckingThePassword() {
+        when(authUserMapper.selectByUsername("alice"))
+                .thenReturn(
+                        account(7L, UserStatus.CANCELLED, passwordEncoder.encode(RAW_PASSWORD)));
+
+        assertThatThrownBy(() -> authService.login(request("alice", "wrong-pass"), "web"))
+                .isInstanceOfSatisfying(
+                        BizException.class,
+                        ex ->
+                                assertThat(ex.getCode())
+                                        .isEqualTo(ErrorCode.ACCOUNT_CANCELLED.getCode()));
+        verify(authUserMapper, never()).touchLastLogin(anyLong());
+    }
+
+    /**
+     * Keeps the password check first for disabled accounts, which still answer {@code 40101}.
+     *
+     * <p>Only {@code status=3} moved ahead of the password; a disabled account must not reveal its
+     * status to somebody who cannot present the password.
+     *
+     * @author Caspian
+     * @since 0.3.0
+     */
+    @Test
+    void keepsPasswordCheckFirstForDisabledAccount() {
+        when(authUserMapper.selectByUsername("alice"))
+                .thenReturn(account(7L, 0, passwordEncoder.encode(RAW_PASSWORD)));
+
+        assertThatThrownBy(() -> authService.login(request("alice", "wrong-pass"), "web"))
+                .isInstanceOfSatisfying(
+                        BizException.class,
+                        ex ->
+                                assertThat(ex.getCode())
+                                        .isEqualTo(ErrorCode.UNAUTHENTICATED.getCode()));
+    }
+
+    /**
      * Creates a student account, hashes the password and stores the refresh session at once.
      *
      * @author Caspian

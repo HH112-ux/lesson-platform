@@ -41,10 +41,13 @@ import org.springframework.transaction.annotation.Transactional;
  * Verifies credentials against {@code lp_ums} and manages refresh sessions.
  *
  * <p>Missing account and wrong password share {@code 40101} so the response never reveals whether
- * an account exists. A non active account returns {@code 40301} after the password check, which
- * keeps disabled accounts from probing passwords. Refresh rotation consumes the presented token
- * atomically, so a token can never be replayed; a disabled account found during refresh keeps the
- * same {@code 40301} contract.
+ * an account exists. A cancelled account is the one exception: its status is checked before the
+ * password and it answers {@code 67001}, because the anonymisation step replaced the password with
+ * a random value and a returning user would otherwise only ever see "wrong password". Every other
+ * non active status keeps the original order and returns {@code 40301} after the password check,
+ * which keeps disabled accounts from probing passwords. Refresh rotation consumes the presented
+ * token atomically, so a token can never be replayed; a disabled account found during refresh keeps
+ * the same {@code 40301} contract.
  *
  * @author Caspian
  * @since 0.1.0
@@ -101,16 +104,24 @@ public class AuthServiceImpl implements AuthService {
      * @param source source platform recorded with the refresh session
      * @return tokens plus the authenticated user summary
      * @throws BizException {@code 40101} when the account is missing or the password is wrong,
-     *     {@code 67001} when the account was cancelled, {@code 40301} when the account is disabled,
-     *     {@code 50001} when the refresh store is unreachable
+     *     {@code 67001} when the account was cancelled and checked before the password, {@code
+     *     40301} when the account is disabled, {@code 50001} when the refresh store is unreachable
      * @author Caspian
      * @since 0.1.0
      */
     @Override
     public LoginResponse login(LoginRequest request, String source) {
         UserAccount account = authUserMapper.selectByUsername(request.getAccount());
-        if (account == null
-                || !passwordEncoder.matches(request.getPassword(), account.getPasswordHash())) {
+        if (account == null) {
+            throw new BizException(ErrorCode.UNAUTHENTICATED);
+        }
+        // Status precedes the password for cancelled accounts only: the stored hash is random, so
+        // every returning user would otherwise be told the password is wrong instead of that the
+        // account is gone. Other statuses keep the password first so bans stay unprobeable.
+        if (account.getStatus() != null && account.getStatus() == UserStatus.CANCELLED) {
+            throw new BizException(ErrorCode.ACCOUNT_CANCELLED);
+        }
+        if (!passwordEncoder.matches(request.getPassword(), account.getPasswordHash())) {
             throw new BizException(ErrorCode.UNAUTHENTICATED);
         }
         requireLoginAllowed(account);
