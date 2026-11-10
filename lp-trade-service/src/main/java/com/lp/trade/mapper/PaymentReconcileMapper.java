@@ -36,9 +36,13 @@ public interface PaymentReconcileMapper {
      * @since 0.6.1
      */
     @Select(
-            "SELECT id, channel, bill_date, bill_type, channel_count, channel_amount, "
-                    + "local_count, local_amount, diff_count, diff_amount, status, handled_by, "
-                    + "handled_at, raw_bill, diff_detail FROM payment_reconcile "
+            "SELECT id, channel, bill_date AS billDate, bill_type AS billType, "
+                    + "channel_count AS channelCount, "
+                    + "channel_amount AS channelAmount, local_count AS localCount, "
+                    + "local_amount AS localAmount, diff_count AS diffCount, "
+                    + "diff_amount AS diffAmount, status, handled_by AS handledBy, "
+                    + "handled_at AS handledAt, raw_bill AS rawBill, "
+                    + "diff_detail AS diffDetail FROM payment_reconcile "
                     + "WHERE channel = #{channel} AND bill_date = #{billDate} "
                     + "AND bill_type = #{billType} AND deleted = 0")
     PaymentReconcile selectByKey(
@@ -55,9 +59,13 @@ public interface PaymentReconcileMapper {
      * @since 0.6.1
      */
     @Select(
-            "SELECT id, channel, bill_date, bill_type, channel_count, channel_amount, "
-                    + "local_count, local_amount, diff_count, diff_amount, status, handled_by, "
-                    + "handled_at, raw_bill, diff_detail FROM payment_reconcile "
+            "SELECT id, channel, bill_date AS billDate, bill_type AS billType, "
+                    + "channel_count AS channelCount, "
+                    + "channel_amount AS channelAmount, local_count AS localCount, "
+                    + "local_amount AS localAmount, diff_count AS diffCount, "
+                    + "diff_amount AS diffAmount, status, handled_by AS handledBy, "
+                    + "handled_at AS handledAt, raw_bill AS rawBill, "
+                    + "diff_detail AS diffDetail FROM payment_reconcile "
                     + "WHERE id = #{id} AND deleted = 0")
     PaymentReconcile selectById(@Param("id") Long id);
 
@@ -97,9 +105,12 @@ public interface PaymentReconcileMapper {
      * @since 0.6.1
      */
     @Select(
-            "<script>SELECT id, channel, bill_date, bill_type, channel_count, channel_amount, "
-                    + "local_count, local_amount, diff_count, diff_amount, status, handled_by, "
-                    + "handled_at FROM payment_reconcile WHERE deleted = 0 "
+            "<script>SELECT id, channel, bill_date AS billDate, bill_type AS billType, "
+                    + "channel_count AS channelCount, "
+                    + "channel_amount AS channelAmount, local_count AS localCount, "
+                    + "local_amount AS localAmount, diff_count AS diffCount, "
+                    + "diff_amount AS diffAmount, status, handled_by AS handledBy, "
+                    + "handled_at AS handledAt FROM payment_reconcile WHERE deleted = 0 "
                     + "<if test='channel != null'>AND channel = #{channel} </if>"
                     + "<if test='billDate != null'>AND bill_date = #{billDate} </if>"
                     + "<if test='status != null'>AND status = #{status} </if>"
@@ -175,7 +186,8 @@ public interface PaymentReconcileMapper {
      * @since 0.6.1
      */
     @Select(
-            "SELECT id, pay_no, channel_trade_no, amount FROM payment_record "
+            "SELECT id, pay_no AS payNo, channel_trade_no AS channelTradeNo, amount "
+                    + "FROM payment_record "
                     + "WHERE channel = #{channel} AND status IN (1, 3, 6) "
                     + "AND paid_at >= #{start} AND paid_at < #{end} AND deleted = 0")
     List<PaymentRecord> selectLocalPayments(
@@ -194,7 +206,8 @@ public interface PaymentReconcileMapper {
      * @since 0.6.1
      */
     @Select(
-            "SELECT id, refund_no, channel_refund_no, amount FROM refund_request "
+            "SELECT id, refund_no AS refundNo, channel_refund_no AS channelRefundNo, amount "
+                    + "FROM refund_request "
                     + "WHERE channel = #{channel} AND status = 2 "
                     + "AND refunded_at >= #{start} AND refunded_at < #{end} AND deleted = 0")
     List<RefundRequest> selectLocalRefunds(
