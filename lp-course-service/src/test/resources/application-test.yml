@@ -8,3 +8,8 @@ spring:
 lp:
   internal:
     token: test-internal-token
+  course:
+    upload:
+      # Placeholders for the guard: the test profile is not dev, so credentials must be present.
+      minio-access-key: test-access-key
+      minio-secret-key: test-secret-key
