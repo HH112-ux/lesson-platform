@@ -14,6 +14,7 @@ import {
   createTeacherCourse,
   listCategories,
   listTeacherCourses,
+  submitTeacherCourse,
   updateTeacherCourse,
   type Category,
   type TeacherCourse,
@@ -33,6 +34,7 @@ const courses = ref<TeacherCourse[]>([])
 const categories = ref<Category[]>([])
 const loading = ref(false)
 const saving = ref(false)
+const submittingId = ref<number | null>(null)
 const errorText = ref('')
 const notice = ref('')
 const editing = ref<TeacherCourse | null>(null)
@@ -44,6 +46,7 @@ const form = reactive({
   categoryId: null as number | null,
   price: '',
   originalPrice: '',
+  clearOriginalPrice: false,
 })
 
 function isEditable(course: TeacherCourse): boolean {
@@ -70,6 +73,17 @@ function saveErrorText(error: unknown): string {
   return describeError(error)
 }
 
+/** Maps a failed submission to the rule the teacher has to satisfy first. */
+function submitErrorText(error: unknown): string {
+  if (error instanceof ApiError && error.code === 40001) {
+    return '提交失败：每个可见课时都必须先上传并确认视频'
+  }
+  if (error instanceof ApiError && error.code === 40901) {
+    return '提交失败：仅草稿或已下架课程可提交审核'
+  }
+  return describeError(error, '提交审核失败')
+}
+
 async function load(): Promise<void> {
   loading.value = true
   errorText.value = ''
@@ -90,6 +104,7 @@ function resetForm(): void {
   form.categoryId = null
   form.price = ''
   form.originalPrice = ''
+  form.clearOriginalPrice = false
 }
 
 function openCreate(): void {
@@ -127,7 +142,7 @@ async function save(): Promise<void> {
   errorText.value = ''
   notice.value = ''
   const price = parseAmount(form.price)
-  const originalPrice = parseAmount(form.originalPrice)
+  const originalPrice = form.clearOriginalPrice ? null : parseAmount(form.originalPrice)
   if (!form.title.trim()) {
     errorText.value = '请填写课程标题'
   } else if (form.categoryId === null) {
@@ -152,7 +167,9 @@ async function save(): Promise<void> {
   if (price !== null) {
     payload.price = price
   }
-  if (originalPrice !== null) {
+  if (form.clearOriginalPrice) {
+    payload.clearOriginalPrice = true
+  } else if (originalPrice !== null) {
     payload.originalPrice = originalPrice
   }
   saving.value = true
@@ -170,6 +187,30 @@ async function save(): Promise<void> {
     errorText.value = saveErrorText(error)
   } finally {
     saving.value = false
+  }
+}
+
+/**
+ * Sends an editable course to the operations review queue.
+ *
+ * <p>This is the only path from draft to pending review, so the console keeps it next to the edit
+ * action. The backend re-checks ownership, status and lesson videos.
+ */
+async function submitReview(course: TeacherCourse): Promise<void> {
+  if (!window.confirm(`确认提交《${course.title}》审核？提交后进入待审核，审核前不可修改。`)) {
+    return
+  }
+  submittingId.value = course.courseId
+  errorText.value = ''
+  notice.value = ''
+  try {
+    await submitTeacherCourse(course.courseId)
+    notice.value = '已提交审核，运营将确认最终价。'
+    await load()
+  } catch (error) {
+    errorText.value = submitErrorText(error)
+  } finally {
+    submittingId.value = null
   }
 }
 
@@ -265,7 +306,18 @@ onMounted(() => {
           class="lp-input"
           inputmode="decimal"
           placeholder="例如 299.00"
+          :disabled="form.clearOriginalPrice"
         >
+      </label>
+      <label
+        v-if="editing && editing.originalPrice !== null"
+        class="check-field"
+      >
+        <input
+          v-model="form.clearOriginalPrice"
+          type="checkbox"
+        >
+        <span>清除当前划线价（{{ formatFen(editing.originalPrice) }} 元）</span>
       </label>
       <div class="actions">
         <button
@@ -332,18 +384,29 @@ onMounted(() => {
             <td>{{ formatFen(course.price) }}</td>
             <td>{{ course.originalPrice === null ? '--' : formatFen(course.originalPrice) }}</td>
             <td>
-              <button
-                v-if="isEditable(course)"
-                class="lp-btn"
-                type="button"
-                @click="openEdit(course)"
-              >
-                改价
-              </button>
-              <span
-                v-else
-                class="lp-muted small"
-              >{{ STATUS_HINT[course.status] ?? '当前状态不可修改' }}</span>
+              <div class="row-actions">
+                <template v-if="isEditable(course)">
+                  <button
+                    class="lp-btn"
+                    type="button"
+                    @click="openEdit(course)"
+                  >
+                    改价
+                  </button>
+                  <button
+                    class="lp-btn lp-btn--primary"
+                    type="button"
+                    :disabled="submittingId !== null || formOpen"
+                    @click="submitReview(course)"
+                  >
+                    {{ submittingId === course.courseId ? '提交中…' : '提交审核' }}
+                  </button>
+                </template>
+                <span
+                  v-else
+                  class="lp-muted small"
+                >{{ STATUS_HINT[course.status] ?? '当前状态不可修改' }}</span>
+              </div>
             </td>
           </tr>
         </tbody>
@@ -362,5 +425,7 @@ h2 { margin: 0 0 16px; font-size: 16px; }
 .form-card .lp-field { max-width: 520px; }
 .small { font-size: 12px; }
 .actions { display: flex; gap: 8px; }
+.check-field { display: flex; align-items: center; gap: 8px; max-width: 520px; }
+.row-actions { display: flex; gap: 8px; align-items: center; }
 .table-card { padding: 0; overflow: hidden; }
 </style>
