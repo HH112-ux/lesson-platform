@@ -173,6 +173,28 @@ public class TeacherCourseController {
     }
 
     /**
+     * Withdraws the caller's own pending submission back to draft.
+     *
+     * @param userId gateway injected user id
+     * @param roles gateway injected roles, comma separated
+     * @param courseId course primary key
+     * @param request current request, used to resolve the trace id
+     * @return the course back in draft status
+     * @author Caspian
+     * @since 0.13.0
+     */
+    @PostMapping("/{courseId}/withdraw")
+    public Result<TeacherCourseView> withdraw(
+            @RequestHeader(value = IdentityHeaders.USER_ID, required = false) Long userId,
+            @RequestHeader(value = IdentityHeaders.USER_ROLES, required = false) String roles,
+            @PathVariable("courseId") long courseId,
+            HttpServletRequest request) {
+        return Result.ok(
+                teacherCourseService.withdraw(requireUser(userId), roles, courseId),
+                TraceIds.resolve(request));
+    }
+
+    /**
      * Lists the chapters and lessons of an owned course.
      *
      * @param userId gateway injected user id

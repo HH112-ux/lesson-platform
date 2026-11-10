@@ -1,6 +1,7 @@
 package com.lp.course.service.impl;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
@@ -18,7 +19,9 @@ import com.lp.course.dto.TeacherCourseRequest;
 import com.lp.course.dto.TeacherCourseStatusCounts;
 import com.lp.course.dto.TeacherCourseView;
 import com.lp.course.entity.Course;
+import com.lp.course.entity.CourseReviewAudit;
 import com.lp.course.entity.TeacherCourseStatusRow;
+import com.lp.course.mapper.CourseReviewAuditMapper;
 import com.lp.course.mapper.LessonUploadMapper;
 import com.lp.course.mapper.TeacherCourseMapper;
 import com.lp.course.upload.LessonUploadObjectReader;
@@ -48,6 +51,8 @@ class TeacherCourseServiceImplTest {
 
     @Mock private LessonUploadMapper lessonUploadMapper;
 
+    @Mock private CourseReviewAuditMapper courseReviewAuditMapper;
+
     @Mock private LessonUploadUrlSigner uploadSigner;
 
     @Mock private LessonUploadObjectReader uploadReader;
@@ -70,6 +75,7 @@ class TeacherCourseServiceImplTest {
                 new TeacherCourseServiceImpl(
                         teacherCourseMapper,
                         lessonUploadMapper,
+                        courseReviewAuditMapper,
                         uploadSigner,
                         uploadReader,
                         new CourseUploadProperties(
@@ -352,6 +358,88 @@ class TeacherCourseServiceImplTest {
                 assertThrows(BizException.class, () -> service.submit(1001L, "TEACHER", 9L));
 
         assertEquals(40901, exception.getCode());
+    }
+
+    /**
+     * Withdrawing a pending course returns it to draft and records who did it.
+     *
+     * @author Caspian
+     * @since 0.13.0
+     */
+    @Test
+    void withdrawsOwnPendingCourse() {
+        when(teacherCourseMapper.selectTeacherIdByUser(1001L)).thenReturn(55L);
+        when(teacherCourseMapper.selectById(9L))
+                .thenReturn(draft(9L, 55L, 1))
+                .thenReturn(draft(9L, 55L, 0));
+        when(teacherCourseMapper.withdraw(9L)).thenReturn(1);
+
+        TeacherCourseView view = service.withdraw(1001L, "TEACHER", 9L);
+
+        assertEquals(0, view.status());
+        ArgumentCaptor<CourseReviewAudit> captor = ArgumentCaptor.forClass(CourseReviewAudit.class);
+        verify(courseReviewAuditMapper).insert(captor.capture());
+        CourseReviewAudit audit = captor.getValue();
+        assertEquals(3, audit.getAction());
+        assertEquals(1, audit.getFromStatus());
+        assertEquals(0, audit.getToStatus());
+        assertEquals(1001L, audit.getReviewerId());
+        assertNotNull(audit.getCreatedAt());
+    }
+
+    /**
+     * Only pending courses can be withdrawn; published or draft rows are rejected.
+     *
+     * @author Caspian
+     * @since 0.13.0
+     */
+    @Test
+    void rejectsWithdrawWhenCourseIsNotPending() {
+        when(teacherCourseMapper.selectTeacherIdByUser(1001L)).thenReturn(55L);
+        when(teacherCourseMapper.selectById(9L)).thenReturn(draft(9L, 55L, 2));
+
+        BizException exception =
+                assertThrows(BizException.class, () -> service.withdraw(1001L, "TEACHER", 9L));
+
+        assertEquals(40901, exception.getCode());
+        verify(teacherCourseMapper, never()).withdraw(anyLong());
+    }
+
+    /**
+     * Operations cannot withdraw a teacher's course on the teacher's behalf.
+     *
+     * @author Caspian
+     * @since 0.13.0
+     */
+    @Test
+    void rejectsAdminWithdrawOnBehalf() {
+        when(teacherCourseMapper.selectTeacherIdByUser(1001L)).thenReturn(null);
+        when(teacherCourseMapper.selectById(9L)).thenReturn(draft(9L, 55L, 1));
+
+        BizException exception =
+                assertThrows(BizException.class, () -> service.withdraw(1001L, "ADMIN", 9L));
+
+        assertEquals(40301, exception.getCode());
+        verify(teacherCourseMapper, never()).withdraw(anyLong());
+    }
+
+    /**
+     * A concurrent review decision leaves nothing to withdraw and reports a state conflict.
+     *
+     * @author Caspian
+     * @since 0.13.0
+     */
+    @Test
+    void rejectsWithdrawWhenStatusAlreadyChanged() {
+        when(teacherCourseMapper.selectTeacherIdByUser(1001L)).thenReturn(55L);
+        when(teacherCourseMapper.selectById(9L)).thenReturn(draft(9L, 55L, 1));
+        when(teacherCourseMapper.withdraw(9L)).thenReturn(0);
+
+        BizException exception =
+                assertThrows(BizException.class, () -> service.withdraw(1001L, "TEACHER", 9L));
+
+        assertEquals(40901, exception.getCode());
+        verify(courseReviewAuditMapper, never()).insert(any(CourseReviewAudit.class));
     }
 
     /**

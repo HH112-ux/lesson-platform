@@ -76,7 +76,7 @@ public class CourseReviewAudit {
     /**
      * Returns the decision action.
      *
-     * @return 1 approved, 2 rejected
+     * @return 1 approved, 2 rejected, 3 withdrawn by the owning teacher
      * @author Caspian
      * @since 0.1.0
      */
@@ -87,7 +87,7 @@ public class CourseReviewAudit {
     /**
      * Sets the decision action.
      *
-     * @param action 1 approved, 2 rejected
+     * @param action 1 approved, 2 rejected, 3 withdrawn by the owning teacher
      * @author Caspian
      * @since 0.1.0
      */
@@ -120,7 +120,7 @@ public class CourseReviewAudit {
     /**
      * Returns the course status after the decision.
      *
-     * @return 2 published on approval, 0 draft on rejection
+     * @return 2 published on approval, 0 draft on rejection or teacher withdrawal
      * @author Caspian
      * @since 0.1.0
      */
@@ -131,7 +131,7 @@ public class CourseReviewAudit {
     /**
      * Sets the course status after the decision.
      *
-     * @param toStatus 2 published on approval, 0 draft on rejection
+     * @param toStatus 2 published on approval, 0 draft on rejection or teacher withdrawal
      * @author Caspian
      * @since 0.1.0
      */
