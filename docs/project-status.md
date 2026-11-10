@@ -45,7 +45,7 @@
 
 ## 2.4 规格条目索引（条目 → 实现状态）
 
-状态与层级取自对应域文件；AC 完成度按 `develop` `b22ab7c` 的代码与页面行为在 2026-11-09 逐条核对，格式为「已满足 AC 数 / 该条目 AC 总数」。`进行中` 但 AC 已全满足的条目表示仍有非 AC 事项（端到端接线或界面）未完成。
+状态与层级取自对应域文件；AC 完成度按 `develop` `b22ab7c` 的代码与页面行为在 2026-11-09 逐条核对，此后新增条目在各自 PR 分支核对，日期记在对应规格条目。格式为「已满足 AC 数 / 该条目 AC 总数」。`进行中` 但 AC 已全满足的条目表示仍有非 AC 事项（端到端接线或界面）未完成。
 
 | 规格条目 | 能力 | 状态 | 层级 | AC 完成度 |
 |---|---|---|---|---|
@@ -94,6 +94,7 @@
 | SPEC-PLAT-010 | 统一操作审计（三类审核） | 已完成 | L1-7 | 10/10 |
 | SPEC-PLAT-011 | 小程序登录频控 | 已完成 | L1-6 | 8/8 |
 | SPEC-PLAT-012 | 网关基础限流 | 已完成 | L1-6 | 8/8 |
+| SPEC-PLAT-013 | 网关 CORS 白名单 | 已完成 | L1-6 | 7/7 |
 
 ---
 
@@ -105,7 +106,7 @@
 |---|---|---|---|
 | 账号与 JWT | 注册、密码登录、刷新、登出、`/me` 可用；密码 BCrypt 存储；无资料修改与注销 | `lp-auth-service/.../controller/AuthController.java`、`db/migration/auth/V2__user_auth.sql` | 2026-11-09 |
 | 小程序 code 登录 | 接口与真实 `jscode2session` 客户端均已实现，默认关闭；本地可用 mock 客户端；登录入口按真实 IP 与 `X-Device-Id` 双维度频控，Redis 故障放行并打点 | `AuthController.java`、`security/HttpWechatMiniappClient.java`、`security/MiniappLoginRateLimitFilter.java`、`config/MiniappProperties.java` | 2026-11-10 |
-| 网关 | 7 条服务路由、身份头剥离与注入、JWT 三态校验，默认 `hard`；`/api/v1/**` 按用户或真实客户端 IP 做每实例内存限流（默认 300 次/分钟/实例，集群容量 = 阈值 × 副本数），超限返回 429 + `Retry-After` + 统一信封；`/internal/**` 与 `/actuator/**` 不经路由 | `lp-gateway/src/main/resources/application.yml`、`filter/HeaderSanitizeFilter.java`、`filter/JwtAuthFilter.java`、`filter/GatewayRateLimitFilter.java` | 2026-11-10 |
+| 网关 | 7 条服务路由、身份头剥离与注入、JWT 三态校验，默认 `hard`；`/api/v1/**` 按用户或真实客户端 IP 做每实例内存限流（默认 300 次/分钟/实例，集群容量 = 阈值 × 副本数），超限返回 429 + `Retry-After` + 统一信封；CORS 走显式来源白名单，预检在鉴权前处理，非 dev 未配置来源时启动失败；`/internal/**` 与 `/actuator/**` 不经路由 | `lp-gateway/src/main/resources/application.yml`、`application-dev.yml`、`filter/HeaderSanitizeFilter.java`、`filter/JwtAuthFilter.java`、`filter/GatewayRateLimitFilter.java`、`config/CorsConfig.java` | 2026-11-10 |
 | 课程浏览 | 已上架课程分页、分类、关键词（`LIKE` 标题/副标题）、详情、目录；下架课程对非持有者按 404 处理 | `lp-course-service/.../controller/CoursePublicController.java`、`mapper/CourseMapper.java` | 2026-11-09 |
 | 教师课程 API | 建课、改课、提交审核、章节课时增删改、状态计数；按 `owner_teacher_id` 做归属校验；建课与改课在服务层校验教师入驻审核状态，未通过返回 `61006` 且不写课程 | `controller/TeacherCourseController.java`、`service/impl/TeacherCourseServiceImpl.java` | 2026-11-09 |
 | 课程审核 | 待审队列、通过并定价上架、驳回、审核审计查询；审核动作同时写入统一审计表（含操作人角色、前后状态、traceId），与状态更新同事务 | `lp-admin-service/.../controller/AdminCourseController.java`、`db/migration/course/V4__course_review_audit.sql`、`db/migration/course/V7__admin_audit_log.sql` | 2026-11-10 |

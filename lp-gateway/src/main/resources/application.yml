@@ -84,6 +84,13 @@ lp:
       enabled: ${LP_GATEWAY_RATE_LIMIT_ENABLED:true}
       limit-per-minute: ${LP_GATEWAY_RATE_LIMIT_PER_MINUTE:300}
       trusted-proxies: ${LP_TRUSTED_PROXIES:127.0.0.1,::1}
+  # Exact browser origins, comma separated. Empty is only valid under the dev profile, where
+  # application-dev.yml supplies the localhost defaults; staging and prod fail startup instead
+  # of falling back to localhost. A '*' origin fails startup because credentials are allowed.
+  cors:
+    enabled: ${LP_CORS_ENABLED:true}
+    allowed-origins: ${LP_CORS_ALLOWED_ORIGINS:}
+    max-age-seconds: ${LP_CORS_MAX_AGE_SECONDS:3600}
 
 # Health is exposed for the M0-26 acceptance check: curl :8080/actuator/health returns UP.
 management:
