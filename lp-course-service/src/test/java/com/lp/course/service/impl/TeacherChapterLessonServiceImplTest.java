@@ -200,6 +200,10 @@ class TeacherChapterLessonServiceImplTest {
 
         assertEquals("", view.videoUrl());
         assertEquals(0, view.durationSec());
+        assertEquals("", view.videoCodec());
+        assertEquals(0, view.videoWidth());
+        assertEquals(0, view.videoHeight());
+        assertEquals(0L, view.videoSizeBytes());
         assertEquals("Intro", view.title());
     }
 
@@ -303,6 +307,10 @@ class TeacherChapterLessonServiceImplTest {
         assertEquals(1, chapters.size());
         assertEquals(2, chapters.get(0).lessons().size());
         assertEquals(81L, chapters.get(0).lessons().get(0).lessonId());
+        assertEquals("h264", chapters.get(0).lessons().get(0).videoCodec());
+        assertEquals(1280, chapters.get(0).lessons().get(0).videoWidth());
+        assertEquals(720, chapters.get(0).lessons().get(0).videoHeight());
+        assertEquals(2048L, chapters.get(0).lessons().get(0).videoSizeBytes());
     }
 
     private void givenOwnedCourse(int status) {
@@ -339,6 +347,10 @@ class TeacherChapterLessonServiceImplTest {
         lesson.setTitle("Lesson " + id);
         lesson.setVideoUrl("course/9/" + id + ".mp4");
         lesson.setVideoDurationSec(600);
+        lesson.setVideoCodec("h264");
+        lesson.setVideoWidth(1280);
+        lesson.setVideoHeight(720);
+        lesson.setVideoSizeBytes(2048L);
         lesson.setIsFree(0);
         lesson.setSort(sort);
         lesson.setStatus(1);

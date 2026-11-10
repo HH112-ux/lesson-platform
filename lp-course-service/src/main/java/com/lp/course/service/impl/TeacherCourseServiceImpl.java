@@ -1092,6 +1092,10 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
                 lesson.getTitle(),
                 lesson.getVideoUrl(),
                 lesson.getVideoDurationSec() == null ? 0 : lesson.getVideoDurationSec(),
+                lesson.getVideoCodec() == null ? "" : lesson.getVideoCodec(),
+                lesson.getVideoWidth() == null ? 0 : lesson.getVideoWidth(),
+                lesson.getVideoHeight() == null ? 0 : lesson.getVideoHeight(),
+                lesson.getVideoSizeBytes() == null ? 0L : lesson.getVideoSizeBytes(),
                 lesson.getIsFree() != null && lesson.getIsFree() == 1,
                 lesson.getSort() == null ? 0 : lesson.getSort(),
                 lesson.getStatus() == null ? 1 : lesson.getStatus());
