@@ -190,6 +190,7 @@ onMounted(() => {
     <header class="page-head">
       <h1>课程管理</h1>
       <button
+        v-if="!formOpen"
         class="lp-btn lp-btn--primary"
         type="button"
         @click="openCreate"
