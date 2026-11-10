@@ -6,6 +6,7 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Options;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 
 /**
  * Creates and reads presigned lesson upload sessions stored in {@code lesson_upload}.
@@ -72,4 +73,30 @@ public interface LessonUploadMapper {
                     + " FROM lesson_upload "
                     + "WHERE lesson_id = #{lessonId} AND pending_flag = 1")
     LessonUpload selectPendingByLessonId(@Param("lessonId") long lessonId);
+
+    /**
+     * Writes the final object key once the insert has generated the session id.
+     *
+     * @param id session primary key
+     * @param objectKey stable key built from the lesson id and the session id
+     * @return affected rows
+     * @author Caspian
+     * @since 0.7.0
+     */
+    @Update("UPDATE lesson_upload SET object_key = #{objectKey} WHERE id = #{id}")
+    int updateObjectKey(@Param("id") long id, @Param("objectKey") String objectKey);
+
+    /**
+     * Releases the pending slot of a session whose credential outlived its expiry.
+     *
+     * <p>The generated {@code pending_flag} follows {@code status}, so setting status 2 frees
+     * {@code uk_lesson_pending} for a new session without touching the generated column.
+     *
+     * @param id session primary key
+     * @return affected rows, 0 when the row already left status 0
+     * @author Caspian
+     * @since 0.7.0
+     */
+    @Update("UPDATE lesson_upload SET status = 2 WHERE id = #{id} AND status = 0")
+    int markExpired(@Param("id") long id);
 }
