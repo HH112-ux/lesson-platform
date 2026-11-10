@@ -58,6 +58,12 @@ public enum ErrorCode {
     /** Third-party channel failure, for example a payment provider. */
     CHANNEL_UPSTREAM_ERROR(50201, "upstream channel error"),
 
+    /**
+     * A bill day still has reconciliation differences that nobody has marked handled, so the day
+     * must not be closed or settled.
+     */
+    RECONCILE_UNRESOLVED(50204, "reconciliation has unresolved differences"),
+
     /** Payment credentials or signature verifier are not configured on this deployment. */
     PAYMENT_NOT_CONFIGURED(50205, "payment channel is not configured"),
 

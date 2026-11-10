@@ -16,6 +16,7 @@ import com.lp.trade.entity.RefundRequest;
 import com.lp.trade.mapper.PaymentReconcileMapper;
 import com.lp.trade.reconcile.ReconcileBillCsvParser;
 import com.lp.trade.reconcile.ReconcileCalculator;
+import com.lp.trade.reconcile.ReconcilePageView;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -98,6 +99,110 @@ class ReconcileServiceTest {
         assertThrows(
                 BizException.class, () -> service.importBill(2, BILL_DATE, 1, csv("T1,,9.90,")));
         verify(reconcileMapper, never()).upsert(any());
+    }
+
+    @Test
+    void dailyReturnsPagedAggregatesWithClampedPaging() {
+        when(reconcileMapper.count(1, BILL_DATE, null)).thenReturn(1L);
+        when(reconcileMapper.page(1, BILL_DATE, null, 0, 100))
+                .thenReturn(List.of(aggregate(7L, 1)));
+
+        ReconcilePageView page = service.daily(1, BILL_DATE, null, 0, 500);
+
+        assertEquals(1, page.records().size());
+        assertEquals(Long.valueOf(7L), page.records().get(0).id());
+        assertEquals(1L, page.total());
+        assertEquals(1, page.pageNum());
+        assertEquals(100, page.pageSize());
+    }
+
+    @Test
+    void dailyRejectsMissingBillDate() {
+        assertThrows(BizException.class, () -> service.daily(1, null, null, 1, 20));
+        verify(reconcileMapper, never()).count(any(), any(), any());
+    }
+
+    @Test
+    void dailyRejectsUnknownStatus() {
+        assertThrows(BizException.class, () -> service.daily(1, BILL_DATE, 4, 1, 20));
+        verify(reconcileMapper, never()).count(any(), any(), any());
+    }
+
+    @Test
+    void recheckPicksUpLatePaymentAndClearsDifferences() {
+        PaymentReconcile stored = aggregate(7L, 2);
+        stored.setRawBill(csv("T1,LP1,9.90,"));
+        when(reconcileMapper.selectById(7L)).thenReturn(stored);
+        when(reconcileMapper.selectLocalPayments(eq(1), any(), any()))
+                .thenReturn(List.of(payment(11L, "T1", "9.90")));
+        when(reconcileMapper.selectByKey(1, BILL_DATE, 1)).thenReturn(aggregate(7L, 1));
+
+        PaymentReconcile result = service.recheck(7L);
+
+        assertEquals(Integer.valueOf(1), result.getStatus());
+        assertEquals(Integer.valueOf(1), captureUpsert().getStatus());
+    }
+
+    @Test
+    void recheckFailsWithUnresolvedCodeWhenDifferencesRemain() {
+        PaymentReconcile stored = aggregate(7L, 2);
+        stored.setRawBill(csv("T1,LP1,9.90,", "T2,LP2,5.00,"));
+        when(reconcileMapper.selectById(7L)).thenReturn(stored);
+        when(reconcileMapper.selectLocalPayments(eq(1), any(), any())).thenReturn(List.of());
+        when(reconcileMapper.selectByKey(1, BILL_DATE, 1)).thenReturn(aggregate(7L, 2));
+
+        BizException ex = assertThrows(BizException.class, () -> service.recheck(7L));
+
+        assertEquals(50204, ex.getCode());
+        assertEquals(Integer.valueOf(2), captureUpsert().getStatus());
+    }
+
+    @Test
+    void recheckRejectsMissingAggregate() {
+        when(reconcileMapper.selectById(99L)).thenReturn(null);
+
+        BizException ex = assertThrows(BizException.class, () -> service.recheck(99L));
+
+        assertEquals(40401, ex.getCode());
+        verify(reconcileMapper, never()).upsert(any());
+    }
+
+    @Test
+    void handleMarksPendingAggregateAsHandled() {
+        when(reconcileMapper.selectById(7L))
+                .thenReturn(aggregate(7L, 2))
+                .thenReturn(aggregate(7L, 3));
+        when(reconcileMapper.markHandled(eq(7L), eq(42L), any())).thenReturn(1);
+
+        PaymentReconcile handled = service.handle(7L, 42L);
+
+        assertEquals(Integer.valueOf(3), handled.getStatus());
+    }
+
+    @Test
+    void handleRejectsAggregateThatIsNotPending() {
+        when(reconcileMapper.selectById(7L)).thenReturn(aggregate(7L, 1));
+
+        BizException ex = assertThrows(BizException.class, () -> service.handle(7L, 42L));
+
+        assertEquals(40901, ex.getCode());
+        verify(reconcileMapper, never()).markHandled(any(), any(), any());
+    }
+
+    private PaymentReconcile aggregate(Long id, int status) {
+        PaymentReconcile row = new PaymentReconcile();
+        row.setId(id);
+        row.setChannel(1);
+        row.setBillDate(BILL_DATE);
+        row.setBillType(1);
+        row.setChannelCount(1);
+        row.setChannelAmount(new BigDecimal("9.90"));
+        row.setLocalCount(1);
+        row.setLocalAmount(new BigDecimal("9.90"));
+        row.setDiffCount(0);
+        row.setDiffAmount(BigDecimal.ZERO);
+        row.setStatus(status);
+        return row;
     }
 
     private PaymentReconcile captureUpsert() {
