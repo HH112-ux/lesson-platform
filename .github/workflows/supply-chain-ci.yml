@@ -169,12 +169,14 @@ jobs:
           set -euo pipefail
           mkdir -p "$TRIVY_REPORT_DIR/images"
           # mysql, redis and minio are the stateful dependencies; temurin and nginx are the
-          # bases of docker/backend.Dockerfile and docker/web.Dockerfile; flyway and mc are
-          # the one-shot tools dev-up.sh runs. RocketMQ and Nacos stay out because
-          # dev-up.sh does not start them.
+          # bases of docker/backend.Dockerfile and docker/web.Dockerfile; flyway is the
+          # one-shot tool dev-up.sh runs. RocketMQ and Nacos stay out because dev-up.sh
+          # does not start them. minio/mc is not listed: the image is no longer published
+          # (pull access denied, verified 2026-11-10) and dev-up.sh now runs the mc binary
+          # baked into the minio image, so there is no separate artifact left to scan.
           #
-          # flyway/flyway:10 and minio/mc:latest are floating tags: scanning them reports
-          # whatever the registry resolves today, which is itself the finding.
+          # flyway/flyway:10 is a floating tag: scanning it reports whatever the registry
+          # resolves today, which is itself the finding.
           images=(
             "mysql:8.0.40"
             "redis:7.4-alpine"
@@ -182,13 +184,12 @@ jobs:
             "eclipse-temurin:17-jre"
             "nginx:1.27-alpine"
             "flyway/flyway:10"
-            "minio/mc:latest"
           )
           failed=""
           for image in "${images[@]}"; do
             slug="$(printf '%s' "$image" | tr '/:' '--')"
             printf '\n==> %s\n' "$image"
-            # One unreachable image must not hide the report for the other six, so the
+            # One unreachable image must not hide the report for the other five, so the
             # failure is collected and surfaced after the loop. A scan that could not run
             # is an infrastructure failure and still fails the job: a green run with an
             # empty report would be worse than a red one.
