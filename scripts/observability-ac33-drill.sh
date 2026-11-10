@@ -115,7 +115,7 @@ metric() { # invalidation failure counter, 0 when the series is absent
 
 series_samples() { # scraped samples of the counter inside the last 2m, 0 when the series is absent
   curl -s --get "$PROM_URL/api/v1/query" \
-    --data-urlencode "query=count_over_time($COUNTER[2m])" |
+    --data-urlencode "query=count_over_time(${COUNTER}[2m])" |
     python3 -c 'import json,sys
 r=json.load(sys.stdin)["data"]["result"]
 print(r[0]["value"][1] if r else "0")' 2>/dev/null
@@ -188,7 +188,9 @@ PRE_ALERTS="$(prom_alerts)"
 [ -z "$PRE_ALERTS" ] || die "$ALERT is already firing from an earlier run: $PRE_ALERTS"
 pass "the alert is inactive before any failure is injected"
 SAMPLES="$(series_samples)"
-if [ "${SAMPLES:-0}" -lt 2 ] 2>/dev/null; then
+# Compare as numbers: series_samples can return an empty string when the response does not parse,
+# and a shell integer comparison would fail on that instead of counting it as "no samples yet".
+if ! awk -v n="${SAMPLES:-0}" 'BEGIN { exit !(n + 0 >= 2) }'; then
   NEED_WARMUP=1
 fi
 ACCOUNTS=$(( BATCH * BATCHES + NEED_WARMUP ))
@@ -238,10 +240,10 @@ if [ "$NEED_WARMUP" = 1 ]; then
   run_batch "warm-up" 1 1 1
   info "waiting for two scrapes of $COUNTER"
   for _ in $(seq 1 24); do
-    [ "$(series_samples)" -ge 2 ] 2>/dev/null && break
+    awk -v n="$(series_samples)" 'BEGIN { exit !(n + 0 >= 2) }' && break
     sleep 5
   done
-  [ "$(series_samples)" -ge 2 ] 2>/dev/null ||
+  awk -v n="$(series_samples)" 'BEGIN { exit !(n + 0 >= 2) }' ||
     die "prometheus still holds fewer than two samples of $COUNTER; increase() cannot work"
   pass "the counter is scraped; the next increase is measurable"
 else
