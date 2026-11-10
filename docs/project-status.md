@@ -92,6 +92,7 @@
 | SPEC-PLAT-008 | 统一响应与错误码分段 | 已完成 | — | 5/5 |
 | SPEC-PLAT-009 | 分页约定 | 已完成 | — | 5/5 |
 | SPEC-PLAT-010 | 统一操作审计（三类审核） | 已完成 | L1-7 | 10/10 |
+| SPEC-PLAT-011 | 小程序登录频控 | 已完成 | L1-6 | 8/8 |
 
 ---
 
@@ -102,7 +103,7 @@
 | 能力 | 完成程度与限制 | 证据 | 最后核对日期 |
 |---|---|---|---|
 | 账号与 JWT | 注册、密码登录、刷新、登出、`/me` 可用；密码 BCrypt 存储；无资料修改与注销 | `lp-auth-service/.../controller/AuthController.java`、`db/migration/auth/V2__user_auth.sql` | 2026-11-09 |
-| 小程序 code 登录 | 接口与真实 `jscode2session` 客户端均已实现，默认关闭；本地可用 mock 客户端 | `AuthController.java`、`security/HttpWechatMiniappClient.java`、`config/MiniappProperties.java` | 2026-11-09 |
+| 小程序 code 登录 | 接口与真实 `jscode2session` 客户端均已实现，默认关闭；本地可用 mock 客户端；登录入口按真实 IP 与 `X-Device-Id` 双维度频控，Redis 故障放行并打点 | `AuthController.java`、`security/HttpWechatMiniappClient.java`、`security/MiniappLoginRateLimitFilter.java`、`config/MiniappProperties.java` | 2026-11-10 |
 | 网关 | 7 条服务路由、身份头剥离与注入、JWT 三态校验，默认 `hard`；未实现限流 | `lp-gateway/src/main/resources/application.yml`、`filter/HeaderSanitizeFilter.java`、`filter/JwtAuthFilter.java` | 2026-11-09 |
 | 课程浏览 | 已上架课程分页、分类、关键词（`LIKE` 标题/副标题）、详情、目录；下架课程对非持有者按 404 处理 | `lp-course-service/.../controller/CoursePublicController.java`、`mapper/CourseMapper.java` | 2026-11-09 |
 | 教师课程 API | 建课、改课、提交审核、章节课时增删改、状态计数；按 `owner_teacher_id` 做归属校验；建课与改课在服务层校验教师入驻审核状态，未通过返回 `61006` 且不写课程 | `controller/TeacherCourseController.java`、`service/impl/TeacherCourseServiceImpl.java` | 2026-11-09 |
