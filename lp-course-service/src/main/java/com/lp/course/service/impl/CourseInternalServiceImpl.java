@@ -262,8 +262,15 @@ public class CourseInternalServiceImpl implements CourseInternalService {
                         traceId,
                         null,
                         reviewedAt));
-        long effectivePriceFen =
-                approved && priceFen != null ? priceFen : currentPriceFen(courseId);
+        long effectivePriceFen;
+        if (approved) {
+            // Approval keeps the proposed price when operations do not override it, and the
+            // snapshot read above already holds that value, so no second query is needed.
+            effectivePriceFen =
+                    priceFen != null ? priceFen : (beforePriceFen == null ? 0L : beforePriceFen);
+        } else {
+            effectivePriceFen = currentPriceFen(courseId);
+        }
         return new CourseReviewResultView(
                 courseId,
                 approved ? STATUS_PUBLISHED : STATUS_DRAFT,
