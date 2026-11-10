@@ -1655,7 +1655,7 @@ flowchart LR
 | `hotfix/*` | 线上紧急修复 | — | 先 `prod`，24h 内回合 `develop` | `origin/main` |
 | `chore/*` | 配置、依赖、文档、CI | — | — | `origin/develop` |
 
-- 提交信息格式：`<type>(<scope>): <subject>`，如 `feat(trade): support alipay notify verify`；`scope` 取模块名（`gateway/auth/course/trade/learn/ugc/admin/ai/web/admin-web/miniapp/db/ci`）。
+- 提交信息格式：`<type>(<scope>): <subject>`，如 `feat(trade): support alipay notify verify`；`scope` 取模块名（`gateway/auth/course/trade/learn/ugc/admin/ai/web/admin-web/miniapp/db/ci/docs/deps`）。
 - 版本对应：后端 + Web 打 `vX.Y.Z`（镜像 tag 一致，仅从 `main` 打）；小程序打 `mp-vX.Y.Z`，tag body 记录微信后台版本号、审核单号与对应 commit。
 - **高风险区**（支付、鉴权、教师归属、退款、对账）的 PR：单人仓库阶段 approve 为 0；成员加入后升级为 2 人评审（其一为对应模块 owner），并附越权/验签/金额一致性用例结果；禁止与小程序契约改动混在同一 PR（AGENTS 7.2、8）。
 - 小程序专属改动统一用 `miniapp` scope 的分支命名（`feature/miniapp-*`），便于按路径过滤 CI 与指定评审人。

@@ -41,7 +41,7 @@ subject="$(printf '%s' "$subject" | sed -E 's/ \(#([0-9]+)\)$//')"
 [ -z "$subject" ] && { echo "FAIL empty subject after stripping the squash suffix"; exit 1; }
 
 types='feat|fix|docs|style|refactor|perf|test|chore|revert'
-scopes='gateway|auth|course|trade|learn|ugc|admin|ai|web|admin-web|miniapp|db|ci'
+scopes='gateway|auth|course|trade|learn|ugc|admin|ai|web|admin-web|miniapp|db|ci|docs|deps'
 if ! printf '%s' "$subject" | grep -qE "^($types)(\(($scopes)\))?: [a-z0-9]"; then
   echo "FAIL subject must look like 'type(scope): subject', type in: ${types//|/ }"
   echo "     scope must be one of: ${scopes//|/ }, or omitted"

@@ -128,7 +128,7 @@ git remote -v
 **命名规则**：
 
 - 格式：`<type>/<scope>-<短语>`，全小写，短横线分隔，**不得含中文、空格、下划线**。
-- `scope` 必须取自本仓库模块：`gateway`、`auth`、`course`、`trade`、`learn`、`ugc`、`admin`、`ai`、`web`、`admin-web`、`miniapp`、`db`、`ci`、`docs`。
+- `scope` 必须取自本仓库模块：`gateway`、`auth`、`course`、`trade`、`learn`、`ugc`、`admin`、`ai`、`web`、`admin-web`、`miniapp`、`db`、`ci`、`docs`、`deps`。
 - 短语 2–4 个英文单词，如 `feature/trade-wxpay-callback`、`fix/miniapp-login-code`、`chore/ci-miniprogram-upload`。
 - 小程序专属改动统一用 `miniapp` scope（如 `feature/miniapp-pay-jsapi`），便于按路径过滤 CI 与评审人。
 - 续做他人/上一轮分支：沿用原分支，禁止重命名；`git fetch origin && git switch feature/xxx && git pull --ff-only`。
