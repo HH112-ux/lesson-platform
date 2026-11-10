@@ -3,6 +3,7 @@ package com.lp.trade.mapper;
 import com.lp.trade.entity.PaymentSettleBatch;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -145,4 +146,63 @@ public interface PaymentSettleBatchMapper {
             "SELECT COUNT(*) FROM payment_settle_batch WHERE channel = #{channel} "
                     + "AND bill_date = #{billDate} AND status = 1")
     long countClosed(@Param("channel") Integer channel, @Param("billDate") LocalDate billDate);
+
+    /**
+     * Lists batches for the settlement query.
+     *
+     * @param channel optional channel filter
+     * @param billDate optional bill day filter
+     * @param status optional status filter
+     * @param offset zero-based offset
+     * @param pageSize page size
+     * @return page of batches ordered by bill day desc then channel
+     * @author Caspian
+     * @since 0.6.2
+     */
+    @Select(
+            "<script>SELECT id, channel, bill_date AS billDate, "
+                    + "channel_pay_count AS channelPayCount, "
+                    + "channel_pay_amount AS channelPayAmount, "
+                    + "channel_refund_count AS channelRefundCount, "
+                    + "channel_refund_amount AS channelRefundAmount, "
+                    + "local_pay_count AS localPayCount, "
+                    + "local_pay_amount AS localPayAmount, "
+                    + "local_refund_count AS localRefundCount, "
+                    + "local_refund_amount AS localRefundAmount, "
+                    + "net_channel_amount AS netChannelAmount, "
+                    + "net_local_amount AS netLocalAmount, diff_count AS diffCount, "
+                    + "diff_amount AS diffAmount, status, closed_by AS closedBy, "
+                    + "closed_at AS closedAt, void_by AS voidBy, void_at AS voidAt "
+                    + "FROM payment_settle_batch WHERE 1 = 1 "
+                    + "<if test='channel != null'>AND channel = #{channel} </if>"
+                    + "<if test='billDate != null'>AND bill_date = #{billDate} </if>"
+                    + "<if test='status != null'>AND status = #{status} </if>"
+                    + "ORDER BY bill_date DESC, channel ASC "
+                    + "LIMIT #{offset}, #{pageSize}</script>")
+    List<PaymentSettleBatch> page(
+            @Param("channel") Integer channel,
+            @Param("billDate") LocalDate billDate,
+            @Param("status") Integer status,
+            @Param("offset") int offset,
+            @Param("pageSize") int pageSize);
+
+    /**
+     * Counts batches matching the settlement query filters.
+     *
+     * @param channel optional channel filter
+     * @param billDate optional bill day filter
+     * @param status optional status filter
+     * @return matching row count
+     * @author Caspian
+     * @since 0.6.2
+     */
+    @Select(
+            "<script>SELECT COUNT(*) FROM payment_settle_batch WHERE 1 = 1 "
+                    + "<if test='channel != null'>AND channel = #{channel} </if>"
+                    + "<if test='billDate != null'>AND bill_date = #{billDate} </if>"
+                    + "<if test='status != null'>AND status = #{status} </if></script>")
+    long count(
+            @Param("channel") Integer channel,
+            @Param("billDate") LocalDate billDate,
+            @Param("status") Integer status);
 }
