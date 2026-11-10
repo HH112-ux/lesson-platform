@@ -8,7 +8,7 @@
  * @author Caspian
  * @since 0.9.0
  */
-import { onMounted, ref, shallowRef } from 'vue'
+import { nextTick, onMounted, ref, shallowRef } from 'vue'
 import {
   confirmLessonUpload,
   createLessonUploadSession,
@@ -46,8 +46,16 @@ const phase = ref('')
 const progress = ref(0)
 const failure = ref('')
 
-/** Lesson currently open in the preview player, holding only the signed URL and its title. */
-const preview = shallowRef<{ title: string; playUrl: string } | null>(null)
+/** Lesson currently open in the preview player, keeping the identifiers needed to re-sign. */
+const preview = shallowRef<{
+  courseId: number
+  chapterId: number
+  lessonId: number
+  title: string
+  playUrl: string
+} | null>(null)
+const previewVideo = ref<HTMLVideoElement | null>(null)
+const previewReloading = ref(false)
 
 async function loadCourses(): Promise<void> {
   loading.value = true
@@ -108,10 +116,77 @@ async function previewLesson(chapterId: number, lesson: TeacherLesson): Promise<
   notice.value = ''
   try {
     const credential = await getLessonPlayUrl(id, chapterId, lesson.lessonId)
-    preview.value = { title: lesson.title, playUrl: credential.playUrl }
+    preview.value = {
+      courseId: id,
+      chapterId,
+      lessonId: lesson.lessonId,
+      title: lesson.title,
+      playUrl: credential.playUrl,
+    }
   } catch (error) {
     failure.value = describeTeacherError(error, '预览地址获取失败，请稍后重试')
   }
+}
+
+/**
+ * Re-signs the preview URL once per media error and keeps the playback position.
+ *
+ * <p>The signed URL lives ten minutes, which is shorter than long lessons; without this the player
+ * would stop silently when the credential expires.</p>
+ */
+async function onPreviewError(): Promise<void> {
+  const current = preview.value
+  if (!current || previewReloading.value) {
+    return
+  }
+  previewReloading.value = true
+  const position = previewVideo.value?.currentTime ?? 0
+  try {
+    const credential = await getLessonPlayUrl(
+      current.courseId,
+      current.chapterId,
+      current.lessonId,
+    )
+    if (preview.value !== current) {
+      return
+    }
+    preview.value = { ...current, playUrl: credential.playUrl }
+    await nextTick()
+    const video = previewVideo.value
+    if (video) {
+      await restorePosition(video, position)
+      await video.play().catch(() => undefined)
+    }
+  } catch (error) {
+    failure.value = describeTeacherError(error, '预览地址刷新失败，请稍后重试')
+  } finally {
+    previewReloading.value = false
+  }
+}
+
+/**
+ * Restores the playback position once the re-signed source has metadata.
+ *
+ * <p>Assigning {@code currentTime} before {@code loadedmetadata} is silently dropped, so a fixed
+ * delay cannot guarantee it survives; the timeout only keeps an unreadable source from hanging.</p>
+ */
+function restorePosition(video: HTMLVideoElement, position: number): Promise<void> {
+  if (position <= 0) {
+    return Promise.resolve()
+  }
+  return new Promise((resolve) => {
+    const apply = (): void => {
+      window.clearTimeout(timer)
+      video.removeEventListener('loadedmetadata', apply)
+      video.currentTime = position
+      resolve()
+    }
+    const timer = window.setTimeout(apply, 2000)
+    video.addEventListener('loadedmetadata', apply)
+    if (video.readyState >= 1) {
+      apply()
+    }
+  })
 }
 
 function closePreview(): void {
@@ -433,9 +508,11 @@ onMounted(loadCourses)
           </button>
         </header>
         <video
+          ref="previewVideo"
           :src="preview.playUrl"
           controls
           autoplay
+          @error="onPreviewError"
         />
       </div>
     </div>
