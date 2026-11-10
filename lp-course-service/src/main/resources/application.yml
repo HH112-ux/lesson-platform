@@ -42,8 +42,10 @@ lp:
     upload:
       # Presigned PUT credentials are short lived on purpose: they are issued per session.
       session-ttl: ${LP_COURSE_UPLOAD_SESSION_TTL:30m}
-      # Must match chk_lesson_upload_size; the API rejects larger files before insert.
-      max-size-bytes: ${LP_COURSE_UPLOAD_MAX_SIZE_BYTES:209715200}
+      # Sole runtime ceiling; the API rejects larger files before insert. Mirrors
+      # chk_lesson_upload_size in db/migration/course/V9__lesson_upload_size_limit.sql.
+      # Change both together, the constraint needs a new migration.
+      max-size-bytes: ${LP_COURSE_UPLOAD_MAX_SIZE_BYTES:2147483648}
       minio-endpoint: ${LP_COURSE_UPLOAD_MINIO_ENDPOINT:${LP_MINIO_ENDPOINT:http://127.0.0.1:9000}}
       # Fixed so presigning needs no network call; the endpoint above is browser facing.
       minio-region: ${LP_COURSE_UPLOAD_MINIO_REGION:${LP_MINIO_REGION:us-east-1}}

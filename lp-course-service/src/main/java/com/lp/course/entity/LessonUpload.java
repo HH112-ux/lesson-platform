@@ -199,7 +199,7 @@ public class LessonUpload {
     /**
      * Returns the declared file size.
      *
-     * @return declared size in bytes, at most 209715200
+     * @return declared size in bytes, within {@code chk_lesson_upload_size}
      * @author Caspian
      * @since 0.7.0
      */

@@ -11,7 +11,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * out unusable URLs.
  *
  * @param sessionTtl lifetime of one presigned PUT credential, thirty minutes by default
- * @param maxSizeBytes largest accepted declared size, 209715200 bytes (200 MiB)
+ * @param maxSizeBytes largest accepted declared size, the sole runtime ceiling
  * @param minioEndpoint endpoint used for signing, reachable from the browser
  * @param minioRegion signing region, set explicitly to avoid a bucket location probe
  * @param minioAccessKey access key, blank when the deployment is not configured
