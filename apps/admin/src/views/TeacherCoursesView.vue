@@ -245,7 +245,12 @@ async function withdrawReview(course: TeacherCourse): Promise<void> {
     notice.value = '已撤回，课程回到草稿，可修改后重新提交。'
     await load()
   } catch (error) {
-    errorText.value = withdrawErrorText(error)
+    const message = withdrawErrorText(error)
+    // Reload so a row that was reviewed or already withdrawn elsewhere stops looking actionable.
+    await load()
+    if (!errorText.value) {
+      errorText.value = message
+    }
   } finally {
     withdrawingId.value = null
   }
@@ -426,7 +431,7 @@ onMounted(() => {
                   <button
                     class="lp-btn"
                     type="button"
-                    :disabled="withdrawingId !== null || formOpen"
+                    :disabled="withdrawingId !== null || submittingId !== null || formOpen"
                     @click="withdrawReview(course)"
                   >
                     {{ withdrawingId === course.courseId ? '撤回中…' : '撤回' }}
