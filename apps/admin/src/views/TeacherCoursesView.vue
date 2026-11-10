@@ -16,6 +16,7 @@ import {
   listTeacherCourses,
   submitTeacherCourse,
   updateTeacherCourse,
+  withdrawTeacherCourse,
   type Category,
   type TeacherCourse,
   type TeacherCoursePayload,
@@ -27,7 +28,7 @@ import { formatFen } from '../utils/format'
 const PAGE_SIZE = 50
 const EDITABLE_STATUS: readonly number[] = [0, 3]
 const STATUS_TEXT: Record<number, string> = { 0: '草稿', 1: '待审核', 2: '已上架', 3: '已下架' }
-const STATUS_HINT: Record<number, string> = { 1: '待审核，不可改价', 2: '已上架，不可直接改价' }
+const STATUS_HINT: Record<number, string> = { 2: '已上架，不可直接改价' }
 const AMOUNT_PATTERN = /^\d+(\.\d{1,2})?$/
 
 const courses = ref<TeacherCourse[]>([])
@@ -35,6 +36,7 @@ const categories = ref<Category[]>([])
 const loading = ref(false)
 const saving = ref(false)
 const submittingId = ref<number | null>(null)
+const withdrawingId = ref<number | null>(null)
 const errorText = ref('')
 const notice = ref('')
 const editing = ref<TeacherCourse | null>(null)
@@ -82,6 +84,17 @@ function submitErrorText(error: unknown): string {
     return '提交失败：仅草稿或已下架课程可提交审核'
   }
   return describeError(error, '提交审核失败')
+}
+
+/** Maps a failed withdrawal to the rule that blocked it. */
+function withdrawErrorText(error: unknown): string {
+  if (error instanceof ApiError && error.code === 40901) {
+    return '撤回失败：课程已不在待审核状态，请刷新后重试'
+  }
+  if (error instanceof ApiError && error.code === 40301) {
+    return '撤回失败：只有课程所属教师本人可以撤回'
+  }
+  return describeError(error, '撤回失败')
 }
 
 async function load(): Promise<void> {
@@ -211,6 +224,30 @@ async function submitReview(course: TeacherCourse): Promise<void> {
     errorText.value = submitErrorText(error)
   } finally {
     submittingId.value = null
+  }
+}
+
+/**
+ * Pulls a pending course back to draft so the price can be edited again.
+ *
+ * <p>The backend only accepts this from the owning teacher and only while the course is still
+ * pending, so a review that lands first wins instead of being silently overwritten.
+ */
+async function withdrawReview(course: TeacherCourse): Promise<void> {
+  if (!window.confirm(`确认撤回《${course.title}》的审核？撤回后回到草稿，可修改后重新提交。`)) {
+    return
+  }
+  withdrawingId.value = course.courseId
+  errorText.value = ''
+  notice.value = ''
+  try {
+    await withdrawTeacherCourse(course.courseId)
+    notice.value = '已撤回，课程回到草稿，可修改后重新提交。'
+    await load()
+  } catch (error) {
+    errorText.value = withdrawErrorText(error)
+  } finally {
+    withdrawingId.value = null
   }
 }
 
@@ -385,7 +422,17 @@ onMounted(() => {
             <td>{{ course.originalPrice === null ? '--' : formatFen(course.originalPrice) }}</td>
             <td>
               <div class="row-actions">
-                <template v-if="isEditable(course)">
+                <template v-if="course.status === 1">
+                  <button
+                    class="lp-btn"
+                    type="button"
+                    :disabled="withdrawingId !== null || formOpen"
+                    @click="withdrawReview(course)"
+                  >
+                    {{ withdrawingId === course.courseId ? '撤回中…' : '撤回' }}
+                  </button>
+                </template>
+                <template v-else-if="isEditable(course)">
                   <button
                     class="lp-btn"
                     type="button"
@@ -396,7 +443,7 @@ onMounted(() => {
                   <button
                     class="lp-btn lp-btn--primary"
                     type="button"
-                    :disabled="submittingId !== null || formOpen"
+                    :disabled="submittingId !== null || withdrawingId !== null || formOpen"
                     @click="submitReview(course)"
                   >
                     {{ submittingId === course.courseId ? '提交中…' : '提交审核' }}
