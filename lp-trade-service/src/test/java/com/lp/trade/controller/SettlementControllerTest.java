@@ -159,6 +159,29 @@ class SettlementControllerTest {
     }
 
     @Test
+    void missingBodyStillReturnsTheBusinessParameterError() throws Exception {
+        when(settlementService.voidSettleBatch(
+                        org.mockito.ArgumentMatchers.eq(77L),
+                        org.mockito.ArgumentMatchers.eq(9001L),
+                        org.mockito.ArgumentMatchers.isNull(),
+                        any()))
+                .thenThrow(
+                        new com.lp.common.exception.BizException(
+                                com.lp.common.exception.ErrorCode.PARAM_INVALID,
+                                "void reason is required"));
+
+        mockMvc.perform(
+                        post("/api/v1/reconcile/settlements/77/void")
+                                .header(IdentityHeaders.USER_ROLES, "ADMIN")
+                                .header(
+                                        IdentityHeaders.USER_PERMISSIONS,
+                                        ReconcilePermissions.CLOSE)
+                                .header(IdentityHeaders.USER_ID, "9001"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(40001));
+    }
+
+    @Test
     void adminWithCloseCodeVoidsTheBatch() throws Exception {
         when(settlementService.voidSettleBatch(
                         org.mockito.ArgumentMatchers.eq(77L),

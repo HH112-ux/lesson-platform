@@ -96,14 +96,15 @@ public class SettlementController {
                     String permissions,
             @RequestHeader(value = IdentityHeaders.USER_ID, required = false) Long userId,
             @PathVariable("batchId") long batchId,
-            @RequestBody VoidSettlementRequest body,
+            @RequestBody(required = false) VoidSettlementRequest body,
             HttpServletRequest request) {
         ReconcilePermissions.requireAdmin(roles, permissions, ReconcilePermissions.CLOSE);
         long voidBy = requireUserId(userId);
         String traceId = TraceIds.resolve(request);
+        String reason = body == null ? null : body.reason();
         return Result.ok(
                 SettlementView.from(
-                        settlementService.voidSettleBatch(batchId, voidBy, body.reason(), traceId)),
+                        settlementService.voidSettleBatch(batchId, voidBy, reason, traceId)),
                 traceId);
     }
 
