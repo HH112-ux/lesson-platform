@@ -50,6 +50,25 @@ class LessonUploadUrlSignerTest {
     }
 
     @Test
+    void rejectsBlankObjectKeyBeforeTouchingStorage() {
+        LessonUploadUrlSigner signer = new LessonUploadUrlSigner(CONFIGURED);
+
+        BizException blank =
+                assertThrows(
+                        BizException.class, () -> signer.presignGet("   ", Duration.ofMinutes(10)));
+        BizException empty =
+                assertThrows(
+                        BizException.class, () -> signer.presignGet("", Duration.ofMinutes(10)));
+        BizException absent =
+                assertThrows(
+                        BizException.class, () -> signer.presignGet(null, Duration.ofMinutes(10)));
+
+        assertEquals(40401, blank.getCode());
+        assertEquals(40401, empty.getCode());
+        assertEquals(40401, absent.getCode());
+    }
+
+    @Test
     void rejectsSigningWhenCredentialsAreMissing() {
         CourseUploadProperties blank =
                 new CourseUploadProperties(
