@@ -7,6 +7,7 @@ import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.Import;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
  * Auth domain service entry point on port 8101.
@@ -20,6 +21,7 @@ import org.springframework.context.annotation.Import;
  */
 @SpringBootApplication
 @MapperScan("com.lp.auth.mapper")
+@EnableScheduling
 @Import({GlobalExceptionHandler.class, InternalTokenConfig.class, TrustedIdentityConfig.class})
 public class AuthServiceApplication {
 
