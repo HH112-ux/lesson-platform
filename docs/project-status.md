@@ -205,6 +205,7 @@
 | 功能 | 文档出处 | 现状 | 卡点 | 最后核对日期 |
 |---|---|---|---|---|
 | 日结与结算 | SPEC-TRADE-014 AC-3 与 Q-2；engineering-plan 5.2、5.5 | 无日结与结算接口；`50204` 已实现并在重跑对账仍待处理时返回，为该场景预留 | 结算口径（对象、周期、金额来源）未冻结 | 2026-11-10 |
+| 对账账单对象存储归档 | SPEC-TRADE-014 Q-3；engineering-plan 10.4 | 已定：维持库内 `payment_reconcile.raw_bill`，不迁 MinIO。账单是文本、单日行数量级小，对象存储归档属可选优化；**如单日账单体积上量再评估对象存储归档** | 无（按需评估，不阻塞上线） | 2026-11-10 |
 | 评论、两级回复、收藏、举报与内容审核 | product-lifecycle F11/F12、4.3；engineering-plan 13.2 M3 | `lp-ugc-service` 仅有启动类与 `package-info`，`lp_ugc` 仅有 V1 基线 | 未排期；依赖 UGC 表设计与审核链路 | 2026-11-09 |
 | AI 课程画像、审核、文案、学伴、BYO 模型配置 | product-lifecycle F15–F18；engineering-plan 第 7 章、13.2 M4 | `lp-ai-service` 仅有启动类与 `package-info`，`lp_ai` 仅有 V1 基线 | 未排期；缺客户模型 key 与配置界面 | 2026-11-09 |
 | 购物车页面 | product-lifecycle F07、4.3 | 后端 `/api/v1/cart` 可用，Web 无购物车页面 | 未排期 | 2026-11-09 |

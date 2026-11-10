@@ -1809,7 +1809,7 @@ flowchart LR
 | MinIO | 多副本/纠删码；跨节点冗余 |
 | 对象存储 | 视频源文件保留，CDN 可回源 |
 | MQ | 主从 + 消息持久化；消费失败进死信队列 |
-| 对账文件 | 账单原文与差异明细当前存于 `payment_reconcile.raw_bill` / `diff_detail`，随交易记录保留 **3 年**（财务要求）；后续账单文件归档到 MinIO `reconcile/` 前缀时再单独配置生命周期规则 |
+| 对账文件 | 账单原文与差异明细当前存于 `payment_reconcile.raw_bill` / `diff_detail`，随交易记录保留 **3 年**（财务要求）；维持库内存储、不迁 MinIO，**如单日账单体积上量再评估对象存储归档** |
 | 故障切换 | 单可用区故障：同城双可用区；RTO ≤ 30min，RPO ≤ 5min |
 
 ---
