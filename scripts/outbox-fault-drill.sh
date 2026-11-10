@@ -31,6 +31,7 @@ MYSQL_ROOT_PASSWORD="${LP_MYSQL_ROOT_PASSWORD:-lp_root_dev}"
 RUN_ID="$(date +%Y%m%d%H%M%S)"
 RUN_KEY="drill-$RUN_ID"
 COURSE_TITLE="outbox 故障演练 $RUN_ID"
+FIXTURE="$ROOT/scripts/fixtures/sample.mp4"
 
 HTTP_STATUS=""
 BODY=""
@@ -83,6 +84,24 @@ require_code() {
   local code
   code="$(jq -r '.code // empty' <<<"$BODY")"
   [ "$code" = "0" ] || die "$1 (code=$code)"
+}
+
+# Uploads the fixture to a presigned PUT URL. The credential is signed for the compose host
+# (minio:9000), which the host itself cannot resolve, so curl connects to the published loopback
+# port while keeping the signed Host header.
+put_fixture() {
+  local url="$1" authority host port status
+  authority="${url#http://}"
+  authority="${authority%%/*}"
+  host="${authority%%:*}"
+  port="${authority##*:}"
+  [ "$port" = "$authority" ] && port=80
+  status="$(curl -sS -o /dev/null -w '%{http_code}' -X PUT \
+    --resolve "$host:$port:127.0.0.1" \
+    -H 'Content-Type: video/mp4' --data-binary "@$FIXTURE" "$url")" \
+    || die "upload PUT failed"
+  [ "$status" = "200" ] || die "upload PUT returned HTTP $status"
+  pass "fixture uploaded to object storage"
 }
 
 login() {
@@ -172,8 +191,18 @@ req POST "/api/v1/teacher/courses/$COURSE_ID/chapters" "$TEACHER_TOKEN" \
 require_code "create chapter"
 CHAPTER_ID="$(jq -r '.data.chapterId' <<<"$BODY")"
 req POST "/api/v1/teacher/courses/$COURSE_ID/chapters/$CHAPTER_ID/lessons" "$TEACHER_TOKEN" \
-  '{"title":"演练课时","videoUrl":"demo/course-1.mp4","durationSec":300,"isFree":0,"sort":1,"status":1}'
+  '{"title":"演练课时","isFree":0,"sort":1,"status":1}'
 require_code "create lesson"
+LESSON_ID="$(jq -r '.data.lessonId' <<<"$BODY")"
+FIXTURE_SIZE="$(wc -c < "$FIXTURE" | tr -d '[:space:]')"
+req POST "/api/v1/teacher/courses/$COURSE_ID/chapters/$CHAPTER_ID/lessons/$LESSON_ID/upload-sessions" \
+  "$TEACHER_TOKEN" "$(jq -nc --argjson size "$FIXTURE_SIZE" '{expectedSizeBytes:$size}')"
+require_code "open upload session"
+UPLOAD_ID="$(jq -r '.data.uploadId' <<<"$BODY")"
+put_fixture "$(jq -r '.data.uploadUrl' <<<"$BODY")"
+req POST "/api/v1/teacher/courses/$COURSE_ID/chapters/$CHAPTER_ID/lessons/$LESSON_ID/upload-sessions/$UPLOAD_ID/confirm" \
+  "$TEACHER_TOKEN"
+require_code "confirm upload"
 req POST "/api/v1/teacher/courses/$COURSE_ID/submit" "$TEACHER_TOKEN"
 require_code "submit course"
 req POST "/api/v1/admin/courses/$COURSE_ID/review" "$OPS_TOKEN" \

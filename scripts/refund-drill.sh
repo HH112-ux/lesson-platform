@@ -37,6 +37,7 @@ IDEMPOTENCY_SEQ=0
 COURSE_TITLE="退款闭环演练 $RUN_ID"
 SECOND_COURSE_TITLE="退款超期演练 $RUN_ID"
 THIRD_COURSE_TITLE="退款驳回演练 $RUN_ID"
+FIXTURE="$ROOT/scripts/fixtures/sample.mp4"
 
 HTTP_STATUS=""
 BODY=""
@@ -126,6 +127,23 @@ wait_sql() {
   return 1
 }
 
+# Uploads the fixture to a presigned PUT URL. The credential is signed for the compose host
+# (minio:9000), which the host itself cannot resolve, so curl connects to the published loopback
+# port while keeping the signed Host header.
+put_fixture() {
+  local url="$1" authority host port status
+  authority="${url#http://}"
+  authority="${authority%%/*}"
+  host="${authority%%:*}"
+  port="${authority##*:}"
+  [ "$port" = "$authority" ] && port=80
+  status="$(curl -sS -o /dev/null -w '%{http_code}' -X PUT \
+    --resolve "$host:$port:127.0.0.1" \
+    -H 'Content-Type: video/mp4' --data-binary "@$FIXTURE" "$url")" \
+    || die "upload PUT failed"
+  [ "$status" = "200" ] || die "upload PUT returned HTTP $status"
+}
+
 publish_course() {
   local title="$1" price="$2"
   req POST /api/v1/teacher/courses "$TEACHER_TOKEN" \
@@ -140,10 +158,21 @@ publish_course() {
   local chapter_id
   chapter_id="$(jq -r '.data.chapterId' <<<"$BODY")"
   req POST "/api/v1/teacher/courses/$course_id/chapters/$chapter_id/lessons" "$TEACHER_TOKEN" \
-    '{"title":"演练课时","videoUrl":"demo/course-1.mp4","durationSec":300,"isFree":0,"sort":1,"status":1}'
+    '{"title":"演练课时","isFree":0,"sort":1,"status":1}'
   require_code "create lesson"
   local lesson_id
   lesson_id="$(jq -r '.data.lessonId' <<<"$BODY")"
+  local fixture_size
+  fixture_size="$(wc -c < "$FIXTURE" | tr -d '[:space:]')"
+  req POST "/api/v1/teacher/courses/$course_id/chapters/$chapter_id/lessons/$lesson_id/upload-sessions" \
+    "$TEACHER_TOKEN" "$(jq -nc --argjson size "$fixture_size" '{expectedSizeBytes:$size}')"
+  require_code "open upload session"
+  local upload_id
+  upload_id="$(jq -r '.data.uploadId' <<<"$BODY")"
+  put_fixture "$(jq -r '.data.uploadUrl' <<<"$BODY")"
+  req POST "/api/v1/teacher/courses/$course_id/chapters/$chapter_id/lessons/$lesson_id/upload-sessions/$upload_id/confirm" \
+    "$TEACHER_TOKEN"
+  require_code "confirm upload"
   req POST "/api/v1/teacher/courses/$course_id/submit" "$TEACHER_TOKEN"
   require_code "submit course"
   req POST "/api/v1/admin/courses/$course_id/review" "$OPS_TOKEN" \
