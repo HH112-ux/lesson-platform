@@ -46,7 +46,7 @@ groups:
           sum (
             increase(lp_auth_account_cancellation_cache_invalidate_failed_total[5m])
           ) >= 3
-        for: 5m
+        for: 1m
         labels:
           severity: warning
           service: auth-service
