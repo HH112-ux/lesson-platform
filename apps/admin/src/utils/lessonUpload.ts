@@ -9,7 +9,11 @@
  * @since 0.9.0
  */
 
-/** Server upload ceiling mirrored for the fast check, the backend enforces it authoritatively. */
+/**
+ * Mirror of the server ceiling {@code lp.course.upload.max-size-bytes}, the same value guarded by
+ * the V9 {@code chk_lesson_upload_size} check. Fast-fail only: the server stays authoritative, so
+ * the two numbers must change together.
+ */
 export const MAX_VIDEO_BYTES = 2_147_483_648
 
 /** Uploads above this size get a "slow, no resume" hint instead of a progress promise. */
