@@ -31,6 +31,7 @@ import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -229,6 +230,53 @@ class TeacherCourseServiceImplTest {
     }
 
     /**
+     * Clearing the crossed out price removes it instead of keeping the previous value.
+     *
+     * @author Caspian
+     * @since 0.12.0
+     */
+    @Test
+    void clearsOriginalPriceWhenRequested() {
+        Course existing = draft(9L, 55L, 0);
+        existing.setOriginalPrice(new BigDecimal("299.00"));
+        when(teacherCourseMapper.selectTeacherIdByUser(1001L)).thenReturn(55L);
+        when(teacherCourseMapper.selectAuditStatusByTeacherId(55L)).thenReturn(1);
+        when(teacherCourseMapper.selectById(9L)).thenReturn(existing);
+        when(teacherCourseMapper.updateEditable(any(Course.class))).thenReturn(1);
+        TeacherCourseRequest request =
+                new TeacherCourseRequest(3L, "Course", null, "cover", null, null, null, 1, true);
+
+        service.update(1001L, "TEACHER", 9L, request);
+
+        ArgumentCaptor<Course> captor = ArgumentCaptor.forClass(Course.class);
+        verify(teacherCourseMapper).updateEditable(captor.capture());
+        assertNull(captor.getValue().getOriginalPrice());
+    }
+
+    /**
+     * A payload that both sets and clears the crossed out price is contradictory and rejected.
+     *
+     * @author Caspian
+     * @since 0.12.0
+     */
+    @Test
+    void rejectsSettingAndClearingOriginalPriceAtOnce() {
+        when(teacherCourseMapper.selectTeacherIdByUser(1001L)).thenReturn(55L);
+        when(teacherCourseMapper.selectAuditStatusByTeacherId(55L)).thenReturn(1);
+        when(teacherCourseMapper.selectById(9L)).thenReturn(draft(9L, 55L, 0));
+        TeacherCourseRequest request =
+                new TeacherCourseRequest(
+                        3L, "Course", null, "cover", null, null, new BigDecimal("299.00"), 1, true);
+
+        BizException exception =
+                assertThrows(
+                        BizException.class, () -> service.update(1001L, "TEACHER", 9L, request));
+
+        assertEquals(40001, exception.getCode());
+        verify(teacherCourseMapper, never()).updateEditable(any());
+    }
+
+    /**
      * Submission is refused while the course has no lesson with a video and duration.
      *
      * @author Caspian
@@ -318,7 +366,7 @@ class TeacherCourseServiceImplTest {
         when(teacherCourseMapper.selectAuditStatusByTeacherId(55L)).thenReturn(1);
         TeacherCourseRequest request =
                 new TeacherCourseRequest(
-                        3L, "Course", null, "cover", null, new BigDecimal("-1"), null, 1);
+                        3L, "Course", null, "cover", null, new BigDecimal("-1"), null, 1, null);
 
         BizException exception =
                 assertThrows(BizException.class, () -> service.create(1001L, "TEACHER", request));
@@ -339,7 +387,7 @@ class TeacherCourseServiceImplTest {
         when(teacherCourseMapper.selectAuditStatusByTeacherId(55L)).thenReturn(1);
         TeacherCourseRequest request =
                 new TeacherCourseRequest(
-                        3L, "Course", null, "cover", null, new BigDecimal("9.999"), null, 1);
+                        3L, "Course", null, "cover", null, new BigDecimal("9.999"), null, 1, null);
 
         BizException exception =
                 assertThrows(BizException.class, () -> service.create(1001L, "TEACHER", request));
@@ -360,7 +408,15 @@ class TeacherCourseServiceImplTest {
         when(teacherCourseMapper.selectAuditStatusByTeacherId(55L)).thenReturn(1);
         TeacherCourseRequest request =
                 new TeacherCourseRequest(
-                        3L, "Course", null, "cover", null, new BigDecimal("100000000.00"), null, 1);
+                        3L,
+                        "Course",
+                        null,
+                        "cover",
+                        null,
+                        new BigDecimal("100000000.00"),
+                        null,
+                        1,
+                        null);
 
         BizException exception =
                 assertThrows(BizException.class, () -> service.create(1001L, "TEACHER", request));
@@ -444,6 +500,14 @@ class TeacherCourseServiceImplTest {
      */
     private TeacherCourseRequest validRequest() {
         return new TeacherCourseRequest(
-                3L, "Course", "Subtitle", "cover", "Description", new BigDecimal("99.00"), null, 1);
+                3L,
+                "Course",
+                "Subtitle",
+                "cover",
+                "Description",
+                new BigDecimal("99.00"),
+                null,
+                1,
+                null);
     }
 }

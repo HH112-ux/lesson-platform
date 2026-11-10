@@ -68,6 +68,8 @@ export interface TeacherCoursePayload {
   price?: number
   /** Crossed out price in yuan; the server converts. */
   originalPrice?: number
+  /** Set true to remove the crossed out price; omit {@code originalPrice} when set. */
+  clearOriginalPrice?: boolean
   level?: number
 }
 
@@ -176,6 +178,23 @@ export function updateTeacherCourse(
  */
 export function listCategories(): Promise<Category[]> {
   return apiRequest<Category[]>('/api/v1/categories')
+}
+
+/**
+ * Submits a draft or offline course for operations review.
+ *
+ * <p>The backend rejects the call while any visible lesson has no confirmed video, so the screen
+ * shows that rule verbatim instead of blocking the button.
+ *
+ * @param courseId course identifier
+ * @returns the course in pending review status
+ * @author Caspian
+ * @since 0.12.0
+ */
+export function submitTeacherCourse(courseId: number): Promise<TeacherCourse> {
+  return apiRequest<TeacherCourse>(`/api/v1/teacher/courses/${courseId}/submit`, {
+    method: 'POST',
+  })
 }
 
 /**

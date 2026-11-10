@@ -21,6 +21,7 @@ export type RouteName =
   | 'refunds'
   | 'users'
   | 'orders'
+  | 'teacher-courses'
   | 'lesson-video'
   | 'login'
   | 'not-found'
@@ -60,6 +61,7 @@ export const CONSOLE_MENU: readonly ConsoleMenu[] = [
   { path: '/users', label: '用户管理', name: 'users', roles: OPERATOR_ROLES },
   { path: '/orders', label: '订单管理', name: 'orders', roles: OPERATOR_ROLES },
   { path: '/refunds', label: '退款审核', name: 'refunds', roles: OPERATOR_ROLES },
+  { path: '/teacher-courses', label: '课程管理', name: 'teacher-courses', roles: ['TEACHER'] },
   { path: '/lesson-videos', label: '课时视频', name: 'lesson-video', roles: ['TEACHER'] },
 ]
 
@@ -90,6 +92,9 @@ export function resolveRoute(pathname: string): Route {
   }
   if (segments.length === 1 && segments[0] === 'refunds') {
     return { name: 'refunds', params: {}, roles: OPERATOR_ROLES }
+  }
+  if (segments.length === 1 && segments[0] === 'teacher-courses') {
+    return { name: 'teacher-courses', params: {}, roles: LESSON_VIDEO_ROLES }
   }
   if (segments.length === 1 && segments[0] === 'lesson-videos') {
     return { name: 'lesson-video', params: {}, roles: LESSON_VIDEO_ROLES }
@@ -129,7 +134,7 @@ export function defaultRouteFor(roles: readonly string[]): string {
     return '/'
   }
   if (roles.includes('TEACHER')) {
-    return '/lesson-videos'
+    return '/teacher-courses'
   }
   return '/login'
 }
