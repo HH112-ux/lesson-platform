@@ -418,13 +418,13 @@ for g in json.load(sys.stdin)['data']['groups']:
 
 ### 4.10 AC-33 缓存失效告警演练
 
-`scripts/observability-ac33-drill.sh` 用真实请求跑完整条链路，约 15 分钟，全程**不停止 trade**，只用 `docker pause` 冻结（目标与端口都留在原地，不需要重启任何服务）：
+`scripts/observability-ac33-drill.sh` 用真实请求跑完整条链路，约 20 分钟（firing 约 5 分钟，回到 inactive 还要等 15 分钟窗口滑过），全程**不停止 trade**，只用 `docker pause` 冻结（目标与端口都留在原地，不需要重启任何服务）：
 
-1. 注册 6 个账号（需要预热时 7 个），在 trade 仍可达时逐个提交注销申请（申请会探测 trade，trade 不可达时按 AC-10 直接 `50401`，所以申请必须放在暂停之前）；
+1. 注册 3 个账号（需要预热时 4 个），在 trade 仍可达时逐个提交注销申请（申请会探测 trade，trade 不可达时按 AC-10 直接 `50401`，所以申请必须放在暂停之前）；
 2. 若 Prometheus 里这个计数器还没有样本（auth 刚重启时 Micrometer 在首次失败后才注册 series，`increase()` 看不到首次跳变），先注入 1 次失败做预热，并等到至少两次抓取；
-3. 第一批：冻结 trade，撤销 3 个账号（撤销不做探测，提交后通知 trade 清缓存会失败），等计数器 +3 后解冻；
-4. 等 3 分钟让第二批落进第一批的 5m 窗口，再冻结 trade 撤销另外 3 个账号，等计数器再 +3 后解冻；
-5. 等告警 firing（`for: 5m`，要求条件先连续为真 5 分钟，约 t+5 分钟触发），再等它回到 inactive。
+3. 单批：冻结 trade，撤销 3 个账号（撤销不做探测，提交后通知 trade 清缓存会失败），等计数器 +3 后解冻；
+4. 等告警 firing（`for: 5m`，要求条件先连续为真 5 分钟，约 t+5 分钟触发）；
+5. 等最后一批失败离开 15 分钟窗口后，告警回到 inactive。
 
 冻结只持续到该批 3 次失效全部超时（约数秒），trade 不会长时间不可用：本地同一套栈还有其他检查在用 trade。**不能撤销完立刻解冻**——排队中的异步失效会在容器醒来后成功，计数器只记到 1 次而不是 3 次。
 
@@ -437,15 +437,15 @@ bash scripts/observability-ac33-drill.sh
 | 证据 | 断言 |
 |---|---|
 | 规则在求值 | `/api/v1/rules` 中 `LpAuthAccountCancellationCacheInvalidateFailed` 的 `health=ok`，且相隔 20 秒的两次 `lastEvaluation` 不同 |
-| 计数器 | `lp_auth_account_cancellation_cache_invalidate_failed_total` 相对基线增加 6（两批各 3） |
+| 计数器 | `lp_auth_account_cancellation_cache_invalidate_failed_total` 相对基线增加 3（单批） |
 | 条件连续为真 | `/api/v1/alerts` 采样中 `activeAt` 不后移；后移说明 pending 被重置，本次演练作废 |
 | 两处都能查到 firing | `/api/v1/alerts` 与 `:9093/api/v2/alerts` 都有该告警处于 active；`value` 只从 Prometheus 取，要求 ≥ 3（Alertmanager 不含数值，脚本原样打印响应，不伪造） |
-| 窗口过后回 inactive | 最后一批失败离开 5m 窗口后，`/api/v1/alerts` 不再返回该告警 |
+| 窗口过后回 inactive | 失败离开 15 分钟窗口后，`/api/v1/alerts` 不再返回该告警 |
 
-- 告警的 `value` 是 `increase(...[5m])` 在触发那次的取值，**不是**计数器累计值，所以显示约 3；要看累计值查 `/actuator/prometheus`。
-- 规则的 `for` 是 **5m**，门槛 `>= 3` 与窗口 `[5m]` 都不动。`for` 与窗口等长时单批失败永远不 firing：t=0 写入 3 次事件，条件最多维持到 t=5m，而 `for: 5m` 恰好在 t=5m 才满足持续要求，此刻最早的事件已滑出窗口，pending 必然重置。因此演练按**两批、间隔 3 分钟**注入，让条件连续为真约 8 分钟。**不要为了演练跑通去缩短 `for`**：持续时长是产品口径，演练适配规则，不是规则迁就演练。
-- 演练会留下 6～7 个处于冷静期的账号（`ac*`），7 天后到期；不需要时可以手工清掉，不影响其他数据。
-- 失败时脚本会打印它当时读到的原始 JSON 行；先看 `docker logs lp-auth-service | grep cache` 与 `docker logs lp-trade-service`，再核对 `prometheus-rules.yml` 是否真的挂载进来了。
+- 告警的 `value` 是 `increase(...[15m])` 在触发那次的取值，**不是**计数器累计值，所以显示约 3～4；要看累计值查 `/actuator/prometheus`。
+- 规则是 `increase(...[15m]) >= 3` + `for: 5m`，门槛 `>= 3` 与 5 分钟去抖都不动。**`for` 必须显著短于范围窗口**，否则条件会在 pending 期间滑出、永不 firing：早期用 `[5m]` 配 `for: 5m` 时，单批 3 次失败的条件最多维持到 t=5m，恰在 pending 满足那一刻滑出窗口并重置，单批突发永远不触发，只能靠两批续窗绕过；窗口放宽到 15m 后单批即可正常触发。**不要为了演练跑通去缩短 `for`**：持续时长是产品口径，演练适配规则，不是规则迁就演练。
+- 演练会留下 3～4 个处于冷静期的账号（`ac*`），7 天后到期；不需要时可以手工清掉，不影响其他数据。
+- 失败时脚本会打印它当时读到的原始 JSON 行；先看 `docker logs lp-auth-service | grep cache` 与 `docker logs lp-trade-service`，再核对 `prometheus-rules.yml` 是否真的挂载进来了、加载的表达式是不是 `[15m]`（脚本会读 `/api/v1/rules` 的 `query` 自检）。
 
 ### 4.11 双副本注销执行并发演练
 
