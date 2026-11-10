@@ -44,7 +44,7 @@ groups:
       - alert: LpAuthAccountCancellationCacheInvalidateFailed
         expr: |
           sum (
-            increase(lp_auth_account_cancellation_cache_invalidate_failed_total[5m])
+            increase(lp_auth_account_cancellation_cache_invalidate_failed_total[15m])
           ) >= 3
         for: 5m
         labels:
@@ -54,11 +54,11 @@ groups:
         annotations:
           summary: "Trade cache invalidation keeps failing after account cancellation"
           description: >-
-            AC-33: three failures in five minutes means the after-commit invalidation call to trade
-            is broken (trade unreachable, internal token rejected, or the endpoint missing). The
-            counter carries no tags, so this is a service-wide rate, not one account. Trade keeps its
-            cached "not cancelled" answer until the 45 s ttl expires, so a freshly cancelled account
-            can still pass the purchase guard and only fail later at payment with 67005. Check the
-            auth-service WARN log, which carries userId, then trade
+            AC-33: three failures in fifteen minutes means the after-commit invalidation call to
+            trade is broken (trade unreachable, internal token rejected, or the endpoint missing).
+            The counter carries no tags, so this is a service-wide rate, not one account. Trade
+            keeps its cached "not cancelled" answer until the 45 s ttl expires, so a freshly
+            cancelled account can still pass the purchase guard and only fail later at payment with
+            67005. Check the auth-service WARN log, which carries userId, then trade
             /internal/v1/account-deletion/cache-invalidate.
           runbook: "infra/observability/README.md"
