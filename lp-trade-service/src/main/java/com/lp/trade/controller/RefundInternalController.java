@@ -1,5 +1,6 @@
 package com.lp.trade.controller;
 
+import com.lp.common.audit.OperatorRole;
 import com.lp.common.exception.BizException;
 import com.lp.common.exception.ErrorCode;
 import com.lp.common.result.Result;
@@ -68,7 +69,7 @@ public class RefundInternalController {
      * Approves or rejects one pending refund.
      *
      * @param refundId refund primary key
-     * @param body decision, required rejection reason and reviewer id
+     * @param body decision, required rejection reason, reviewer id and role
      * @param request current request, used to resolve the trace id
      * @return refund state after the decision
      * @throws BizException with {@code 40001} when the decision or reviewer is missing
@@ -86,9 +87,18 @@ public class RefundInternalController {
         if (body.getReviewerId() == null || body.getReviewerId() <= 0) {
             throw new BizException(ErrorCode.PARAM_INVALID, "reviewerId is required");
         }
+        if (!OperatorRole.isValid(body.getOperatorRole())) {
+            throw new BizException(ErrorCode.PARAM_INVALID, "operatorRole is invalid");
+        }
+        String traceId = TraceIds.resolve(request);
         return Result.ok(
                 refundService.review(
-                        refundId, body.getApproved(), body.getRejectReason(), body.getReviewerId()),
-                TraceIds.resolve(request));
+                        refundId,
+                        body.getApproved(),
+                        body.getRejectReason(),
+                        body.getReviewerId(),
+                        body.getOperatorRole(),
+                        traceId),
+                traceId);
     }
 }

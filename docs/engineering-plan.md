@@ -929,6 +929,7 @@ erDiagram
 | 分渠道对账 | `job-worker` 每日拉取支付宝账单（`channel=1`；微信历史数据不新增对账任务） → 写 `payment_reconcile`（`uk_channel_date_type` 覆盖更新）→ `diff_count>0` 置 `status=2` 并告警 |
 | 教师数据范围 | 所有 `/api/v1/teacher/**` 在 service 层按 `owner_teacher_id = 当前教师ID` 过滤，不接受前端传教师 ID；看板只读 `course_daily_stat` |
 | 课程/教师审核审计 | 状态更新与 `admin_audit_log` 写入在 `lp_cms` 同一事务提交；任一失败整体回滚，不存在"改了状态没审计"或"审计了没改" |
+| 退款审核审计 | 状态更新在 `lp_oms`、审计表在 `lp_cms`，无法跨库同事务；审核事务内写 `audit_outbox` 投递意图，由 trade-service 中继至少一次投递，`dedupe_key` 去重，超过重试上限置"已放弃"并告警人工对账（见 5.9.1） |
 | 模型配置变更 | 单条事务更新 `ai_model_config` + 写 `audit_log`；提交后清空 `ai-service` 本地缓存（Nacos 配置刷新），失败不改旧配置 |
 | 学习进度 | `uk_user_lesson` + 条件更新（`watched_sec = GREATEST(watched_sec, ?)`、`max_position_seconds = GREATEST(...)`），可信增量上限为服务端时间差 × 1.5，乐观锁兜底 |
 | 评论计数 | 审核通过后异步重算课程评论计数（不产出评分，见 product-lifecycle 2.5），避免热点行更新 |
@@ -1244,8 +1245,11 @@ spec:
 |---|---|---|---|
 | 课程审核 | `lp_cms.course` | 状态更新与审计同库同事务 | 同一数据源，审计失败即整体回滚，不会出现"改了状态没审计" |
 | 教师审核 | `lp_cms.teacher_profile` | 同上 | 同上 |
+| 退款审核 | `lp_oms.refund_request` | 审核事务内写 `audit_outbox` 投递意图，再由 trade-service 中继投递到 `lp_cms.admin_audit_log` | 状态与审计表跨库，无法同事务；若先改状态再 HTTP 写审计，失败即丢审计。改为在同一事务内写意图，"状态改了必有意图"；投递为至少一次，`dedupe_key` 唯一键吸收重复；超过重试上限置 `status=2 已放弃` 并打 ERROR 与指标，留人工对账 |
 
-课程审核与教师审核的审计写入在 `@Transactional` 方法内完成：先写业务状态，再写 `admin_audit_log`，任一步抛异常由同一事务回滚，因此不存在"状态已改、审计缺失"的中间态。退款审核跨库，其补偿方式由后续 PR 补充。
+课程审核与教师审核的审计写入在 `@Transactional` 方法内完成：先写业务状态，再写 `admin_audit_log`，任一步抛异常由同一事务回滚，因此不存在"状态已改、审计缺失"的中间态。
+
+**退款投递语义**：中继按 `status=0` 且 `next_retry_at <= now` 取批（默认 50 条），失败按 5s 起指数退避、上限 300s；course-service 侧 `INSERT ... ON DUPLICATE KEY UPDATE dedupe_key = dedupe_key` 保证重复投递不产生第二行。**积压发现方式**：`SELECT status, COUNT(*) FROM audit_outbox GROUP BY status`，待投递持续增长或 `status=2` 出现即告警；中继同时累加投递成功/失败/放弃三类指标，`status=2` 需人工补写审计。
 
 **与 `course_review_audit` 的关系**：保留、继续双写、历史数据不迁移。课程审核同时写 `course_review_audit`（单课程历史查询）与 `admin_audit_log`（跨域统一视图）；旧行没有 `operator_role` 与 `trace_id`，不回填、不合并，`course_review_audit` 视为只读历史表。
 

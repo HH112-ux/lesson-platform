@@ -57,16 +57,21 @@ public class AdminRefundService {
      * @param approved {@code true} to approve, {@code false} to reject
      * @param rejectReason rejection reason, required when rejecting
      * @param reviewerId operations user id
+     * @param operatorRole operator role code, 0 operations, 1 administrator
      * @return refund state after the decision
      * @throws BizException with {@code 40001} when a rejection has no reason
      * @author Caspian
      * @since 0.1.0
      */
     public AdminRefundView review(
-            long refundId, boolean approved, String rejectReason, long reviewerId) {
+            long refundId,
+            boolean approved,
+            String rejectReason,
+            long reviewerId,
+            int operatorRole) {
         if (!approved && (rejectReason == null || rejectReason.isBlank())) {
             throw new BizException(ErrorCode.PARAM_INVALID, "rejectReason is required");
         }
-        return adminRefundClient.review(refundId, approved, rejectReason, reviewerId);
+        return adminRefundClient.review(refundId, approved, rejectReason, reviewerId, operatorRole);
     }
 }

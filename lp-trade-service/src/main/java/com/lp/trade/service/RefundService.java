@@ -59,13 +59,21 @@ public interface RefundService {
      * @param approved {@code true} to approve, {@code false} to reject
      * @param rejectReason required rejection reason
      * @param reviewerId operations user id
+     * @param operatorRole operator role code, 0 operations, 1 administrator
+     * @param traceId request trace id carried by the audit intent
      * @return refund state after the decision
      * @throws com.lp.common.exception.BizException when the refund is absent, the reason is missing
      *     on rejection, or the request was already decided
      * @author Caspian
      * @since 0.1.0
      */
-    RefundView review(long refundId, boolean approved, String rejectReason, long reviewerId);
+    RefundView review(
+            long refundId,
+            boolean approved,
+            String rejectReason,
+            long reviewerId,
+            int operatorRole,
+            String traceId);
 
     /**
      * Reads one page of refunds for the operations review list.

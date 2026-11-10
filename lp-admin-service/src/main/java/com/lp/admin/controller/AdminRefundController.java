@@ -105,8 +105,10 @@ public class AdminRefundController {
         if (body == null || body.approved() == null) {
             throw new BizException(ErrorCode.PARAM_INVALID, "approved is required");
         }
+        int operatorRole = ConsoleRoles.operatorRole(roles);
         return Result.ok(
-                adminRefundService.review(refundId, body.approved(), body.rejectReason(), userId),
+                adminRefundService.review(
+                        refundId, body.approved(), body.rejectReason(), userId, operatorRole),
                 TraceIds.resolve(request));
     }
 }
