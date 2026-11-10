@@ -99,43 +99,129 @@ public class ReconcileService {
             Integer channel, LocalDate billDate, Integer billType, String csvText) {
         validateRequest(channel, billDate, billType);
         List<ReconcileBillLine> channelLines = csvParser.parse(csvText);
-        LocalDateTime start = billDate.atStartOfDay();
-        LocalDateTime end = start.plusDays(1);
-        int localRefType;
-        List<LocalReconcileRecord> localLines;
-        if (billType == BILL_TYPE_PAYMENT) {
-            localRefType = 1;
-            localLines =
-                    reconcileMapper.selectLocalPayments(channel, start, end).stream()
-                            .map(this::toLocal)
-                            .toList();
-        } else {
-            localRefType = 2;
-            localLines =
-                    reconcileMapper.selectLocalRefunds(channel, start, end).stream()
-                            .map(this::toLocal)
-                            .toList();
-        }
-        ReconcileResult result = calculator.calculate(channelLines, localLines, localRefType);
+        List<LocalReconcileRecord> localLines = loadLocalLines(channel, billDate, billType);
+        ReconcileResult result =
+                calculator.calculate(channelLines, localLines, localRefType(billType));
         String diffJson = serializeDiffs(result);
         PaymentReconcile existing = reconcileMapper.selectByKey(channel, billDate, billType);
         PaymentReconcile row = buildRow(channel, billDate, billType, csvText, diffJson, result);
         applyStatus(row, existing, result, diffJson);
         reconcileMapper.upsert(row);
-        if (result.diffCount() > 0) {
-            LOG.error(
-                    "reconcile differences detected channel={} billDate={} billType={} "
-                            + "diffCount={} diffAmount={}",
-                    channel,
-                    billDate,
-                    billType,
-                    result.diffCount(),
-                    result.diffAmount());
-            meterRegistry
-                    .counter("reconcile_diff_total", "channel", String.valueOf(channel))
-                    .increment(result.diffCount());
-        }
+        alertIfDifferences(channel, billDate, billType, result);
         return reconcileMapper.selectByKey(channel, billDate, billType);
+    }
+
+    /**
+     * Re-runs the reconciliation of one stored bill day against the current local rows.
+     *
+     * <p>The stored raw bill is parsed again, so a payment callback that landed after the import is
+     * picked up. The recomputed aggregate is always persisted; when differences remain pending the
+     * call then fails with {@code 50204}, which is the check that blocks closing the bill day. A
+     * day whose differences were already marked handled keeps status 3 and returns normally.
+     *
+     * @param reconcileId primary key of the stored aggregate
+     * @return recomputed aggregate
+     * @throws BizException with {@code 40401} when the aggregate is missing, or {@code 50204} when
+     *     differences are still pending
+     * @author Caspian
+     * @since 0.6.1
+     */
+    public PaymentReconcile recheck(long reconcileId) {
+        PaymentReconcile existing = reconcileMapper.selectById(reconcileId);
+        if (existing == null) {
+            throw new BizException(ErrorCode.NOT_FOUND, "reconcile record not found");
+        }
+        List<ReconcileBillLine> channelLines = csvParser.parse(existing.getRawBill());
+        List<LocalReconcileRecord> localLines =
+                loadLocalLines(
+                        existing.getChannel(), existing.getBillDate(), existing.getBillType());
+        ReconcileResult result =
+                calculator.calculate(
+                        channelLines, localLines, localRefType(existing.getBillType()));
+        String diffJson = serializeDiffs(result);
+        PaymentReconcile row =
+                buildRow(
+                        existing.getChannel(),
+                        existing.getBillDate(),
+                        existing.getBillType(),
+                        existing.getRawBill(),
+                        diffJson,
+                        result);
+        applyStatus(row, existing, result, diffJson);
+        reconcileMapper.upsert(row);
+        alertIfDifferences(
+                existing.getChannel(), existing.getBillDate(), existing.getBillType(), result);
+        PaymentReconcile saved =
+                reconcileMapper.selectByKey(
+                        existing.getChannel(), existing.getBillDate(), existing.getBillType());
+        if (Objects.equals(saved.getStatus(), 2)) {
+            throw new BizException(
+                    ErrorCode.RECONCILE_UNRESOLVED,
+                    "reconciliation still has unresolved differences");
+        }
+        return saved;
+    }
+
+    /**
+     * Marks one pending aggregate as handled without touching any order, payment or refund row.
+     *
+     * @param reconcileId primary key of the stored aggregate
+     * @param handledBy operator user id resolved from the gateway identity header
+     * @return aggregate in status 3
+     * @throws BizException with {@code 40401} when the aggregate is missing, or {@code 40901} when
+     *     it is not pending
+     * @author Caspian
+     * @since 0.6.1
+     */
+    @Transactional
+    public PaymentReconcile handle(long reconcileId, long handledBy) {
+        PaymentReconcile existing = reconcileMapper.selectById(reconcileId);
+        if (existing == null) {
+            throw new BizException(ErrorCode.NOT_FOUND, "reconcile record not found");
+        }
+        if (!Objects.equals(existing.getStatus(), 2)) {
+            throw new BizException(ErrorCode.STATE_CONFLICT, "reconcile is not pending");
+        }
+        if (reconcileMapper.markHandled(reconcileId, handledBy, LocalDateTime.now()) == 0) {
+            throw new BizException(ErrorCode.STATE_CONFLICT, "reconcile is not pending");
+        }
+        return reconcileMapper.selectById(reconcileId);
+    }
+
+    private List<LocalReconcileRecord> loadLocalLines(
+            Integer channel, LocalDate billDate, Integer billType) {
+        LocalDateTime start = billDate.atStartOfDay();
+        LocalDateTime end = start.plusDays(1);
+        if (Objects.equals(billType, BILL_TYPE_PAYMENT)) {
+            return reconcileMapper.selectLocalPayments(channel, start, end).stream()
+                    .map(this::toLocal)
+                    .toList();
+        }
+        return reconcileMapper.selectLocalRefunds(channel, start, end).stream()
+                .map(this::toLocal)
+                .toList();
+    }
+
+    private int localRefType(Integer billType) {
+        return Objects.equals(billType, BILL_TYPE_PAYMENT) ? 1 : 2;
+    }
+
+    private void alertIfDifferences(
+            Integer channel, LocalDate billDate, Integer billType, ReconcileResult result) {
+        if (result.diffCount() == 0) {
+            return;
+        }
+        LOG.error(
+                "reconcile differences detected channel={} billDate={} billType={} "
+                        + "diffCount={} diffAmount={}",
+                channel,
+                billDate,
+                billType,
+                result.diffCount(),
+                result.diffAmount());
+        meterRegistry
+                .counter("reconcile_diff_total", "channel", String.valueOf(channel))
+                .increment(result.diffCount());
     }
 
     /**
