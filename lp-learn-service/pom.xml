@@ -44,11 +44,11 @@
       <artifactId>mysql-connector-j</artifactId>
       <scope>runtime</scope>
     </dependency>
-    <!-- Presigned playback URLs; the SDK signs locally and never proxies media bytes. -->
+    <!-- Presigned playback URLs; the SDK signs locally and never proxies media bytes.
+         Version is managed in the parent POM. -->
     <dependency>
       <groupId>io.minio</groupId>
       <artifactId>minio</artifactId>
-      <version>8.5.17</version>
     </dependency>
 
     <dependency>

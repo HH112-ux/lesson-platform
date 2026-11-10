@@ -45,11 +45,11 @@
       <scope>runtime</scope>
     </dependency>
 
-    <!-- Presigned lesson upload credentials; the SDK signs locally and never moves bytes. -->
+    <!-- Presigned lesson upload credentials; the SDK signs locally and never moves bytes.
+         Version is managed in the parent POM. -->
     <dependency>
       <groupId>io.minio</groupId>
       <artifactId>minio</artifactId>
-      <version>8.5.17</version>
     </dependency>
 
     <dependency>
