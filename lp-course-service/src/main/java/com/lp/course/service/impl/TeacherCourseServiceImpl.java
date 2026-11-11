@@ -26,6 +26,7 @@ import com.lp.course.mapper.CourseReviewAuditMapper;
 import com.lp.course.mapper.LessonUploadMapper;
 import com.lp.course.mapper.TeacherCourseMapper;
 import com.lp.course.service.TeacherCourseService;
+import com.lp.course.upload.LessonTranscodeService;
 import com.lp.course.upload.LessonUploadObjectReader;
 import com.lp.course.upload.LessonUploadObjectReader.DownloadedVideo;
 import com.lp.course.upload.LessonUploadUrlSigner;
@@ -97,6 +98,7 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
     private final CourseUploadProperties uploadProperties;
     private final LessonVideoProbe videoProbe;
     private final LessonVideoValidator videoValidator;
+    private final LessonTranscodeService transcodeService;
 
     /**
      * Creates the service with its mapper, storage, probe and rule dependencies.
@@ -109,6 +111,7 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
      * @param uploadProperties upload limits and credential lifetime
      * @param videoProbe reads video metadata with {@code ffprobe}
      * @param videoValidator applies the frozen video acceptance rules
+     * @param transcodeService records the optional transcode task after a confirmation
      * @author Caspian
      * @since 0.1.0
      */
@@ -120,7 +123,8 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
             LessonUploadObjectReader uploadReader,
             CourseUploadProperties uploadProperties,
             LessonVideoProbe videoProbe,
-            LessonVideoValidator videoValidator) {
+            LessonVideoValidator videoValidator,
+            LessonTranscodeService transcodeService) {
         this.teacherCourseMapper = teacherCourseMapper;
         this.lessonUploadMapper = lessonUploadMapper;
         this.courseReviewAuditMapper = courseReviewAuditMapper;
@@ -129,6 +133,7 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
         this.uploadProperties = uploadProperties;
         this.videoProbe = videoProbe;
         this.videoValidator = videoValidator;
+        this.transcodeService = transcodeService;
     }
 
     /**
@@ -674,6 +679,11 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
         if (lesson == null) {
             throw new BizException(ErrorCode.LESSON_UPLOAD_NOT_FOUND);
         }
+        transcodeService.enqueue(
+                lesson.getId(),
+                session.getId(),
+                lesson.getVideoUrl(),
+                lesson.getVideoSizeBytes() == null ? 0L : lesson.getVideoSizeBytes());
         return toView(lesson);
     }
 
