@@ -251,7 +251,7 @@ public class PaymentServiceImpl implements PaymentService {
                     notification,
                     payment.getAmount(),
                     PaymentAnomalyRecorder.ORDER_NOT_PAYABLE,
-                    "order " + order.getStatus() + ", manual refund required");
+                    "order closed or cancelled, manual refund required");
             return;
         }
 
@@ -284,13 +284,7 @@ public class PaymentServiceImpl implements PaymentService {
             PaymentNotification notification, BigDecimal expected, int reason, String message) {
         String orderNo = notification.getOrderNo().trim();
         String tradeNo = notification.getChannelTradeNo().trim();
-        LOG.error(
-                "callback anomaly, reason={}: orderNo={}, tradeNo={}, expected={}, notified={}",
-                reason,
-                orderNo,
-                tradeNo,
-                expected,
-                notification.getAmount());
+        LOG.error("callback anomaly, reason={}: orderNo={}, tradeNo={}", reason, orderNo, tradeNo);
         anomalyRecorder.record(notification, expected, reason, message);
     }
 

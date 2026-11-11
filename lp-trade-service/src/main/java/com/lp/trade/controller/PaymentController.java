@@ -117,8 +117,8 @@ public class PaymentController {
      *
      * @param rawBody form body exactly as sent by Alipay
      * @param headers HTTP headers
-     * @return plain {@code success} only after the notification was applied, otherwise {@code
-     *     failure} so Alipay retries
+     * @return plain {@code success} unless verification or the order lookup fails; {@code success}
+     *     means received, not that the order was paid or granted
      * @author Caspian
      * @since 0.1.0
      */
