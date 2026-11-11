@@ -1975,7 +1975,7 @@ AI 功能单独灰度：先单课程白名单 + 10% 用户，观察无法回答�
 | 事件 | 处置 |
 |---|---|
 | 支付宝回调失败激增 | 关闭新支付入口，保留回调；人工对账补发权益 |
-| **小程序购买引导异常** | 关闭小程序内购买入口（`mp.enabled`），仅保留课程浏览；Web 购买不受影响 |
+| **小程序购买引导异常** | 关闭小程序内购买入口，仅保留课程浏览；Web 购买不受影响。`mp.enabled` 在代码中不存在，当前没有小程序购买入口总开关（只能用发版或前端开关处理），属待补项（依据：全仓无 `mp.enabled`，见 12.2） |
 | **对账出现差异** | 冻结差异订单的结算动作（不影响用户），24h 内出差异明细，长款补单/短款追账 |
 | 权益未发放 | 按订单重放 MQ；幂等保证不重复 |
 | 数据库主库故障 | 切从库；只读降级；恢复后补数据 |
@@ -2085,7 +2085,7 @@ DoD：学伴无法回答率 ≤ 30%、找课点击率 +10%、售后 FAQ 命中�
 | M0-11 | 本地环境 | 端口占用预检 | `scripts/preflight.sh` | M0-05 | 0.5 | 端口全空时输出 OK；占用 3306 时列出冲突端口并非 0 退出 | 运维 |
 | M0-12 | 配置 | Nacos 命名空间与 dataId 初始化 | `infra/init/nacos-init.sh` | M0-09 | 0.5 | 拉取 `lp-common-dev.yaml`（`group=lp-group`、namespace `dev`）返回 200 且有内容 | 运维 |
 | M0-13 | 配置 | 公共配置模板 | `infra/nacos/dev/lp-common-dev.yaml` | M0-12 | 0.5 | 推送后拉取可命中 `logging.level`；文件内无密钥明文 | 后端·B |
-| M0-14 | 配置 | 网关开关清单 | `infra/nacos/dev/lp-gateway-dev.yaml` | M0-12 | 0.5 | 四个键齐备：`identity.inject.enabled`、`identity.enforce.mode=obs`、`pay.channel.alipay.enabled`、`mp.enabled=false`（微信支付开关已移除） | 后端·B |
+| M0-14 | 配置 | 网关开关清单 | `infra/nacos/dev/lp-gateway-dev.yaml`（Nacos 规划中，当前未接入） | M0-12 | 0.5 | 清单与代码实际开关一致：当前可配置的是环境变量 `LP_MINIAPP_LOGIN_ENABLED`、`LP_PAY_MOCK_ENABLED`、`LP_PAY_ALIPAY_ENABLED`（只加载凭据）、`LP_IDENTITY_ENFORCE_MODE`；`pay.channel.alipay.enabled`、`mp.enabled` 在代码中不存在（依据：`lp-trade-service/src/main/resources/application.yml:75`、`:83`，`lp-gateway/src/main/resources/application.yml:49`）；Nacos 落地后再迁入 dataId | 后端·B |
 | M0-15 | 配置 | 配置动态刷新验证 | `lp-common/.../config/IdentityProperties.java` | M0-02、M0-13、M0-14 | 0.5 | 改 `identity.enforce.mode=soft` 后 10s 内日志打印新值，无需重启 | 后端·B |
 | M0-16 | 数据 | Flyway 接入与执行脚本 | 父 `pom.xml` 插件配置、`scripts/flyway.sh` | M0-01、M0-08 | 0.5 | `bash scripts/flyway.sh migrate auth` 后该库 `flyway_schema_history` 有记录 | 后端·A |
 | M0-17 | 数据 | auth 库 V1 基线 | `db/migration/auth/V1__baseline.sql` | M0-16 | 1 | 建 7 张表（`sys_user`、`sys_role`、`sys_menu`、`sys_user_role`、`sys_role_menu`、`sys_user_wechat`、`audit_log`），时间字段为 `created_at/updated_at`，`flyway:info` 显示 version 1 成功 | 后端·A |
@@ -2144,7 +2144,7 @@ DoD：学伴无法回答率 ≤ 30%、找课点击率 +10%、售后 FAQ 命中�
 | M0-17 | 数据 | auth 库 V1 基线 | `db/migration/auth/V1__baseline.sql` | M0-16 | 1 | 7 张表建立且 `flyway:info` version 1 成功 | 后端·A |
 | M0-12 | 配置 | Nacos 命名空间与 dataId 初始化 | `infra/init/nacos-init.sh` | M0-09 | 0.5 | 拉取 `lp-common-dev.yaml` 返回 200 且有内容 | 运维 |
 | M0-13 | 配置 | 公共配置模板 | `infra/nacos/dev/lp-common-dev.yaml` | M0-12 | 0.5 | 拉取命中 `logging.level`；无密钥明文 | 后端·B |
-| M0-14 | 配置 | 网关开关清单 | `infra/nacos/dev/lp-gateway-dev.yaml` | M0-12 | 0.5 | 五个开关键齐备，`identity.enforce.mode=obs` | 后端·B |
+| M0-14 | 配置 | 网关开关清单 | `infra/nacos/dev/lp-gateway-dev.yaml` | M0-12 | 0.5 | 清单与 13.6.1 主清单 M0-14 一致（当前无 Nacos 配置，先按真实环境变量登记） | 后端·B |
 | M0-04 | 基线 | 服务脚手架生成器 | `scripts/gen-service.sh`、`scripts/templates/service/` | M0-01、M0-02 | 1 | 生成 demo 服务后可编译；验证后清理 | 后端·A |
 | M0-21 | 中间件 | Redis 封装与 Key 常量 | `RedisCache.java`、`RedisKeys.java` | M0-02、M0-09 | 0.5 | 单测通过；key 统一 `lp:` 前缀 | 后端·A |
 | M0-29 | 网关 | 统一返回与异常 | `Result.java`、`ErrorCode.java`、`GlobalExceptionHandler.java` | M0-02 | 1 | 40001/50001 返回正确且含 `traceId` | 后端·B |
