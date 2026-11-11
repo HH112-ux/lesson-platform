@@ -44,4 +44,35 @@ public interface PaymentGateway {
      * @since 0.1.0
      */
     String refund(PaymentRecord payment, String refundNo, BigDecimal amount);
+
+    /**
+     * Reads the current state of a trade at the channel.
+     *
+     * <p>Used to converge local state when a close did not produce a definite answer, and to detect
+     * a payment whose callback never arrived.
+     *
+     * @param payment payment attempt to inspect
+     * @return channel state, never {@code null}; a trade the channel does not know is {@link
+     *     ChannelTradeState#notFound()}
+     * @throws com.lp.common.exception.BizException when the channel request fails
+     * @author Caspian
+     * @since 0.5.0
+     */
+    ChannelTradeState query(PaymentRecord payment);
+
+    /**
+     * Closes a trade at the channel so the buyer can no longer pay it.
+     *
+     * <p>A trade the channel never created returns {@code true}. A channel may reject a close it
+     * cannot apply, such as a trade that already moved to a paid state; the caller then queries the
+     * trade and converges instead of retrying the close blindly.
+     *
+     * @param payment pending payment attempt
+     * @return {@code true} when no further payment can complete on this trade
+     * @throws com.lp.common.exception.BizException when the channel rejects the request, the
+     *     request times out, or credentials are missing
+     * @author Caspian
+     * @since 0.5.0
+     */
+    boolean close(PaymentRecord payment);
 }

@@ -4,9 +4,16 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import com.alipay.api.AlipayApiException;
+import com.alipay.api.AlipayClient;
+import com.alipay.api.request.AlipayTradeCloseRequest;
+import com.alipay.api.request.AlipayTradeQueryRequest;
+import com.alipay.api.response.AlipayTradeCloseResponse;
+import com.alipay.api.response.AlipayTradeQueryResponse;
 import com.lp.common.exception.BizException;
 import com.lp.trade.config.AlipayPayProperties;
 import com.lp.trade.config.TradeProperties;
@@ -16,6 +23,7 @@ import com.lp.trade.entity.PaymentRecord;
 import com.lp.trade.entity.TradeOrder;
 import com.lp.trade.entity.TradeOrderItem;
 import com.lp.trade.mapper.TradeOrderMapper;
+import com.lp.trade.payment.ChannelTradeState;
 import java.math.BigDecimal;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
@@ -90,6 +98,13 @@ class AlipayPaymentGatewayTest {
                 new AlipayCredentials(APP_ID, privateKey, publicKey));
     }
 
+    private AlipayPaymentGateway gatewayWith(AlipayClient client) {
+        TradeProperties tradeProperties = new TradeProperties();
+        tradeProperties.setWebBaseUrl("http://127.0.0.1:5173");
+        return new AlipayPaymentGateway(
+                new AlipayPayProperties(), tradeProperties, mapper(), client);
+    }
+
     @Test
     void buildsSelfSubmittingForm() throws Exception {
         PrepayResult result = gateway(mapper(), NOTIFY_URL).prepay(payment());
@@ -116,5 +131,94 @@ class AlipayPaymentGatewayTest {
     void rejectsMissingOrder() throws Exception {
         TradeOrderMapper mapper = mock(TradeOrderMapper.class);
         assertThrows(BizException.class, () -> gateway(mapper, NOTIFY_URL).prepay(payment()));
+    }
+
+    @Test
+    void mapsPaidTradeQuery() throws Exception {
+        AlipayClient client = mock(AlipayClient.class);
+        AlipayTradeQueryResponse response = new AlipayTradeQueryResponse();
+        response.setCode("10000");
+        response.setTradeStatus("TRADE_SUCCESS");
+        response.setTradeNo("2026111122001400000000000001");
+        response.setTotalAmount("99.00");
+        when(client.execute(any(AlipayTradeQueryRequest.class))).thenReturn(response);
+
+        ChannelTradeState state = gatewayWith(client).query(payment());
+
+        assertTrue(state.paid());
+        assertFalse(state.absent());
+        assertEquals("2026111122001400000000000001", state.channelTradeNo());
+        assertEquals(new BigDecimal("99.00"), state.amount());
+    }
+
+    @Test
+    void treatsUnknownTradeAsNotFound() throws Exception {
+        AlipayClient client = mock(AlipayClient.class);
+        AlipayTradeQueryResponse response = new AlipayTradeQueryResponse();
+        response.setCode("40004");
+        response.setSubCode("ACQ.TRADE_NOT_EXIST");
+        when(client.execute(any(AlipayTradeQueryRequest.class))).thenReturn(response);
+
+        assertTrue(gatewayWith(client).query(payment()).absent());
+    }
+
+    @Test
+    void reportsQueryFailureAsUpstreamError() throws Exception {
+        AlipayClient client = mock(AlipayClient.class);
+        when(client.execute(any(AlipayTradeQueryRequest.class)))
+                .thenThrow(new AlipayApiException("timeout"));
+
+        assertThrows(BizException.class, () -> gatewayWith(client).query(payment()));
+    }
+
+    @Test
+    void reportsInvalidQueryAmountAsUpstreamError() throws Exception {
+        AlipayClient client = mock(AlipayClient.class);
+        AlipayTradeQueryResponse response = new AlipayTradeQueryResponse();
+        response.setCode("10000");
+        response.setTradeStatus("TRADE_SUCCESS");
+        response.setTotalAmount("not-a-number");
+        when(client.execute(any(AlipayTradeQueryRequest.class))).thenReturn(response);
+
+        assertThrows(BizException.class, () -> gatewayWith(client).query(payment()));
+    }
+
+    @Test
+    void rejectsQueryWithoutTradeStatus() throws Exception {
+        AlipayClient client = mock(AlipayClient.class);
+        AlipayTradeQueryResponse response = new AlipayTradeQueryResponse();
+        response.setCode("10000");
+        response.setTradeNo("2026111122001400000000000001");
+        response.setTotalAmount("99.00");
+        when(client.execute(any(AlipayTradeQueryRequest.class))).thenReturn(response);
+
+        assertThrows(BizException.class, () -> gatewayWith(client).query(payment()));
+    }
+
+    @Test
+    void acceptsSuccessfulAndUnknownClose() throws Exception {
+        AlipayClient client = mock(AlipayClient.class);
+        AlipayTradeCloseResponse success = new AlipayTradeCloseResponse();
+        success.setCode("10000");
+        AlipayTradeCloseResponse notExist = new AlipayTradeCloseResponse();
+        notExist.setCode("40004");
+        notExist.setSubCode("ACQ.TRADE_NOT_EXIST");
+        when(client.execute(any(AlipayTradeCloseRequest.class))).thenReturn(success, notExist);
+
+        AlipayPaymentGateway gateway = gatewayWith(client);
+
+        assertTrue(gateway.close(payment()));
+        assertTrue(gateway.close(payment()));
+    }
+
+    @Test
+    void reportsRejectedCloseAsUpstreamError() throws Exception {
+        AlipayClient client = mock(AlipayClient.class);
+        AlipayTradeCloseResponse rejected = new AlipayTradeCloseResponse();
+        rejected.setCode("40004");
+        rejected.setSubCode("ACQ.TRADE_STATUS_ERROR");
+        when(client.execute(any(AlipayTradeCloseRequest.class))).thenReturn(rejected);
+
+        assertThrows(BizException.class, () -> gatewayWith(client).close(payment()));
     }
 }

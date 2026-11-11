@@ -98,4 +98,33 @@ public class MockPaymentGateway implements PaymentGateway {
     public String refund(PaymentRecord payment, String refundNo, BigDecimal amount) {
         return "MOCK-" + refundNo;
     }
+
+    /**
+     * Reports that the mock provider never created a trade.
+     *
+     * <p>The mock channel keeps no trade ledger: the signed callback link is its only state, so a
+     * query can never find a trade to reconcile.
+     *
+     * @param payment payment attempt
+     * @return always {@link ChannelTradeState#notFound()}
+     * @author Caspian
+     * @since 0.5.0
+     */
+    @Override
+    public ChannelTradeState query(PaymentRecord payment) {
+        return ChannelTradeState.notFound();
+    }
+
+    /**
+     * Accepts every close because the mock provider holds no trade to close.
+     *
+     * @param payment pending payment attempt
+     * @return always {@code true}
+     * @author Caspian
+     * @since 0.5.0
+     */
+    @Override
+    public boolean close(PaymentRecord payment) {
+        return true;
+    }
 }
