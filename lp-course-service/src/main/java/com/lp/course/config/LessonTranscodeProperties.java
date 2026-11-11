@@ -17,6 +17,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param timeout wall clock limit of one {@code ffmpeg} run
  * @param maxAttempts attempts before a task is marked failed, three by default
  * @param retryBackoff pause between two attempts
+ * @param downloadTimeout wall clock limit of reading the source object from storage
  * @param uploadTimeout wall clock limit of writing the transcoded object to storage
  * @author Caspian
  * @since 0.11.0
@@ -30,4 +31,5 @@ public record LessonTranscodeProperties(
         Duration timeout,
         int maxAttempts,
         Duration retryBackoff,
+        Duration downloadTimeout,
         Duration uploadTimeout) {}
