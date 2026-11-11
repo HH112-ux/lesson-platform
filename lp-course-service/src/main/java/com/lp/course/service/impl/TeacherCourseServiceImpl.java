@@ -24,6 +24,7 @@ import com.lp.course.entity.CourseReviewAudit;
 import com.lp.course.entity.LessonUpload;
 import com.lp.course.entity.TeacherCourseStatusRow;
 import com.lp.course.mapper.CourseReviewAuditMapper;
+import com.lp.course.mapper.LessonContentCleanupMapper;
 import com.lp.course.mapper.LessonUploadMapper;
 import com.lp.course.mapper.TeacherCourseMapper;
 import com.lp.course.service.TeacherCourseService;
@@ -103,6 +104,7 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
     private final TradeOrderClient tradeOrderClient;
     private final LessonTranscodeService transcodeService;
     private final LessonPlaybackKeyResolver playbackKeyResolver;
+    private final LessonContentCleanupMapper contentCleanupMapper;
 
     /**
      * Creates the service with its mapper, storage, probe and rule dependencies.
@@ -118,6 +120,7 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
      * @param tradeOrderClient reads whether a course already has paid orders
      * @param transcodeService records the optional transcode task after a confirmation
      * @param playbackKeyResolver picks the key to sign, transcoded when READY, original otherwise
+     * @param contentCleanupMapper records the objects left behind by a deleted lesson
      * @author Caspian
      * @since 0.1.0
      */
@@ -132,7 +135,8 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
             LessonVideoValidator videoValidator,
             TradeOrderClient tradeOrderClient,
             LessonTranscodeService transcodeService,
-            LessonPlaybackKeyResolver playbackKeyResolver) {
+            LessonPlaybackKeyResolver playbackKeyResolver,
+            LessonContentCleanupMapper contentCleanupMapper) {
         this.teacherCourseMapper = teacherCourseMapper;
         this.lessonUploadMapper = lessonUploadMapper;
         this.courseReviewAuditMapper = courseReviewAuditMapper;
@@ -144,6 +148,7 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
         this.tradeOrderClient = tradeOrderClient;
         this.transcodeService = transcodeService;
         this.playbackKeyResolver = playbackKeyResolver;
+        this.contentCleanupMapper = contentCleanupMapper;
     }
 
     /**
@@ -463,6 +468,9 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
     /**
      * Deletes a chapter and its lessons; a sold course is refused, because its lessons may play.
      *
+     * <p>The object keys of the chapter are registered for cleanup in the same transaction, before
+     * the rows disappear, so a committed deletion never strands a video in storage.
+     *
      * @param userId authenticated user id
      * @param roles comma separated gateway roles
      * @param courseId course primary key
@@ -478,6 +486,7 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
         Course course = requireContentEditable(userId, roles, courseId);
         requireChapter(courseId, chapterId);
         requireNoPaidOrder(courseId);
+        contentCleanupMapper.insertChapterLessonsCleanup(courseId, chapterId);
         teacherCourseMapper.deleteChapter(courseId, chapterId);
         teacherCourseMapper.deleteLessonsByChapter(courseId, chapterId);
         afterContentChange(course);
@@ -572,7 +581,9 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
      * Deletes a lesson from a draft or offline course.
      *
      * <p>A sale turns content into a promise: consumers who already bought it would lose access, so
-     * sold content comes down through the course state instead.
+     * sold content comes down through the course state instead. The object key of the lesson is
+     * registered for cleanup in the same transaction, so a committed deletion never strands a video
+     * in storage.
      *
      * @param userId authenticated user id
      * @param roles comma separated gateway roles
@@ -585,11 +596,13 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
      * @since 0.1.0
      */
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void deleteLesson(
             long userId, String roles, long courseId, long chapterId, long lessonId) {
         Course course = requireContentEditable(userId, roles, courseId);
         requireChapter(courseId, chapterId);
         requireNoPaidOrder(courseId);
+        contentCleanupMapper.insertLessonCleanup(courseId, chapterId, lessonId);
         if (teacherCourseMapper.deleteLesson(courseId, chapterId, lessonId) == 0) {
             throw new BizException(ErrorCode.NOT_FOUND);
         }
