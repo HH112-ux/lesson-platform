@@ -55,13 +55,12 @@ jobs:
         run: bash scripts/dev-up.sh
 
       - name: 身份与鉴权越权断言
-        continue-on-error: true
         run: |
           echo "simulated drill failure before SUMMARY" >&2
           exit 1
 
       - name: 交易与回调断言
-        continue-on-error: true
+        if: ${{ !cancelled() }}
         run: |
           bash scripts/security/payment-drill.sh 2>&1 | tee /tmp/payment-drill.log
           code=${PIPESTATUS[0]}
@@ -75,7 +74,7 @@ jobs:
           fi
 
       - name: 安全响应头断言
-        continue-on-error: true
+        if: ${{ !cancelled() }}
         run: |
           bash scripts/security-headers-check.sh 2>&1 | tee /tmp/security-headers.log
           code=${PIPESTATUS[0]}
@@ -89,6 +88,7 @@ jobs:
           fi
 
       - name: 判定断言结果
+        if: ${{ !cancelled() }}
         run: |
           set -uo pipefail
           fail_of() {
