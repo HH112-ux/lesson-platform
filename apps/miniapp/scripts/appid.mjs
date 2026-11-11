@@ -115,5 +115,5 @@ export function printAppidHelp() {
   console.error('- set LP_MINIPROGRAM_APPID=wx<16 hex chars> for this shell or CI job, then re-run')
   console.error('- or run: pnpm --filter lp-miniapp prepare:appid (writes project.private.config.json)')
   console.error('- the AppID is shown in WeChat MP console: 开发 -> 开发管理 -> 开发设置 -> AppID')
-  console.error('- the AppID is public and may be committed; never commit the AppSecret or the upload private key')
+  console.error('- the AppID is public, but keep it out of git: push protection blocks wx... literals')
 }
