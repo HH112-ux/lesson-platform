@@ -584,6 +584,23 @@ node apps/miniapp/scripts/check.mjs
 | 迁移 | `bash scripts/flyway.sh info all`（或 `migrate all`） | 七库封装，目标库或迁移目录名均可 |
 | 钩子 | `bash scripts/install-hooks.sh` | 设置 `core.hooksPath=.githooks`；启用后 `pre-commit` 含 Java 格式门禁 |
 | 小程序 | `node apps/miniapp/scripts/check.mjs` | 与 CI 的 `miniapp-check` 一致 |
+| 安全演练 | `bash scripts/security/authz-drill.sh` 与 `bash scripts/security/payment-drill.sh` | 需先 `bash scripts/dev-up.sh`；打印 PASS/FAIL 与 `SUMMARY pass= fail=` |
+| 安全响应头 | `bash scripts/security-headers-check.sh` | 检查 5173 与同源 `/api/` 的响应头、CSP 与 `Server` 版本 |
+
+### 7.1 安全演练与预期失败
+
+三个脚本按威胁面分工，互不依赖，可单独运行：
+
+| 脚本 | 威胁面 | 本地预期 |
+|---|---|---|
+| `scripts/security/authz-drill.sh` | 伪造身份头、越权访问、内部接口、裸对象 | `pass=22 fail=1` |
+| `scripts/security/payment-drill.sh` | 回调验签、金额篡改、重放幂等、注入面、限流 | `fail=0` |
+| `scripts/security-headers-check.sh` | 响应头缺失与 `Server` 版本泄露 | `fail=0` |
+
+- `authz-drill.sh` 的那一条 FAIL 是**有意保留**的：直连业务服务端口伪造 `X-User-*` 能拿到 `200 code=0`。这属于「业务服务不校验身份、只信网关头」的显式架构前提，不是疏漏；缺口、部署前置与内部鉴权方案登记在 [project-status](./project-status.md) 4.2。修掉之前不要把它改成 `SKIP`，也不要把断言删掉。
+- `scripts/security/lib.sh` 只被上面两个演练 `source`，不单独执行；账号、MySQL 容器与网关地址分别由 `LP_SEC_PASSWORD`、`LP_SEC_MYSQL_CONTAINER`、`LP_SEC_BASE_URL` 覆盖，默认 `Demo@123456`、`lp-mysql`、`http://localhost:8080`。
+- 演练依赖 `db/seed/demo-seed.sql` 的演示账号与课程；`payment-drill.sh` 会为 `demo_guest` 生成并支付一笔订单，重复运行前先重新灌种子。
+- `.github/workflows/security-ci.yml` 只支持**手动与每周定时**，不接 `pull_request`/`push`/`merge_group`，因此不进入五项必需检查。判定口径：响应头与支付演练必须 `fail=0`，越权演练最多允许 4.2 登记的那 1 条 FAIL，多出来即视为回归。
 
 ## 8. 常见问题
 
