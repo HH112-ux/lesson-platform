@@ -34,7 +34,10 @@ public interface LessonVideoTranscodeMapper {
                     + "created_at AS createdAt, updated_at AS updatedAt";
 
     /**
-     * Inserts one pending task, ignoring a source object that already has a row.
+     * Inserts one pending task unless the source object already has a row.
+     *
+     * <p>Uses a no-op {@code ON DUPLICATE KEY UPDATE} like {@code AdminAuditLogMapper}, so only a
+     * duplicate key is absorbed; a genuine insert error still fails the confirmation.
      *
      * @param task task to insert, filled with the generated id when inserted
      * @return affected rows, {@code 0} when the source object is already recorded
@@ -42,12 +45,13 @@ public interface LessonVideoTranscodeMapper {
      * @since 0.11.0
      */
     @Insert(
-            "INSERT IGNORE INTO lesson_video_transcode "
+            "INSERT INTO lesson_video_transcode "
                     + "(lesson_id, upload_id, source_object_key, source_size_bytes, status) "
                     + "VALUES (#{lessonId}, #{uploadId}, #{sourceObjectKey}, "
-                    + "#{sourceSizeBytes}, #{status})")
+                    + "#{sourceSizeBytes}, #{status}) "
+                    + "ON DUPLICATE KEY UPDATE source_object_key = source_object_key")
     @Options(useGeneratedKeys = true, keyProperty = "id", keyColumn = "id")
-    int insertIgnore(LessonVideoTranscode task);
+    int insertIfAbsent(LessonVideoTranscode task);
 
     /**
      * Reads the task of one source object.
@@ -64,15 +68,15 @@ public interface LessonVideoTranscodeMapper {
     LessonVideoTranscode selectBySourceObjectKey(@Param("sourceObjectKey") String sourceObjectKey);
 
     /**
-     * Marks a task as running and records the attempt number.
+     * Marks a pending or running task as running and records the attempt number.
      *
-     * <p>Rows already READY are left untouched, so a duplicate worker cannot restart a finished
-     * task. {@code started_at} keeps the first start time across retries.
+     * <p>READY and FAILED rows are left untouched, so neither a duplicate worker nor a late submit
+     * can restart a finished task. {@code started_at} keeps the first start time across retries.
      *
      * @param id task primary key
      * @param attempt one based attempt number
      * @param startedAt time this attempt started
-     * @return affected rows, {@code 0} when the task is already READY
+     * @return affected rows, {@code 0} when the task is READY or FAILED
      * @author Caspian
      * @since 0.11.0
      */
@@ -80,7 +84,7 @@ public interface LessonVideoTranscodeMapper {
             "UPDATE lesson_video_transcode "
                     + "SET status = 1, attempt_count = #{attempt}, "
                     + "started_at = COALESCE(started_at, #{startedAt}), failure_reason = NULL "
-                    + "WHERE id = #{id} AND status <> 2")
+                    + "WHERE id = #{id} AND status IN (0, 1)")
     int markRunning(
             @Param("id") long id,
             @Param("attempt") int attempt,
