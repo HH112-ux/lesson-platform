@@ -86,6 +86,9 @@ lp:
       # Public callback URL registered at the channel. Empty keeps the channel default, which is
       # only usable for sandbox experiments; production must set it.
       notify-url: ${LP_PAY_ALIPAY_NOTIFY_URL:}
+      # Merchant seller id that every callback must echo; the value comes from the Alipay console
+      # and rejects notifications issued to another merchant.
+      seller-id: ${LP_PAY_ALIPAY_SELLER_ID:}
 
 # Only health, info and prometheus are exposed. The prometheus endpoint is served on the service
 # port (8103), which the gateway does not route: nginx forwards /actuator to the gateway's own

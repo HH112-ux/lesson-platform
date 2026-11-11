@@ -12,22 +12,24 @@ import com.lp.trade.idempotency.IdempotencyKeys;
 import com.lp.trade.idempotency.IdempotencyOutcome;
 import com.lp.trade.idempotency.IdempotencyScope;
 import com.lp.trade.idempotency.IdempotencyService;
+import com.lp.trade.payment.alipay.AlipayNotifyForm;
 import com.lp.trade.service.PaymentService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
 /**
  * Payment initiation and channel callback endpoints.
@@ -48,6 +50,8 @@ public class PaymentController {
     /** Explicit UTF-8 media type, so a replay never depends on the global encoding config. */
     private static final MediaType JSON_UTF8 =
             new MediaType(MediaType.APPLICATION_JSON, StandardCharsets.UTF_8);
+
+    private static final int MAX_NOTIFY_BODY_LENGTH = 16 * 1024;
 
     private final PaymentService paymentService;
 
@@ -107,7 +111,11 @@ public class PaymentController {
     /**
      * Alipay asynchronous notification endpoint.
      *
-     * @param params form parameters exactly as sent by Alipay
+     * <p>The body is read verbatim and verified exactly as received; rebuilding it from request
+     * parameters would change ordering, encoding and empty values. The endpoint needs no token
+     * because Alipay cannot carry one, accepts POST only, and rejects oversized bodies with 413.
+     *
+     * @param rawBody form body exactly as sent by Alipay
      * @param headers HTTP headers
      * @return plain {@code success} only after the notification was applied, otherwise {@code
      *     failure} so Alipay retries
@@ -116,39 +124,23 @@ public class PaymentController {
      */
     @PostMapping("/alipay/notify")
     public String alipayNotify(
-            @RequestParam Map<String, String> params, @RequestHeader Map<String, String> headers) {
-        PaymentNotification notification = new PaymentNotification();
-        notification.setChannel(PaymentChannel.ALIPAY);
-        notification.setOrderNo(params.get("out_trade_no"));
-        notification.setChannelTradeNo(params.get("trade_no"));
-        notification.setAmount(parseAmount(params.get("total_amount")));
+            @RequestBody String rawBody, @RequestHeader Map<String, String> headers) {
+        if (rawBody.length() > MAX_NOTIFY_BODY_LENGTH) {
+            throw new ResponseStatusException(
+                    HttpStatus.PAYLOAD_TOO_LARGE, "notification body is too large");
+        }
         try {
-            paymentService.handleNotify(
-                    PaymentChannel.ALIPAY, headers, canonicalForm(params), notification);
+            PaymentNotification notification = AlipayNotifyForm.parse(rawBody).toNotification();
+            paymentService.handleNotify(PaymentChannel.ALIPAY, headers, rawBody, notification);
             return "success";
-        } catch (BizException exception) {
-            LOG.warn("alipay notify rejected: code={}", exception.getCode());
+        } catch (BizException | IllegalArgumentException exception) {
+            LOG.warn("alipay notify rejected: {}", exception.getMessage());
             return "failure";
         }
     }
 
-    private BigDecimal parseAmount(String value) {
-        if (value == null || value.isBlank()) {
-            return null;
-        }
-        return new BigDecimal(value);
-    }
-
     private String asString(Object value) {
         return value == null ? null : String.valueOf(value);
-    }
-
-    private String canonicalForm(Map<String, String> params) {
-        return params.entrySet().stream()
-                .sorted(Map.Entry.comparingByKey())
-                .map(entry -> entry.getKey() + "=" + entry.getValue())
-                .reduce((left, right) -> left + "&" + right)
-                .orElse("");
     }
 
     private long requireUser(Long userId) {
