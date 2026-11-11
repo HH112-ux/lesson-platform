@@ -34,6 +34,11 @@ on:
         required: false
         type: string
         default: ''
+      platforms:
+        description: 'Target platforms: linux/amd64, linux/arm64 or linux/amd64,linux/arm64'
+        required: false
+        type: string
+        default: 'linux/amd64'
 
 permissions:
   contents: read
@@ -52,6 +57,7 @@ jobs:
       image_repo: ${{ steps.config.outputs.image_repo }}
       image_tag: ${{ steps.config.outputs.image_tag }}
       push_enabled: ${{ steps.config.outputs.push_enabled }}
+      platforms: ${{ steps.config.outputs.platforms }}
       has_backend: ${{ steps.matrix.outputs.has_backend }}
       has_frontend: ${{ steps.matrix.outputs.has_frontend }}
       backend_matrix: ${{ steps.matrix.outputs.backend_matrix }}
@@ -69,6 +75,7 @@ jobs:
           REF_TYPE: ${{ github.ref_type }}
           REF_NAME: ${{ github.ref_name }}
           SHA: ${{ github.sha }}
+          INPUT_PLATFORMS: ${{ inputs.platforms }}
         run: |
           set -euo pipefail
 
@@ -117,11 +124,23 @@ jobs:
             image_tag="${SHA:0:12}"
           fi
 
+          # Single-arch by default: building arm64 Java images goes through QEMU and
+          # the full 8-service matrix would take far longer than an amd64-only run.
+          platforms="${INPUT_PLATFORMS:-linux/amd64}"
+          case "${platforms}" in
+            linux/amd64 | linux/arm64 | linux/amd64,linux/arm64) ;;
+            *)
+              echo "::error::不支持的 platforms='${platforms}'，只允许 linux/amd64、linux/arm64、linux/amd64,linux/arm64。"
+              exit 1
+              ;;
+          esac
+
           {
             echo "registry=${registry}"
             echo "image_repo=${image_repo}"
             echo "image_tag=${image_tag}"
             echo "push_enabled=${push_enabled}"
+            echo "platforms=${platforms}"
           } >> "${GITHUB_OUTPUT}"
 
       - name: 计算目标镜像矩阵
@@ -225,6 +244,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: 注册 QEMU（非 amd64 目标时需要）
+        if: needs.registry-preflight.outputs.platforms != 'linux/amd64'
+        uses: docker/setup-qemu-action@v3
+
       - name: 构建并推送镜像
         id: build
         uses: docker/build-push-action@v6
@@ -233,6 +256,7 @@ jobs:
           file: ${{ matrix.dockerfile }}
           build-args: |
             JAR_FILE=${{ steps.jar.outputs.path }}
+          platforms: ${{ needs.registry-preflight.outputs.platforms }}
           push: ${{ needs.registry-preflight.outputs.push_enabled }}
           tags: ${{ needs.registry-preflight.outputs.image_repo }}/${{ matrix.image }}:${{ needs.registry-preflight.outputs.image_tag }}
 
@@ -286,12 +310,17 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: 注册 QEMU（非 amd64 目标时需要）
+        if: needs.registry-preflight.outputs.platforms != 'linux/amd64'
+        uses: docker/setup-qemu-action@v3
+
       - name: 构建并推送镜像
         id: build
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ${{ matrix.dockerfile }}
+          platforms: ${{ needs.registry-preflight.outputs.platforms }}
           push: ${{ needs.registry-preflight.outputs.push_enabled }}
           tags: ${{ needs.registry-preflight.outputs.image_repo }}/${{ matrix.image }}:${{ needs.registry-preflight.outputs.image_tag }}
 
