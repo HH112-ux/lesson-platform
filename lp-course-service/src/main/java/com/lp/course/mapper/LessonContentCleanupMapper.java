@@ -67,4 +67,22 @@ public interface LessonContentCleanupMapper {
                     + "ON DUPLICATE KEY UPDATE object_key = object_key")
     int insertChapterLessonsCleanup(
             @Param("courseId") long courseId, @Param("chapterId") long chapterId);
+
+    /**
+     * Registers one known object key, used when a confirmation overwrites an older video.
+     *
+     * <p>Both values are bound here, so the caller filters blank keys; repeats keep one row.
+     *
+     * @param courseId course primary key
+     * @param objectKey object key that lost its last reference
+     * @return affected rows, {@code 1} when a row was inserted
+     * @author Caspian
+     * @since 0.16.0
+     */
+    @Insert(
+            "INSERT INTO lesson_content_cleanup (course_id, object_key) "
+                    + "VALUES (#{courseId}, #{objectKey}) "
+                    + "ON DUPLICATE KEY UPDATE object_key = object_key")
+    int insertObjectKeyCleanup(
+            @Param("courseId") long courseId, @Param("objectKey") String objectKey);
 }

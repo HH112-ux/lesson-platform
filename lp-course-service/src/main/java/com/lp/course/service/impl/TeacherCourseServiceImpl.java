@@ -30,6 +30,7 @@ import com.lp.course.mapper.TeacherCourseMapper;
 import com.lp.course.service.TeacherCourseService;
 import com.lp.course.upload.LessonPlaybackKeyResolver;
 import com.lp.course.upload.LessonTranscodeService;
+import com.lp.course.upload.LessonUploadConfirmWriter;
 import com.lp.course.upload.LessonUploadObjectReader;
 import com.lp.course.upload.LessonUploadObjectReader.DownloadedVideo;
 import com.lp.course.upload.LessonUploadUrlSigner;
@@ -105,6 +106,7 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
     private final LessonTranscodeService transcodeService;
     private final LessonPlaybackKeyResolver playbackKeyResolver;
     private final LessonContentCleanupMapper contentCleanupMapper;
+    private final LessonUploadConfirmWriter confirmWriter;
 
     /**
      * Creates the service with its mapper, storage, probe and rule dependencies.
@@ -121,6 +123,7 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
      * @param transcodeService records the optional transcode task after a confirmation
      * @param playbackKeyResolver picks the key to sign, transcoded when READY, original otherwise
      * @param contentCleanupMapper records the objects left behind by a deleted lesson
+     * @param confirmWriter claims the session and registers the object it overwrites
      * @author Caspian
      * @since 0.1.0
      */
@@ -136,7 +139,8 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
             TradeOrderClient tradeOrderClient,
             LessonTranscodeService transcodeService,
             LessonPlaybackKeyResolver playbackKeyResolver,
-            LessonContentCleanupMapper contentCleanupMapper) {
+            LessonContentCleanupMapper contentCleanupMapper,
+            LessonUploadConfirmWriter confirmWriter) {
         this.teacherCourseMapper = teacherCourseMapper;
         this.lessonUploadMapper = lessonUploadMapper;
         this.courseReviewAuditMapper = courseReviewAuditMapper;
@@ -149,6 +153,7 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
         this.transcodeService = transcodeService;
         this.playbackKeyResolver = playbackKeyResolver;
         this.contentCleanupMapper = contentCleanupMapper;
+        this.confirmWriter = confirmWriter;
     }
 
     /**
@@ -782,17 +787,7 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
         try {
             LessonVideoMetadata metadata = videoProbe.probe(video.file());
             videoValidator.validate(metadata);
-            int claimed =
-                    lessonUploadMapper.confirm(
-                            session.getId(),
-                            LocalDateTime.now(),
-                            session.getObjectKey(),
-                            (int) Math.round(metadata.durationSeconds()),
-                            metadata.videoCodec(),
-                            metadata.width(),
-                            metadata.height(),
-                            size,
-                            video.sha256());
+            int claimed = confirmWriter.confirm(session, metadata, size, video.sha256());
             if (claimed == 0) {
                 LessonUpload current = lessonUploadMapper.selectById(session.getId());
                 if (current == null || current.getStatus() != LessonUploadStatus.CONFIRMED) {
