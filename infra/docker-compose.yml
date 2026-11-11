@@ -369,6 +369,9 @@ services:
       LP_ADMIN_SERVICE_URI: http://admin-service:8106
       LP_AI_SERVICE_URI: http://ai-service:8107
       LP_JWT_PUBLIC_KEY_PATH: /run/jwt/jwt-public.pem
+      # Overridable so a local load run can raise the token bucket; the default
+      # keeps the dev stack at the documented 300 requests per minute.
+      LP_GATEWAY_RATE_LIMIT_PER_MINUTE: ${LP_GATEWAY_RATE_LIMIT_PER_MINUTE:-300}
     volumes:
       - ./jwt:/run/jwt:ro
     ports:
