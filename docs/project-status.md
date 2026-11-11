@@ -199,12 +199,12 @@
 
 | 功能 | 文档出处 | 现状 | 卡点 | 最后核对日期 |
 |---|---|---|---|---|
-| 真实支付宝支付 | engineering-plan 1.2、5.5、13.2 M2；15.2 D2 | 台阶 1 已落地（能发起表单并跳转支付；开关关闭回落 `50205`），台阶 2–5 未落地，不能闭环收款 | 缺商户号、应用私钥、公钥证书、回调域名；台阶 2–5 未实现 | 2026-11-11 |
+| 真实支付宝支付 | engineering-plan 1.2、5.5、13.2 M2；15.2 D2 | 台阶 1–2 已落地（能发起表单并跳转支付、回调验签；开关关闭回落 `50205`），台阶 3–5 未落地，不能闭环收款 | 缺商户号、应用私钥、公钥证书、回调域名；台阶 3–5 未实现 | 2026-11-11 |
 | 支付宝对账 | engineering-plan 1.2、13.2 M3、15.1 R11；SPEC-TRADE-014 | 已实现 CSV 账单导入（支付/退款）、`uk_channel_date_type` 幂等覆盖、差异明细与告警、日查询、重跑与人工标记（`/api/v1/reconcile/**`），以及日结、作废、详情、列表接口（`/api/v1/reconcile/settlements/**`，`payment_settle_batch`）；**无自动拉账任务，运营后台无日结页面** | 自动拉账依赖商户号与账单权限；**未完成对账能力不得开启真实收款** | 2026-11-10 |
-| 支付宝回调 `app_id` 校验 | SPEC-TRADE-005 AC-6；engineering-plan 5.5、8.3 | 回调只验签与校验金额，未比对 `app_id`；当前为 Mock 渠道 | 阻塞：真实渠道接入时实现 | 2026-11-09 |
+| 支付宝回调 `app_id` 校验 | SPEC-TRADE-005 AC-6；engineering-plan 5.5、8.3 | 已实现：按 RSA2 → 签名 → `app_id` → `seller_id` 顺序校验（`e2e800b`），失败 `62016`、错渠道 `62010`；沙箱真实回调尚未实测 | 无代码阻塞；待沙箱真实回调联调 | 2026-11-11 |
 | 小程序支付（JSAPI）与 `payer_openid` 落库 | product-lifecycle F07；engineering-plan 5.5、15.2 D2；SPEC-TRADE-012 | 无小程序支付实现；`payment_record.payer_openid` 当前无写入方，只有账号注销的匿名化会读取并覆写该列 | 缺 AppID、商户号与 APIv3 密钥；注销演练中该列只能由 SQL fixture 预置，属非接口写入，随小程序支付链路补齐 | 2026-11-10 |
 
-> **真实支付宝支付的依据**：台阶 1 发起支付已落地（`e99cddd` 后端、`8cef57d` 前端）——`LP_PAY_ALIPAY_ENABLED=true` 时装配 `AlipayPaymentGateway`（`lp-trade-service/src/main/java/com/lp/trade/payment/alipay/AlipayPaymentGateway.java:48-49`）并生成自提交表单（同文件 `:112-143`），Web 端解析该表单并提交跳转（`apps/web/src/utils/payment.ts:72-108`），关闭时回落 `UnconfiguredPaymentGateway` 固定返回 `50205`。台阶 2–5 未落地：回调仍由 `UnconfiguredSignatureVerifier` 固定返回 `50205`（`lp-trade-service/src/main/java/com/lp/trade/payment/UnconfiguredSignatureVerifier.java:39-47`），`refund()` 固定抛渠道错误（`AlipayPaymentGateway.java:159-163`）。
+> **真实支付宝支付的依据**：台阶 1 发起支付已落地（`e99cddd` 后端、`8cef57d` 前端）——`LP_PAY_ALIPAY_ENABLED=true` 时装配 `AlipayPaymentGateway`（`lp-trade-service/src/main/java/com/lp/trade/payment/alipay/AlipayPaymentGateway.java:48-49`）并生成自提交表单（同文件 `:112-143`），Web 端解析该表单并提交跳转（`apps/web/src/utils/payment.ts:72-108`），关闭时回落 `UnconfiguredPaymentGateway` 固定返回 `50205`。台阶 2 回调验签已落地（`e2e800b`）：`PaymentController` 以 `@RequestBody String` 取原始报文（超 16K 回 `413`），`AlipayNotifyForm` 单次解码、保留字段顺序并拒绝重名字段，`AlipaySignatureVerifier` 按 RSA2 → 签名 → `app_id` → `seller_id` 顺序校验，失败 `62016`、错渠道 `62010`，成功回 `success`、失败回 `failure`（`lp-trade-service/src/main/java/com/lp/trade/payment/alipay/AlipaySignatureVerifier.java`、`AlipayNotifyForm.java`、`.../controller/PaymentController.java:125-140`）；关闭开关时回落 `UnconfiguredSignatureVerifier` 固定返回 `50205`（`lp-trade-service/src/main/java/com/lp/trade/payment/UnconfiguredSignatureVerifier.java:44-52`）。沙箱真实回调尚未实测。台阶 3–5 未落地：入账、查单/关单/退款未实现，`refund()` 固定抛渠道错误（`AlipayPaymentGateway.java:159-163`）。
 >
 > **台阶与开发片号的对应**（片号只出现在 PR 与提交信息里，正文一律用台阶）：台阶 1 发起支付 = P1 凭据加载 + P2 网页支付表单 + P2b Web 端提交与回跳；台阶 2 回调验签 = P3；台阶 3 入账 = P4；台阶 4 查单/关单/状态 = P5；台阶 5 退款 = P6+P7。
 
