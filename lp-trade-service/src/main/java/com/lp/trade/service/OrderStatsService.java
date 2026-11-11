@@ -44,4 +44,18 @@ public class OrderStatsService {
         return new OrderStatsView(
                 tradeOrderMapper.countAll(), tradeOrderMapper.countPaid(), paidAmountFen);
     }
+
+    /**
+     * Tells whether the course has at least one paid order.
+     *
+     * <p>Used by the course service before deleting lessons: a sold course keeps its content.
+     *
+     * @param courseId course id
+     * @return {@code true} when a paid order contains the course
+     * @author Caspian
+     * @since 0.15.0
+     */
+    public boolean hasPaidOrder(long courseId) {
+        return tradeOrderMapper.countPaidByCourse(courseId) > 0;
+    }
 }

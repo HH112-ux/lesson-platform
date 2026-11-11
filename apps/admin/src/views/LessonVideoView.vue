@@ -8,13 +8,15 @@
  * @author Caspian
  * @since 0.9.0
  */
-import { nextTick, onMounted, reactive, ref, shallowRef } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, shallowRef } from 'vue'
 import {
   confirmLessonUpload,
   createLessonUploadSession,
   createTeacherChapter,
   createTeacherLesson,
+  deleteTeacherLesson,
   getLessonPlayUrl,
+  getTeacherCourse,
   listTeacherChapters,
   listTeacherCourses,
   updateTeacherLesson,
@@ -37,6 +39,9 @@ const chapters = ref<TeacherChapter[]>([])
 const loading = ref(false)
 const errorText = ref('')
 const notice = ref('')
+
+/** Sales state of the selected course; {@code null} means unknown and keeps deletion hidden. */
+const courseSold = ref<boolean | null>(null)
 
 const target = shallowRef<{ courseId: number; chapterId: number; lesson: TeacherLesson } | null>(
   null,
@@ -81,6 +86,16 @@ const lessonForm = reactive({
   durationSec: 0,
 })
 
+/** Explains why the delete action is missing, instead of leaving the teacher guessing. */
+const lessonDeletionNote = computed(() => {
+  if (courseSold.value === true) {
+    return '该课程已有成功支付订单：为保证已购学员的播放与学习进度，课时不可删除。'
+  }
+  return courseSold.value === null && courseId.value !== null
+    ? '暂时无法确认课程售出状态，课时删除入口已隐藏。'
+    : ''
+})
+
 /** Renders the transcode state when it arrives; unknown until the field is returned. */
 function transcodeText(lesson: TeacherLesson): string {
   const state = lesson.transcodeStatus
@@ -118,6 +133,20 @@ async function loadChapters(): Promise<void> {
     errorText.value = describeTeacherError(error, '课时列表加载失败')
   } finally {
     loading.value = false
+  }
+  void loadCourseSales()
+}
+
+/** Loads the sales state used to hide lesson deletion; an unknown answer stays hidden. */
+async function loadCourseSales(): Promise<void> {
+  const id = courseId.value
+  courseSold.value = null
+  if (id !== null) {
+    try {
+      courseSold.value = (await getTeacherCourse(id)).sold
+    } catch {
+      courseSold.value = null
+    }
   }
 }
 
@@ -219,6 +248,29 @@ async function saveLesson(): Promise<void> {
   }
 }
 
+/** Deletes a lesson after an explicit confirmation; sold courses never expose this action. */
+async function removeLesson(chapter: TeacherChapter, lesson: TeacherLesson): Promise<void> {
+  const id = courseId.value
+  if (id === null || busy.value || saving.value) {
+    return
+  }
+  if (!window.confirm(`确认删除课时「${lesson.title}」？删除后不可恢复。`)) {
+    return
+  }
+  saving.value = true
+  failure.value = ''
+  notice.value = ''
+  try {
+    await deleteTeacherLesson(id, chapter.chapterId, lesson.lessonId)
+    notice.value = `课时「${lesson.title}」已删除`
+    await loadChapters()
+  } catch (error) {
+    failure.value = describeContentError(error, '课时删除失败')
+  } finally {
+    saving.value = false
+  }
+}
+
 /** Maps chapter and lesson failures to the rule that blocked the save. */
 function describeContentError(error: unknown, fallback: string): string {
   if (error instanceof ApiError) {
@@ -230,6 +282,12 @@ function describeContentError(error: unknown, fallback: string): string {
     }
     if (error.code === 40301) {
       return '只有课程所属教师本人可以维护章节与课时'
+    }
+    if (error.code === 61009) {
+      return '该课程已有成功支付订单，课时不能删除；如需下架内容请联系运营'
+    }
+    if (error.code === 50401) {
+      return '暂时无法确认课程售出状态，课时删除已停止，请稍后重试'
     }
   }
   return describeError(error, fallback)
@@ -650,6 +708,9 @@ onMounted(async () => {
       </div>
     </form>
 
+    <!-- eslint-disable-next-line vue/max-attributes-per-line, vue/singleline-html-element-content-newline -->
+    <p v-if="lessonDeletionNote" class="lp-muted">{{ lessonDeletionNote }}</p>
+
     <div class="lp-card table-card">
       <p
         v-if="loading"
@@ -734,6 +795,14 @@ onMounted(async () => {
                   @click="pickVideo(chapter.chapterId, lesson)"
                 >
                   {{ lesson.hasVideo ? '替换视频' : '上传视频' }}
+                </button>
+                <button
+                  v-if="courseSold === false"
+                  class="lp-btn lp-btn--danger"
+                  :disabled="busy || saving"
+                  @click="removeLesson(chapter, lesson)"
+                >
+                  删除
                 </button>
               </td>
             </tr>

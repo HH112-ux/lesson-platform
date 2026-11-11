@@ -60,6 +60,21 @@ public class InternalOrderStatsController {
     }
 
     /**
+     * Tells whether a course already has a paid order, which locks its lesson deletion.
+     *
+     * @param courseId course id
+     * @param request current request, used to resolve the trace id
+     * @return {@code true} when at least one order still grants the course
+     * @author Caspian
+     * @since 0.15.0
+     */
+    @GetMapping("/paid-exists")
+    public Result<Boolean> paidExists(
+            @RequestParam("courseId") long courseId, HttpServletRequest request) {
+        return Result.ok(orderStatsService.hasPaidOrder(courseId), TraceIds.resolve(request));
+    }
+
+    /**
      * Lists orders for the operations console.
      *
      * @param status optional order status
