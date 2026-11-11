@@ -86,7 +86,7 @@
 | SPEC-PLAT-001 | 网关身份头剥离与注入 | 已完成 | — | 4/4 |
 | SPEC-PLAT-002 | 端来源识别 | 未开始 | L2-1 | 0/4 |
 | SPEC-PLAT-003 | 小程序登录与凭证防重放 | 已完成 | — | 5/5 |
-| SPEC-PLAT-004 | 账号注销冷静期 | 进行中 | L1-8 | 26/33 |
+| SPEC-PLAT-004 | 账号注销冷静期 | 进行中 | L1-8 | 32/33 |
 | SPEC-PLAT-005 | 服务间内部调用鉴权 | 已完成 | — | 4/4 |
 | SPEC-PLAT-006 | 视频上传校验与交付 | 已完成 | L1-11 | 6/6 |
 | SPEC-PLAT-007 | AI 模型接入（BYO） | 未开始 | 上线后首批 | 0/6 |
@@ -137,7 +137,7 @@
 | 支付 | 支付发起（`Idempotency-Key` 必填，同键并发复用首次预支付结果）、`/api/v1/payments/alipay/notify` 回调入口、金额与渠道校验、重复回调幂等；**真实渠道未配置时统一返回 50205**，本地由 mock 渠道替代 | `payment/MockPaymentGateway.java`、`payment/UnconfiguredPaymentGateway.java`、`controller/PaymentController.java`、`idempotency/IdempotencyService.java` | 2026-11-09 |
 | 退款 | 准入校验（付款后 7 天内且学习进度 ≤ 20%，超限返回 `62007` 且不落单）、生成待审核单（不自动退款）、运营审核、驳回需原因并可再次申请、审核通过后原渠道退款、权益软失效、撤销 outbox；渠道明确拒绝落 4 并放回可申请，调用超时等结果未知落 5 且订单保持退款中，learn 进度不可用时失败关闭返回 `50201` | `service/impl/RefundServiceImpl.java`、`db/migration/trade/V7__refund_review.sql`、`db/migration/trade/V9__refund_unknown_result.sql`、`controller/RefundInternalController.java` | 2026-11-09 |
 | 权益与 outbox | 本地消息表、定时中继、指数退避、死信、运营重放、Prometheus 指标 | `entitlement/EntitlementRelay.java`、`entitlement/OutboxAdminService.java`、`controller/InternalEntitlementOutboxController.java` | 2026-11-09 |
-| 学习交付 | MinIO 预签名播放地址、免费课时试看、我的课程（含已退款标记）、进度上报与查询；**完课仅按有效观看 ≥ 90% 置位，缺播放位置 ≥ 90% 条件（D7 未完成）** | `lp-learn-service/.../controller/LessonController.java`、`service/impl/PlayTokenServiceImpl.java`、`service/impl/LearningProgressServiceImpl.java` | 2026-11-09 |
+| 学习交付 | MinIO 预签名播放地址、免费课时试看、我的课程（含已退款标记）、进度上报与查询；**完课按有效观看 ≥ 90% 与播放位置 ≥ 90% 双条件置位（D7 已实现，见 SPEC-LEARN-005）** | `lp-learn-service/.../controller/LessonController.java`、`service/impl/PlayTokenServiceImpl.java`、`service/impl/LearningProgressServiceImpl.java` | 2026-11-09 |
 | 运营查询 | 用户列表、订单列表、菜单树、7 日看板概览 | `lp-admin-service/.../controller/AdminUserController.java`、`AdminOrderController.java`、`AdminMenuController.java`、`AdminMetricsController.java` | 2026-11-09 |
 | 数据迁移 | 七个库的 Flyway 目录；auth/course/trade/learn 有业务表；ugc/ai/ops 仅有 V1 基线 | `db/migration/**` | 2026-11-09 |
 
@@ -243,6 +243,8 @@
 | 同一实体在两个接口使用不同单位 | `TeacherCourseRequest`（元）、`CourseReviewRequest#priceFen`（分） | 教师提交用元、运营审核确定最终价用分，换算全部在服务端完成、前端不得自行换算；两种表示并存提高了契约理解成本 | 技术债：同一实体在两个接口使用不同单位，长期应统一为分；本片不改 | 2026-11-10 |
 | 小程序 CI 上传 | engineering-plan 13.6 M0-49 | CI 仅做静态检查，无 `miniprogram-ci` 上传 | 缺 AppID 与上传私钥 | 2026-11-09 |
 | staging/prod 部署 | engineering-plan 3.3、3.4、13.2 M5 | 无镜像构建、K8s 清单或部署 workflow | 缺服务器、域名、备案与凭据 | 2026-11-09 |
+| 业务服务不校验身份，只信任网关注入头 | engineering-plan 8.3、11.1；SPEC-PLAT-001、SPEC-PLAT-005 | **显式架构前提，不是疏漏**：8 个业务服务的 `/api/v1/**` 自身不做身份鉴权，全部依赖网关在 JWT 校验后注入 `X-User-Id` / `X-User-Roles` / `X-User-Permissions`；2026-11-11 本地演练直连 `127.0.0.1:8103` 伪造这组头得到 `200 code=0`，`scripts/security/authz-drill.sh` 将该断言保留为 FAIL，不改写为通过 | **部署前置（必须可验证，不接受「靠内网隔离」这种无法判定的说法）**：生产网络策略只允许网关访问各业务服务端口；部署后从非网关 Pod（或集群外节点）直连任一业务服务端口，必须超时或被拒绝，命令与输出记入发布单。本地 compose 已只把这些端口绑在回环地址。网络策略缺失时该架构前提不成立 | 2026-11-11 |
+| 服务间身份鉴权（内部 token 或 mTLS） | 上一条缺口；engineering-plan 第 8 章 | 未实现，本片不写代码，只登记方案：A. 网关转发时附加短时内部签名（含 audience 与来源），业务服务校验；B. 服务网格 mTLS + 网络策略；C. 只做网络策略、不加应用层鉴权 | 待决策。选型前置：确认部署形态是否提供 K8s 网络策略、是否存在服务间直调链路；决策后单开一片实现，并在鉴权契约变更前完成评审 | 2026-11-11 |
 
 ---
 
@@ -285,7 +287,6 @@
 |---|---|---|---|
 | README "初版不包含退款与对账" | 退款闭环已合并（`1a56af8`、`b4be3b6`）；对账已合并 CSV 导入、重跑、人工标记与日结接口，自动拉账与日结页面未做 | 拆分表述：退款已做；对账已做 CSV 链路与日结接口，自动拉账与页面未做 | 2026-11-10 |
 | engineering-plan 1.2 教师工作台位于 `apps/admin` | 教师建课/改价/提交审核/撤回页面已在 `/teacher-courses` 落地；仍无独立教师工作台与统计看板 | 标注为「基础课程页已做，数据看板未做」 | 2026-11-11 |
-| engineering-plan 15.2 D11 下单 30 分钟自动关单 | 无定时关单任务 | 标注为未实现 | 2026-11-09 |
 | engineering-plan 1.3 允许 MySQL 全文索引搜索 | 查询使用 `LIKE`，`ft_` 索引未使用 | 标注当前为 `LIKE`，全文检索待做 | 2026-11-09 |
 | product-lifecycle 3.1 游客可试看 | 播放签名接口要求登录（`40101`） | 确认是否允许匿名试看，再改实现或文档 | 2026-11-09 |
 | engineering-plan 13.6 M0-34 支付适配接口位于 `lp-common` | 支付抽象 `PaymentGateway` 在 `lp-trade-service`，`lp-common` 无 `pay` 包 | 修订文档指向实际位置 | 2026-11-09 |

@@ -1,0 +1,212 @@
+name: release-images
+
+# Builds the release images for the backend services, the student web app and the
+# operations console. This workflow is intentionally NOT wired into pull_request,
+# push to develop/main or merge_group: it must never become a required PR check and
+# must never change the coverage of backend-build / backend-test / frontend-check.
+#
+# Push is enabled for release tags (v*) and for a manual dispatch with push=true.
+# A dispatch with push=false performs a build-only dry run so the Dockerfiles can be
+# verified before the registry credentials exist.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      push:
+        description: 'Push images to the registry (false = build-only dry run)'
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-images-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  registry-preflight:
+    name: registry-preflight
+    runs-on: ubuntu-latest
+    outputs:
+      registry: ${{ steps.config.outputs.registry }}
+      image_repo: ${{ steps.config.outputs.image_repo }}
+      image_tag: ${{ steps.config.outputs.image_tag }}
+      push_enabled: ${{ steps.config.outputs.push_enabled }}
+    steps:
+      - name: 校验镜像仓库配置
+        id: config
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_PUSH: ${{ inputs.push }}
+          REGISTRY: ${{ secrets.REGISTRY }}
+          REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+          REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          if [ "${EVENT_NAME}" = "workflow_dispatch" ] && [ "${INPUT_PUSH}" = "false" ]; then
+            push_enabled=false
+          else
+            push_enabled=true
+          fi
+
+          if [ "${push_enabled}" = "true" ]; then
+            missing=""
+            [ -n "${REGISTRY}" ] || missing="${missing} secrets.REGISTRY"
+            [ -n "${REGISTRY_USERNAME}" ] || missing="${missing} secrets.REGISTRY_USERNAME"
+            [ -n "${REGISTRY_PASSWORD}" ] || missing="${missing} secrets.REGISTRY_PASSWORD"
+            if [ -n "${missing}" ]; then
+              echo "::error::缺少镜像仓库配置:${missing}. 请由负责人提供 registry 地址与凭据后重跑; 本 workflow 不会跳过推送。"
+              exit 1
+            fi
+            image_repo="${REGISTRY}"
+          else
+            image_repo="local"
+            echo "::notice::push=false，仅构建镜像不推送；未读取 registry 凭据。"
+          fi
+
+          if [ "${REF_TYPE}" = "tag" ]; then
+            image_tag="${REF_NAME}"
+          else
+            image_tag="${SHA:0:12}"
+          fi
+
+          {
+            echo "registry=${REGISTRY}"
+            echo "image_repo=${image_repo}"
+            echo "image_tag=${image_tag}"
+            echo "push_enabled=${push_enabled}"
+          } >> "${GITHUB_OUTPUT}"
+
+  backend-image:
+    name: backend-image-${{ matrix.image }}
+    needs: registry-preflight
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: lp-gateway
+            module: lp-gateway
+            dockerfile: docker/backend.Dockerfile
+          - image: lp-auth-service
+            module: lp-auth-service
+            dockerfile: docker/backend.Dockerfile
+          - image: lp-course-service
+            module: lp-course-service
+            dockerfile: docker/course-service.Dockerfile
+          - image: lp-trade-service
+            module: lp-trade-service
+            dockerfile: docker/backend.Dockerfile
+          - image: lp-learn-service
+            module: lp-learn-service
+            dockerfile: docker/backend.Dockerfile
+          - image: lp-ugc-service
+            module: lp-ugc-service
+            dockerfile: docker/backend.Dockerfile
+          - image: lp-admin-service
+            module: lp-admin-service
+            dockerfile: docker/backend.Dockerfile
+          - image: lp-ai-service
+            module: lp-ai-service
+            dockerfile: docker/backend.Dockerfile
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: 构建服务 jar
+        run: ./mvnw -B -q -DskipTests -pl "${{ matrix.module }}" -am package
+
+      - name: 解析 jar 路径
+        id: jar
+        run: |
+          set -euo pipefail
+          jar_path="$(find "${{ matrix.module }}/target" -maxdepth 1 -type f -name '*.jar' \
+            ! -name '*-sources.jar' ! -name '*-javadoc.jar' ! -name '*.original' | head -n 1)"
+          if [ -z "${jar_path}" ]; then
+            echo "::error::${{ matrix.module }} 未产出可执行 jar"
+            exit 1
+          fi
+          echo "path=${jar_path}" >> "${GITHUB_OUTPUT}"
+
+      - name: 登录镜像仓库
+        if: needs.registry-preflight.outputs.push_enabled == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ needs.registry-preflight.outputs.registry }}
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+
+      - name: 构建并推送镜像
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          build-args: |
+            JAR_FILE=${{ steps.jar.outputs.path }}
+          push: ${{ needs.registry-preflight.outputs.push_enabled }}
+          tags: ${{ needs.registry-preflight.outputs.image_repo }}/${{ matrix.image }}:${{ needs.registry-preflight.outputs.image_tag }}
+
+  frontend-image:
+    name: frontend-image-${{ matrix.image }}
+    needs: registry-preflight
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: lp-web
+            package: lp-web
+            dockerfile: docker/web.Dockerfile
+          - image: lp-admin
+            package: lp-admin
+            dockerfile: docker/admin.Dockerfile
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: 安装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 构建前端产物
+        run: pnpm --filter "${{ matrix.package }}" build
+
+      - name: 登录镜像仓库
+        if: needs.registry-preflight.outputs.push_enabled == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ needs.registry-preflight.outputs.registry }}
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+
+      - name: 构建并推送镜像
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: ${{ needs.registry-preflight.outputs.push_enabled }}
+          tags: ${{ needs.registry-preflight.outputs.image_repo }}/${{ matrix.image }}:${{ needs.registry-preflight.outputs.image_tag }}
