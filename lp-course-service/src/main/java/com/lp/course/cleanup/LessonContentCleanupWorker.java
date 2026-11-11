@@ -20,6 +20,10 @@ import org.springframework.stereotype.Component;
  * is deferred forever on purpose. It keeps waiting, spends no attempt and raises no alert; do not
  * add a "maximum deferrals" rule that turns this correct state into a failure.
  *
+ * <p>Assumes a single application instance. Claiming is a conditional update, so two instances
+ * would not delete the same object twice, but the batch size and the stale-row threshold are tuned
+ * for one ticker; scale out only after adding a distributed lock or leader election.
+ *
  * @author Caspian
  * @since 0.17.0
  */
