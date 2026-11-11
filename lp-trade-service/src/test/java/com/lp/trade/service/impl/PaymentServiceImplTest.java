@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
@@ -40,6 +41,8 @@ import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -135,35 +138,6 @@ class PaymentServiceImplTest {
 
         verify(entitlementService, times(1)).grant(USER_ID, COURSE_ID, ORDER_ID, ORDER_NO);
         verify(paymentMapper, times(1)).markSuccess(eq(1L), eq(TRADE_NO), any(LocalDateTime.class));
-    }
-
-    /**
-     * A callback amount that differs from the order amount is rejected.
-     *
-     * @author Caspian
-     * @since 0.1.0
-     */
-    @Test
-    void rejectsAmountMismatch() {
-        when(paymentMapper.selectByChannelTradeNo(PaymentChannel.ALIPAY, TRADE_NO))
-                .thenReturn(null);
-        when(tradeOrderMapper.selectByOrderNo(ORDER_NO)).thenReturn(order());
-        when(paymentMapper.selectLatestByOrderId(ORDER_ID)).thenReturn(pendingPayment());
-
-        BizException exception =
-                assertThrows(
-                        BizException.class,
-                        () ->
-                                paymentService.handleNotify(
-                                        PaymentChannel.ALIPAY,
-                                        Map.of(),
-                                        "body",
-                                        notification("1.00")));
-
-        assertEquals(62009, exception.getCode());
-        verify(paymentMapper, never())
-                .markSuccess(anyLong(), anyString(), any(LocalDateTime.class));
-        verify(entitlementService, never()).grant(anyLong(), anyLong(), anyLong(), anyString());
     }
 
     /**
@@ -435,22 +409,20 @@ class PaymentServiceImplTest {
 
     @Test
     void ignoresCallbackWithUnacceptedTradeStatus() {
-        PaymentNotification waiting = notification("99.00");
-        waiting.setTradeStatus("WAIT_BUYER_PAY");
-        PaymentNotification missingStatus = notification("99.00");
-        missingStatus.setTradeStatus(null);
-
-        paymentService.handleNotify(PaymentChannel.ALIPAY, Map.of(), "body", waiting);
-        paymentService.handleNotify(PaymentChannel.ALIPAY, Map.of(), "body", missingStatus);
+        for (String status : new String[] {"WAIT_BUYER_PAY", null}) {
+            PaymentNotification ignored = notification("99.00");
+            ignored.setTradeStatus(status);
+            paymentService.handleNotify(PaymentChannel.ALIPAY, Map.of(), "body", ignored);
+        }
 
         verifyNoInteractions(paymentMapper, anomalyRecorder);
     }
 
     @Test
-    void recordsAmountMismatchAndRejects() {
+    void recordsAmountMismatchAndAcknowledges() {
         stubPendingCallback(order());
 
-        assertEquals(ErrorCode.PAYMENT_AMOUNT_MISMATCH.getCode(), assertRejected("88.00"));
+        paymentService.handleNotify(PaymentChannel.ALIPAY, Map.of(), "body", notification("88.00"));
 
         verifyAnomaly(PaymentAnomalyRecorder.AMOUNT_MISMATCH, "99.00", "88.00");
         verify(paymentMapper, never()).markSuccess(anyLong(), anyString(), any());
@@ -458,37 +430,33 @@ class PaymentServiceImplTest {
 
     @Test
     void recordsMissingOrderAndRejects() {
-        when(paymentMapper.selectByChannelTradeNo(PaymentChannel.ALIPAY, TRADE_NO))
-                .thenReturn(null);
-        when(tradeOrderMapper.selectByOrderNo(ORDER_NO)).thenReturn(null);
+        stubPendingCallback(null);
 
-        assertEquals(ErrorCode.NOT_FOUND.getCode(), assertRejected("99.00"));
+        BizException exception =
+                assertThrows(
+                        BizException.class,
+                        () ->
+                                paymentService.handleNotify(
+                                        PaymentChannel.ALIPAY,
+                                        Map.of(),
+                                        "body",
+                                        notification("99.00")));
 
+        assertEquals(ErrorCode.NOT_FOUND.getCode(), exception.getCode());
         verifyAnomaly(PaymentAnomalyRecorder.ORDER_MISSING, null, "99.00");
     }
 
-    @Test
-    void recordsClosedOrderAndRejects() {
-        TradeOrder closed = order();
-        closed.setStatus(OrderStatus.CLOSED);
-        stubPendingCallback(closed);
+    @ParameterizedTest
+    @ValueSource(ints = {OrderStatus.PAID, OrderStatus.CLOSED, OrderStatus.CANCELLED})
+    void recordsUnpayableOrderAndAcknowledges(int status) {
+        TradeOrder existing = order();
+        existing.setStatus(status);
+        stubPendingCallback(existing);
 
-        assertEquals(ErrorCode.TRADE_BIZ_ERROR.getCode(), assertRejected("99.00"));
+        paymentService.handleNotify(PaymentChannel.ALIPAY, Map.of(), "body", notification("99.00"));
 
         verifyAnomaly(PaymentAnomalyRecorder.ORDER_NOT_PAYABLE, "99.00", "99.00");
         verify(paymentMapper, never()).markSuccess(anyLong(), anyString(), any());
-    }
-
-    @Test
-    void recordsSecondPaymentOnPaidOrderAndRejects() {
-        TradeOrder paid = order();
-        paid.setStatus(OrderStatus.PAID);
-        stubPendingCallback(paid);
-
-        assertEquals(ErrorCode.TRADE_BIZ_ERROR.getCode(), assertRejected("99.00"));
-
-        verifyAnomaly(PaymentAnomalyRecorder.ORDER_NOT_PAYABLE, "99.00", "99.00");
-        verify(tradeOrderMapper, never()).markPaid(anyLong(), any(LocalDateTime.class));
     }
 
     @Test
@@ -507,33 +475,22 @@ class PaymentServiceImplTest {
         when(paymentMapper.selectByChannelTradeNo(PaymentChannel.ALIPAY, TRADE_NO))
                 .thenReturn(null);
         when(tradeOrderMapper.selectByOrderNo(ORDER_NO)).thenReturn(order);
-        when(paymentMapper.selectLatestByOrderId(ORDER_ID)).thenReturn(pendingPayment());
-    }
-
-    private int assertRejected(String amount) {
-        BizException exception =
-                assertThrows(
-                        BizException.class,
-                        () ->
-                                paymentService.handleNotify(
-                                        PaymentChannel.ALIPAY,
-                                        Map.of(),
-                                        "body",
-                                        notification(amount)));
-        return exception.getCode();
+        lenient().when(paymentMapper.selectLatestByOrderId(ORDER_ID)).thenReturn(pendingPayment());
     }
 
     private void verifyAnomaly(int reason, String expected, String notified) {
         verify(anomalyRecorder)
                 .record(
-                        eq(PaymentChannel.ALIPAY),
-                        eq(ORDER_NO),
-                        eq(TRADE_NO),
+                        argThat(
+                                n ->
+                                        n.getChannel() == PaymentChannel.ALIPAY
+                                                && ORDER_NO.equals(n.getOrderNo())
+                                                && TRADE_NO.equals(n.getChannelTradeNo())
+                                                && new BigDecimal(notified).equals(n.getAmount())
+                                                && "TRADE_SUCCESS".equals(n.getTradeStatus())),
                         expected == null
                                 ? ArgumentMatchers.<BigDecimal>isNull()
                                 : eq(new BigDecimal(expected)),
-                        eq(new BigDecimal(notified)),
-                        eq("TRADE_SUCCESS"),
                         eq(reason),
                         anyString());
     }

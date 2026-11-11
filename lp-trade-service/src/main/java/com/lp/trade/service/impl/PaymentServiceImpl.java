@@ -182,15 +182,14 @@ public class PaymentServiceImpl implements PaymentService {
     /**
      * Verifies and applies one callback exactly once.
      *
-     * <p>Only {@code TRADE_SUCCESS}/{@code TRADE_FINISHED} advance an order; other callbacks are
-     * recorded and rejected, so a deviation is never silently applied or dropped.
+     * <p>Only {@code TRADE_SUCCESS}/{@code TRADE_FINISHED} advance an order; anything else is
+     * recorded and acknowledged without applying a deviation.
      *
      * @param channel channel of the callback endpoint
      * @param headers HTTP headers carrying the channel signature
      * @param rawBody raw callback body
      * @param notification parsed callback fields
-     * @throws BizException when verification fails, the channel or amount mismatches, or the order
-     *     is no longer payable
+     * @throws BizException when verification fails, the channel mismatches, or the order is unknown
      * @author Caspian
      * @since 0.1.0
      */
@@ -220,12 +219,9 @@ public class PaymentServiceImpl implements PaymentService {
 
         TradeOrder order = tradeOrderMapper.selectByOrderNo(orderNo);
         if (order == null) {
-            rejectAnomaly(
-                    notification,
-                    null,
-                    PaymentAnomalyRecorder.ORDER_MISSING,
-                    ErrorCode.NOT_FOUND,
-                    "order not found");
+            recordAnomaly(
+                    notification, null, PaymentAnomalyRecorder.ORDER_MISSING, "order not found");
+            throw new BizException(ErrorCode.NOT_FOUND, "order not found");
         }
         if (order.getChannel() != channel) {
             throw new BizException(ErrorCode.PAYMENT_CHANNEL_MISMATCH);
@@ -235,28 +231,28 @@ public class PaymentServiceImpl implements PaymentService {
             throw new BizException(ErrorCode.NOT_FOUND, "payment not found");
         }
         if (payment.getAmount().compareTo(notification.getAmount()) != 0) {
-            rejectAnomaly(
+            recordAnomaly(
                     notification,
                     payment.getAmount(),
                     PaymentAnomalyRecorder.AMOUNT_MISMATCH,
-                    ErrorCode.PAYMENT_AMOUNT_MISMATCH,
-                    "payment amount " + payment.getAmount());
+                    "amount mismatch, manual review required");
+            return;
         }
         if (order.getStatus() == OrderStatus.PAID) {
-            rejectAnomaly(
+            recordAnomaly(
                     notification,
                     payment.getAmount(),
                     PaymentAnomalyRecorder.ORDER_NOT_PAYABLE,
-                    ErrorCode.TRADE_BIZ_ERROR,
                     "order already paid");
+            return;
         }
         if (order.getStatus() != OrderStatus.PENDING) {
-            rejectAnomaly(
+            recordAnomaly(
                     notification,
                     payment.getAmount(),
                     PaymentAnomalyRecorder.ORDER_NOT_PAYABLE,
-                    ErrorCode.TRADE_BIZ_ERROR,
-                    "order is not payable");
+                    "order " + order.getStatus() + ", manual refund required");
+            return;
         }
 
         LocalDateTime paidAt = LocalDateTime.now();
@@ -283,33 +279,19 @@ public class PaymentServiceImpl implements PaymentService {
                 order.getUserId(), item.getCourseId(), order.getId(), order.getOrderNo());
     }
 
-    /** Records a callback that cannot be applied and rejects it, never applying a deviation. */
-    private void rejectAnomaly(
-            PaymentNotification notification,
-            BigDecimal expected,
-            int reason,
-            ErrorCode code,
-            String message) {
+    /** Records a callback that cannot be applied; acknowledging it still applies no deviation. */
+    private void recordAnomaly(
+            PaymentNotification notification, BigDecimal expected, int reason, String message) {
         String orderNo = notification.getOrderNo().trim();
         String tradeNo = notification.getChannelTradeNo().trim();
         LOG.error(
-                "callback anomaly, reason={}: orderNo={}, tradeNo={}, expected={}, notified={}, status={}",
+                "callback anomaly, reason={}: orderNo={}, tradeNo={}, expected={}, notified={}",
                 reason,
                 orderNo,
                 tradeNo,
                 expected,
-                notification.getAmount(),
-                notification.getTradeStatus());
-        anomalyRecorder.record(
-                notification.getChannel(),
-                orderNo,
-                tradeNo,
-                expected,
-                notification.getAmount(),
-                notification.getTradeStatus(),
-                reason,
-                message);
-        throw new BizException(code, message);
+                notification.getAmount());
+        anomalyRecorder.record(notification, expected, reason, message);
     }
 
     /**

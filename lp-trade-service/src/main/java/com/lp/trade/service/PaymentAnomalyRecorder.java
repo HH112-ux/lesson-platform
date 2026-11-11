@@ -1,5 +1,6 @@
 package com.lp.trade.service;
 
+import com.lp.trade.dto.PaymentNotification;
 import com.lp.trade.mapper.PaymentNotifyAnomalyMapper;
 import java.math.BigDecimal;
 import org.springframework.dao.DuplicateKeyException;
@@ -8,11 +9,8 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Persists callbacks that passed verification but could not be applied.
- *
- * <p>Each record runs in its own transaction, so it survives the rollback of the rejected callback
- * and stays queryable for operations. The unique key makes a channel retry a no-op instead of a
- * second row.
+ * Persists callbacks that passed verification but could not be applied, each in its own
+ * transaction; the unique key makes retries a no-op.
  *
  * @author Caspian
  * @since 0.4.0
@@ -43,33 +41,25 @@ public class PaymentAnomalyRecorder {
     /**
      * Records one anomaly in a separate transaction.
      *
-     * @param channel payment channel
-     * @param orderNo order number from the callback
-     * @param channelTradeNo channel trade number
+     * @param notification parsed callback fields
      * @param expectedAmount local amount due, {@code null} when unknown
-     * @param notifiedAmount amount reported by the channel
-     * @param tradeStatus raw channel trade status
      * @param reason one of the reason constants of this class
      * @param detail extra context for operators
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void record(
-            int channel,
-            String orderNo,
-            String channelTradeNo,
+            PaymentNotification notification,
             BigDecimal expectedAmount,
-            BigDecimal notifiedAmount,
-            String tradeStatus,
             int reason,
             String detail) {
         try {
             mapper.insert(
-                    channel,
-                    orderNo,
-                    channelTradeNo,
+                    notification.getChannel(),
+                    notification.getOrderNo().trim(),
+                    notification.getChannelTradeNo().trim(),
                     expectedAmount,
-                    notifiedAmount,
-                    tradeStatus,
+                    notification.getAmount(),
+                    notification.getTradeStatus(),
                     reason,
                     detail);
         } catch (DuplicateKeyException exception) {
