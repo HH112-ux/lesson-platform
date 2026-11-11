@@ -133,6 +133,21 @@ class SettlementControllerTest {
     }
 
     @Test
+    void closeWithoutBodyReturnsParameterError() throws Exception {
+        mockMvc.perform(
+                        post("/api/v1/reconcile/settlements")
+                                .header(IdentityHeaders.USER_ROLES, "ADMIN")
+                                .header(
+                                        IdentityHeaders.USER_PERMISSIONS,
+                                        ReconcilePermissions.CLOSE)
+                                .header(IdentityHeaders.USER_ID, "9001"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(40001));
+
+        verify(settlementService, never()).close(any(), any(), anyLong());
+    }
+
+    @Test
     void opsWithReadCodeCannotVoid() throws Exception {
         mockMvc.perform(
                         post("/api/v1/reconcile/settlements/77/void")

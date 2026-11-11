@@ -18,6 +18,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Objects;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -91,8 +92,8 @@ public class SettlementService {
      * @param closedBy operator user id resolved from the gateway identity header
      * @return closed batch, or the existing batch when the day was already closed
      * @throws BizException with {@code 40001} when the channel or bill day is invalid, {@code
-     *     62019} when a bill of the day was not imported, or {@code 50204} when differences are
-     *     pending
+     *     62019} when a bill of the day was not imported or another request is closing the same
+     *     day, or {@code 50204} when differences are pending
      * @author Caspian
      * @since 0.6.2
      */
@@ -110,7 +111,15 @@ public class SettlementService {
         if (existing != null) {
             return existing;
         }
-        settleBatchMapper.upsert(build(channel, billDate, closedBy, payment, refund));
+        try {
+            settleBatchMapper.insert(build(channel, billDate, closedBy, payment, refund));
+        } catch (DuplicateKeyException ex) {
+            // uk_active_day lets the database settle the race: the loser of two concurrent closes
+            // reports an incomplete bill day instead of rewriting the winner's batch.
+            throw new BizException(
+                    ErrorCode.SETTLE_BILL_INCOMPLETE,
+                    "bill day is being settled by another request");
+        }
         return settleBatchMapper.selectActiveByKey(channel, billDate);
     }
 
@@ -228,17 +237,15 @@ public class SettlementService {
         int safePageNum = Math.max(pageNum, 1);
         int safePageSize = Math.min(Math.max(pageSize, 1), MAX_PAGE_SIZE);
         long total = settleBatchMapper.count(channel, billDate, status);
+        long offset = (long) (safePageNum - 1) * safePageSize;
         List<SettlementView> records =
-                settleBatchMapper
-                        .page(
-                                channel,
-                                billDate,
-                                status,
-                                (safePageNum - 1) * safePageSize,
-                                safePageSize)
-                        .stream()
-                        .map(SettlementView::from)
-                        .toList();
+                offset > Integer.MAX_VALUE
+                        ? List.of()
+                        : settleBatchMapper
+                                .page(channel, billDate, status, (int) offset, safePageSize)
+                                .stream()
+                                .map(SettlementView::from)
+                                .toList();
         return new SettlementPageView(records, total, safePageNum, safePageSize);
     }
 
