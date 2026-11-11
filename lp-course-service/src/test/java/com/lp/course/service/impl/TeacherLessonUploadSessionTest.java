@@ -6,7 +6,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -24,6 +26,7 @@ import com.lp.course.entity.LessonUpload;
 import com.lp.course.mapper.CourseReviewAuditMapper;
 import com.lp.course.mapper.LessonUploadMapper;
 import com.lp.course.mapper.TeacherCourseMapper;
+import com.lp.course.upload.LessonPlaybackKeyResolver;
 import com.lp.course.upload.LessonTranscodeService;
 import com.lp.course.upload.LessonUploadObjectReader;
 import com.lp.course.upload.LessonUploadObjectReader.DownloadedVideo;
@@ -66,6 +69,8 @@ class TeacherLessonUploadSessionTest {
 
     @Mock private LessonTranscodeService transcodeService;
 
+    @Mock private LessonPlaybackKeyResolver playbackKeyResolver;
+
     private TeacherCourseServiceImpl service;
 
     @BeforeEach
@@ -88,7 +93,11 @@ class TeacherLessonUploadSessionTest {
                                 ""),
                         videoProbe,
                         videoValidator,
-                        transcodeService);
+                        transcodeService,
+                        playbackKeyResolver);
+        lenient()
+                .when(playbackKeyResolver.resolve(anyString()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
     }
 
     @Test
@@ -295,6 +304,17 @@ class TeacherLessonUploadSessionTest {
                 .thenReturn("https://minio/get");
 
         assertEquals("https://minio/get", service.playUrl(1001L, "ADMIN", 9L, 3L, 77L).playUrl());
+    }
+
+    @Test
+    void signsTheKeyChosenForPlayback() {
+        givenEditableCourse();
+        when(teacherCourseMapper.selectLesson(9L, 3L, 77L)).thenReturn(lesson());
+        when(playbackKeyResolver.resolve(OBJECT_KEY)).thenReturn("transcoded/" + OBJECT_KEY);
+        when(uploadSigner.presignGet("transcoded/" + OBJECT_KEY, Duration.ofMinutes(10)))
+                .thenReturn("https://minio/get");
+
+        assertEquals("https://minio/get", service.playUrl(1001L, "TEACHER", 9L, 3L, 77L).playUrl());
     }
 
     @Test

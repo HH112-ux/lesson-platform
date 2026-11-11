@@ -26,6 +26,7 @@ import com.lp.course.mapper.CourseReviewAuditMapper;
 import com.lp.course.mapper.LessonUploadMapper;
 import com.lp.course.mapper.TeacherCourseMapper;
 import com.lp.course.service.TeacherCourseService;
+import com.lp.course.upload.LessonPlaybackKeyResolver;
 import com.lp.course.upload.LessonTranscodeService;
 import com.lp.course.upload.LessonUploadObjectReader;
 import com.lp.course.upload.LessonUploadObjectReader.DownloadedVideo;
@@ -99,6 +100,7 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
     private final LessonVideoProbe videoProbe;
     private final LessonVideoValidator videoValidator;
     private final LessonTranscodeService transcodeService;
+    private final LessonPlaybackKeyResolver playbackKeyResolver;
 
     /**
      * Creates the service with its mapper, storage, probe and rule dependencies.
@@ -112,6 +114,7 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
      * @param videoProbe reads video metadata with {@code ffprobe}
      * @param videoValidator applies the frozen video acceptance rules
      * @param transcodeService records the optional transcode task after a confirmation
+     * @param playbackKeyResolver picks the key to sign, transcoded when READY, original otherwise
      * @author Caspian
      * @since 0.1.0
      */
@@ -124,7 +127,8 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
             CourseUploadProperties uploadProperties,
             LessonVideoProbe videoProbe,
             LessonVideoValidator videoValidator,
-            LessonTranscodeService transcodeService) {
+            LessonTranscodeService transcodeService,
+            LessonPlaybackKeyResolver playbackKeyResolver) {
         this.teacherCourseMapper = teacherCourseMapper;
         this.lessonUploadMapper = lessonUploadMapper;
         this.courseReviewAuditMapper = courseReviewAuditMapper;
@@ -134,6 +138,7 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
         this.videoProbe = videoProbe;
         this.videoValidator = videoValidator;
         this.transcodeService = transcodeService;
+        this.playbackKeyResolver = playbackKeyResolver;
     }
 
     /**
@@ -714,7 +719,8 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
             throw new BizException(ErrorCode.NOT_FOUND, "lesson has no confirmed video");
         }
         Duration ttl = uploadProperties.playUrlTtl();
-        String playUrl = uploadSigner.presignGet(lesson.getVideoUrl(), ttl);
+        String playUrl =
+                uploadSigner.presignGet(playbackKeyResolver.resolve(lesson.getVideoUrl()), ttl);
         return new TeacherPlayUrlView(
                 playUrl, ttl.toSeconds(), Instant.now().plus(ttl).getEpochSecond());
     }
