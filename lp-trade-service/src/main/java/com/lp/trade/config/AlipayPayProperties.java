@@ -19,6 +19,8 @@ public class AlipayPayProperties {
 
     private String gatewayUrl = "https://openapi-sandbox.dl.alipaydev.com/gateway.do";
 
+    private String notifyUrl = "";
+
     /**
      * Returns the absolute path of the credential file read at startup.
      *
@@ -61,5 +63,27 @@ public class AlipayPayProperties {
      */
     public void setGatewayUrl(String gatewayUrl) {
         this.gatewayUrl = gatewayUrl;
+    }
+
+    /**
+     * Returns the public callback URL sent to the channel with each payment request.
+     *
+     * @return absolute notify URL, empty when the deployment has no public address
+     * @author Caspian
+     * @since 0.4.0
+     */
+    public String getNotifyUrl() {
+        return notifyUrl;
+    }
+
+    /**
+     * Sets the public callback URL sent to the channel with each payment request.
+     *
+     * @param notifyUrl absolute notify URL reachable from the internet
+     * @author Caspian
+     * @since 0.4.0
+     */
+    public void setNotifyUrl(String notifyUrl) {
+        this.notifyUrl = notifyUrl;
     }
 }
