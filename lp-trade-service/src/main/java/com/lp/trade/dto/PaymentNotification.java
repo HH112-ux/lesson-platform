@@ -21,6 +21,8 @@ public class PaymentNotification {
 
     private BigDecimal amount;
 
+    private String tradeStatus;
+
     /**
      * Returns the platform order number.
      *
@@ -107,5 +109,23 @@ public class PaymentNotification {
      */
     public void setAmount(BigDecimal amount) {
         this.amount = amount;
+    }
+
+    /**
+     * Returns the raw channel trade status.
+     *
+     * @return status such as {@code TRADE_SUCCESS}, {@code null} when the channel reports none
+     */
+    public String getTradeStatus() {
+        return tradeStatus;
+    }
+
+    /**
+     * Sets the raw channel trade status.
+     *
+     * @param tradeStatus status as sent by the channel
+     */
+    public void setTradeStatus(String tradeStatus) {
+        this.tradeStatus = tradeStatus;
     }
 }

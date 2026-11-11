@@ -73,6 +73,7 @@ public final class AlipayNotifyForm {
         notification.setChannel(PaymentChannel.ALIPAY);
         notification.setOrderNo(parameters.get("out_trade_no"));
         notification.setChannelTradeNo(parameters.get("trade_no"));
+        notification.setTradeStatus(parameters.get("trade_status"));
         notification.setAmount(amount == null || amount.isBlank() ? null : new BigDecimal(amount));
         return notification;
     }

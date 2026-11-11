@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
@@ -33,15 +34,19 @@ import com.lp.trade.payment.SignatureVerifier;
 import com.lp.trade.payment.UnconfiguredPaymentGateway;
 import com.lp.trade.payment.UnconfiguredSignatureVerifier;
 import com.lp.trade.service.AccountDeletionGuard;
+import com.lp.trade.service.PaymentAnomalyRecorder;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -78,6 +83,8 @@ class PaymentServiceImplTest {
 
     @Mock private AccountDeletionGuard accountDeletionGuard;
 
+    @Mock private PaymentAnomalyRecorder anomalyRecorder;
+
     private PaymentServiceImpl paymentService;
 
     /**
@@ -105,7 +112,8 @@ class PaymentServiceImplTest {
                         signatureVerifier,
                         entitlementService,
                         transactionTemplate,
-                        accountDeletionGuard);
+                        accountDeletionGuard,
+                        anomalyRecorder);
     }
 
     /**
@@ -133,35 +141,6 @@ class PaymentServiceImplTest {
     }
 
     /**
-     * A callback amount that differs from the order amount is rejected.
-     *
-     * @author Caspian
-     * @since 0.1.0
-     */
-    @Test
-    void rejectsAmountMismatch() {
-        when(paymentMapper.selectByChannelTradeNo(PaymentChannel.ALIPAY, TRADE_NO))
-                .thenReturn(null);
-        when(tradeOrderMapper.selectByOrderNo(ORDER_NO)).thenReturn(order());
-        when(paymentMapper.selectLatestByOrderId(ORDER_ID)).thenReturn(pendingPayment());
-
-        BizException exception =
-                assertThrows(
-                        BizException.class,
-                        () ->
-                                paymentService.handleNotify(
-                                        PaymentChannel.ALIPAY,
-                                        Map.of(),
-                                        "body",
-                                        notification("1.00")));
-
-        assertEquals(62009, exception.getCode());
-        verify(paymentMapper, never())
-                .markSuccess(anyLong(), anyString(), any(LocalDateTime.class));
-        verify(entitlementService, never()).grant(anyLong(), anyLong(), anyLong(), anyString());
-    }
-
-    /**
      * Without configured credentials every callback fails explicitly instead of passing.
      *
      * @author Caspian
@@ -177,7 +156,8 @@ class PaymentServiceImplTest {
                         new UnconfiguredSignatureVerifier(),
                         entitlementService,
                         transactionTemplate,
-                        accountDeletionGuard);
+                        accountDeletionGuard,
+                        anomalyRecorder);
 
         BizException exception =
                 assertThrows(
@@ -297,7 +277,8 @@ class PaymentServiceImplTest {
                         signatureVerifier,
                         entitlementService,
                         transactionTemplate,
-                        accountDeletionGuard);
+                        accountDeletionGuard,
+                        anomalyRecorder);
         when(tradeOrderMapper.selectByOrderNoForUpdate(ORDER_NO)).thenReturn(order());
         when(paymentMapper.selectLatestByOrderId(ORDER_ID)).thenReturn(null);
         when(paymentMapper.insertPayment(any(PaymentRecord.class))).thenReturn(1);
@@ -426,12 +407,101 @@ class PaymentServiceImplTest {
         verify(entitlementService, never()).grant(anyLong(), anyLong(), anyLong(), anyString());
     }
 
+    @Test
+    void ignoresCallbackWithUnacceptedTradeStatus() {
+        for (String status : new String[] {"WAIT_BUYER_PAY", null}) {
+            PaymentNotification ignored = notification("99.00");
+            ignored.setTradeStatus(status);
+            paymentService.handleNotify(PaymentChannel.ALIPAY, Map.of(), "body", ignored);
+        }
+
+        verifyNoInteractions(paymentMapper, anomalyRecorder);
+    }
+
+    @Test
+    void recordsAmountMismatchAndAcknowledges() {
+        stubPendingCallback(order());
+
+        paymentService.handleNotify(PaymentChannel.ALIPAY, Map.of(), "body", notification("88.00"));
+
+        verifyAnomaly(PaymentAnomalyRecorder.AMOUNT_MISMATCH, "99.00", "88.00");
+        verify(paymentMapper, never()).markSuccess(anyLong(), anyString(), any());
+    }
+
+    @Test
+    void recordsMissingOrderAndRejects() {
+        stubPendingCallback(null);
+
+        BizException exception =
+                assertThrows(
+                        BizException.class,
+                        () ->
+                                paymentService.handleNotify(
+                                        PaymentChannel.ALIPAY,
+                                        Map.of(),
+                                        "body",
+                                        notification("99.00")));
+
+        assertEquals(ErrorCode.NOT_FOUND.getCode(), exception.getCode());
+        verifyAnomaly(PaymentAnomalyRecorder.ORDER_MISSING, null, "99.00");
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {OrderStatus.PAID, OrderStatus.CLOSED, OrderStatus.CANCELLED})
+    void recordsUnpayableOrderAndAcknowledges(int status) {
+        TradeOrder existing = order();
+        existing.setStatus(status);
+        stubPendingCallback(existing);
+
+        paymentService.handleNotify(PaymentChannel.ALIPAY, Map.of(), "body", notification("99.00"));
+
+        verifyAnomaly(PaymentAnomalyRecorder.ORDER_NOT_PAYABLE, "99.00", "99.00");
+        verify(paymentMapper, never()).markSuccess(anyLong(), anyString(), any());
+    }
+
+    @Test
+    void treatsConcurrentDuplicateTradeNumberAsHandled() {
+        stubPendingCallback(order());
+        when(paymentMapper.markSuccess(eq(1L), eq(TRADE_NO), any(LocalDateTime.class)))
+                .thenThrow(new DuplicateKeyException("uk_channel_trade"));
+
+        paymentService.handleNotify(PaymentChannel.ALIPAY, Map.of(), "body", notification("99.00"));
+
+        verify(tradeOrderMapper, never()).markPaid(anyLong(), any(LocalDateTime.class));
+        verify(entitlementService, never()).grant(anyLong(), anyLong(), anyLong(), anyString());
+    }
+
+    private void stubPendingCallback(TradeOrder order) {
+        when(paymentMapper.selectByChannelTradeNo(PaymentChannel.ALIPAY, TRADE_NO))
+                .thenReturn(null);
+        when(tradeOrderMapper.selectByOrderNo(ORDER_NO)).thenReturn(order);
+        lenient().when(paymentMapper.selectLatestByOrderId(ORDER_ID)).thenReturn(pendingPayment());
+    }
+
+    private void verifyAnomaly(int reason, String expected, String notified) {
+        verify(anomalyRecorder)
+                .record(
+                        argThat(
+                                n ->
+                                        n.getChannel() == PaymentChannel.ALIPAY
+                                                && ORDER_NO.equals(n.getOrderNo())
+                                                && TRADE_NO.equals(n.getChannelTradeNo())
+                                                && new BigDecimal(notified).equals(n.getAmount())
+                                                && "TRADE_SUCCESS".equals(n.getTradeStatus())),
+                        expected == null
+                                ? ArgumentMatchers.<BigDecimal>isNull()
+                                : eq(new BigDecimal(expected)),
+                        eq(reason),
+                        anyString());
+    }
+
     private PaymentNotification notification(String amount) {
         PaymentNotification notification = new PaymentNotification();
         notification.setOrderNo(ORDER_NO);
         notification.setChannel(PaymentChannel.ALIPAY);
         notification.setChannelTradeNo(TRADE_NO);
         notification.setAmount(new BigDecimal(amount));
+        notification.setTradeStatus("TRADE_SUCCESS");
         return notification;
     }
 

@@ -68,6 +68,7 @@ public class MockPaymentController {
         notification.setOrderNo(orderNo);
         notification.setChannelTradeNo(payNo);
         notification.setAmount(new BigDecimal(amount));
+        notification.setTradeStatus("TRADE_SUCCESS");
         String canonical = MockPaySignatures.canonical(payNo, orderNo, amount);
         paymentService.handleNotify(
                 PaymentChannel.ALIPAY,
