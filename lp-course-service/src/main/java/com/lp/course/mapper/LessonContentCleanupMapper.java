@@ -18,6 +18,12 @@ import org.apache.ibatis.annotations.Update;
  * confirmed upload, and it is never registered, because the unique key on {@code object_key} would
  * reject the second blank row.
  *
+ * <p>The same mapper owns the queue statements of the cleanup worker: batch selection, claim,
+ * defer, retry and terminal states, plus the stale reclaim and the three reference counts. Those
+ * counts must run at cleanup time and never come from a registration snapshot, because a lesson or
+ * a transcode may start pointing at the object again after the row was registered. Status values
+ * are listed in {@code LessonCleanupStatus}.
+ *
  * @author Caspian
  * @since 0.16.0
  */
@@ -96,7 +102,7 @@ public interface LessonContentCleanupMapper {
      *
      * @param now rows scheduled for a later time are skipped
      * @param limit batch size
-     * @return due rows ordered by age
+     * @return due rows ordered by primary key, which follows insertion order
      * @author Caspian
      * @since 0.17.0
      */

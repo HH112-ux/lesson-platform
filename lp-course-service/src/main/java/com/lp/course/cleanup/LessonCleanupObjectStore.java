@@ -33,7 +33,8 @@ public class LessonCleanupObjectStore {
                     "InvalidArgument",
                     "InvalidBucketName",
                     "NoSuchBucket",
-                    "SignatureDoesNotMatch");
+                    "SignatureDoesNotMatch",
+                    "XMinioInvalidObjectName");
 
     private final MinioClient client;
     private final CourseUploadProperties upload;
@@ -80,11 +81,14 @@ public class LessonCleanupObjectStore {
         } catch (ErrorResponseException e) {
             String code = e.errorResponse() == null ? null : e.errorResponse().code();
             int httpStatus = e.response() == null ? 0 : e.response().code();
+            if (code != null && PERMANENT_CODES.contains(code)) {
+                throw new CleanupFailure(true, code);
+            }
             if (isMissing(code, httpStatus)) {
                 log.debug("cleanup found {} already removed", objectKey);
                 return;
             }
-            throw new CleanupFailure(PERMANENT_CODES.contains(code), String.valueOf(code));
+            throw new CleanupFailure(false, String.valueOf(code));
         } catch (IllegalArgumentException e) {
             throw new CleanupFailure(true, "invalid object key");
         } catch (Exception e) {
@@ -95,6 +99,9 @@ public class LessonCleanupObjectStore {
     /**
      * Tells whether an error response means the object is already gone.
      *
+     * <p>Only called after {@link #PERMANENT_CODES} had no match, so a bucket-level failure that
+     * also answers with 404 is never reported as a vanished object.
+     *
      * @param code storage error code, may be {@code null}
      * @param httpStatus HTTP status of the response
      * @return {@code true} when nothing is left to delete
@@ -102,9 +109,7 @@ public class LessonCleanupObjectStore {
      * @since 0.17.0
      */
     static boolean isMissing(String code, int httpStatus) {
-        return httpStatus == 404
-                || "NoSuchKey".equalsIgnoreCase(code)
-                || "NotFound".equalsIgnoreCase(code);
+        return httpStatus == 404 || "NoSuchKey".equalsIgnoreCase(code);
     }
 
     /** One failed deletion, flagged as retryable or terminal. */
