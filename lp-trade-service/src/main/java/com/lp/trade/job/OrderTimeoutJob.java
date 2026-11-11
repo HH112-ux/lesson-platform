@@ -1,9 +1,11 @@
 package com.lp.trade.job;
 
+import com.lp.common.exception.BizException;
 import com.lp.trade.entity.TradeOrder;
 import com.lp.trade.mapper.CouponMapper;
 import com.lp.trade.mapper.PaymentMapper;
 import com.lp.trade.mapper.TradeOrderMapper;
+import com.lp.trade.service.PaymentChannelSyncService;
 import java.time.LocalDateTime;
 import java.util.List;
 import org.slf4j.Logger;
@@ -20,6 +22,10 @@ import org.springframework.transaction.support.TransactionTemplate;
  * payment record and the occupied coupon untouched. When the close wins the race, the callback
  * fails its own conditional update, retries later and is recorded as paid after close for refund
  * compensation. Either way an order is never both paid and closed.
+ *
+ * <p>Before an order is closed locally, its trade is closed at the channel. A close the channel
+ * cannot confirm leaves the order pending and the next scan retries it, so the platform never
+ * closes an order whose trade can still collect money.
  *
  * <p>Each order closes in its own transaction, so one failure neither rolls back earlier orders nor
  * stops the scan; a repeated scan finds no pending row and therefore stays silent.
@@ -42,6 +48,8 @@ public class OrderTimeoutJob {
 
     private final TransactionTemplate transactionTemplate;
 
+    private final PaymentChannelSyncService paymentChannelSync;
+
     /**
      * Creates the job with its persistence and transaction dependencies.
      *
@@ -49,6 +57,7 @@ public class OrderTimeoutJob {
      * @param paymentMapper payment persistence
      * @param couponMapper coupon persistence
      * @param transactionTemplate one transaction per order
+     * @param paymentChannelSync channel-first close before the local close
      * @author Caspian
      * @since 0.2.0
      */
@@ -56,11 +65,13 @@ public class OrderTimeoutJob {
             TradeOrderMapper tradeOrderMapper,
             PaymentMapper paymentMapper,
             CouponMapper couponMapper,
-            TransactionTemplate transactionTemplate) {
+            TransactionTemplate transactionTemplate,
+            PaymentChannelSyncService paymentChannelSync) {
         this.tradeOrderMapper = tradeOrderMapper;
         this.paymentMapper = paymentMapper;
         this.couponMapper = couponMapper;
         this.transactionTemplate = transactionTemplate;
+        this.paymentChannelSync = paymentChannelSync;
     }
 
     /**
@@ -83,7 +94,16 @@ public class OrderTimeoutJob {
         }
         for (TradeOrder order : expired) {
             try {
+                if (!paymentChannelSync.prepareClose(order)) {
+                    continue;
+                }
                 closeOne(order.getId(), now);
+            } catch (BizException exception) {
+                LOG.error(
+                        "order timeout close failed: orderId={}, code={}, reason={}",
+                        order.getId(),
+                        exception.getCode(),
+                        exception.getMessage());
             } catch (RuntimeException exception) {
                 LOG.error(
                         "order timeout close failed: orderId={}, reason={}",
