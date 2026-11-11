@@ -3,6 +3,7 @@ package com.lp.course.service.impl;
 import com.lp.common.exception.BizException;
 import com.lp.common.exception.ErrorCode;
 import com.lp.common.money.Money;
+import com.lp.course.client.TradeOrderClient;
 import com.lp.course.config.CourseUploadProperties;
 import com.lp.course.domain.LessonUploadStatus;
 import com.lp.course.dto.TeacherChapterRequest;
@@ -98,6 +99,7 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
     private final CourseUploadProperties uploadProperties;
     private final LessonVideoProbe videoProbe;
     private final LessonVideoValidator videoValidator;
+    private final TradeOrderClient tradeOrderClient;
     private final LessonTranscodeService transcodeService;
 
     /**
@@ -111,6 +113,7 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
      * @param uploadProperties upload limits and credential lifetime
      * @param videoProbe reads video metadata with {@code ffprobe}
      * @param videoValidator applies the frozen video acceptance rules
+     * @param tradeOrderClient reads whether a course already has paid orders
      * @param transcodeService records the optional transcode task after a confirmation
      * @author Caspian
      * @since 0.1.0
@@ -124,6 +127,7 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
             CourseUploadProperties uploadProperties,
             LessonVideoProbe videoProbe,
             LessonVideoValidator videoValidator,
+            TradeOrderClient tradeOrderClient,
             LessonTranscodeService transcodeService) {
         this.teacherCourseMapper = teacherCourseMapper;
         this.lessonUploadMapper = lessonUploadMapper;
@@ -133,6 +137,7 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
         this.uploadProperties = uploadProperties;
         this.videoProbe = videoProbe;
         this.videoValidator = videoValidator;
+        this.tradeOrderClient = tradeOrderClient;
         this.transcodeService = transcodeService;
     }
 
@@ -171,7 +176,7 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
                                 (long) (safePage - 1) * safeSize,
                                 safeSize)
                         .stream()
-                        .map(this::toView)
+                        .map(course -> toView(course, null))
                         .toList();
         return new TeacherCoursePageView(items, total, safePage, safeSize, counts);
     }
@@ -235,7 +240,7 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
                     ErrorCode.PARAM_INVALID, "category, title, cover and price are required");
         }
         teacherCourseMapper.insert(course);
-        return toView(teacherCourseMapper.selectById(course.getId()));
+        return toView(teacherCourseMapper.selectById(course.getId()), null);
     }
 
     /**
@@ -260,11 +265,14 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
         if (teacherCourseMapper.updateEditable(course) == 0) {
             throw new BizException(ErrorCode.STATE_CONFLICT, "course is no longer editable");
         }
-        return toView(teacherCourseMapper.selectById(courseId));
+        return toView(teacherCourseMapper.selectById(courseId), null);
     }
 
     /**
      * Loads one course visible to the caller.
+     *
+     * <p>The trade service supplies the sales state; an unreachable trade leaves it unknown, which
+     * the console treats as locked instead of failing the page.
      *
      * @param userId authenticated user id
      * @param roles comma separated gateway roles
@@ -275,7 +283,8 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
      */
     @Override
     public TeacherCourseView detail(long userId, String roles, long courseId) {
-        return toView(requireAccessible(resolveActor(userId, roles), courseId));
+        Course course = requireAccessible(resolveActor(userId, roles), courseId);
+        return toView(course, tradeOrderClient.paidOrderExists(courseId));
     }
 
     /**
@@ -306,7 +315,7 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
         if (teacherCourseMapper.submit(courseId, LocalDateTime.now()) == 0) {
             throw new BizException(ErrorCode.STATE_CONFLICT, "course is no longer submittable");
         }
-        return toView(teacherCourseMapper.selectById(courseId));
+        return toView(teacherCourseMapper.selectById(courseId), null);
     }
 
     /**
@@ -347,7 +356,7 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
         audit.setReviewerId(userId);
         audit.setCreatedAt(withdrawnAt);
         courseReviewAuditMapper.insert(audit);
-        return toView(teacherCourseMapper.selectById(courseId));
+        return toView(teacherCourseMapper.selectById(courseId), null);
     }
 
     /**
@@ -447,12 +456,14 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
     }
 
     /**
-     * Deletes a chapter and its lessons from a draft or offline course.
+     * Deletes a chapter and its lessons; a sold course is refused, because its lessons may play.
      *
      * @param userId authenticated user id
      * @param roles comma separated gateway roles
      * @param courseId course primary key
      * @param chapterId chapter primary key
+     * @throws BizException {@code 61009} when the course has paid orders, {@code 50401} when the
+     *     trade service cannot confirm the sales state
      * @author Caspian
      * @since 0.1.0
      */
@@ -461,6 +472,7 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
     public void deleteChapter(long userId, String roles, long courseId, long chapterId) {
         Course course = requireContentEditable(userId, roles, courseId);
         requireChapter(courseId, chapterId);
+        requireNoPaidOrder(courseId);
         teacherCourseMapper.deleteChapter(courseId, chapterId);
         teacherCourseMapper.deleteLessonsByChapter(courseId, chapterId);
         afterContentChange(course);
@@ -552,13 +564,18 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
     }
 
     /**
-     * Deletes a lesson of a draft or offline course.
+     * Deletes a lesson from a draft or offline course.
+     *
+     * <p>A sale turns content into a promise: consumers who already bought it would lose access, so
+     * sold content comes down through the course state instead.
      *
      * @param userId authenticated user id
      * @param roles comma separated gateway roles
      * @param courseId course primary key
      * @param chapterId chapter primary key
      * @param lessonId lesson primary key
+     * @throws BizException {@code 61009} when the course has paid orders, {@code 50401} when the
+     *     trade service cannot confirm the sales state
      * @author Caspian
      * @since 0.1.0
      */
@@ -567,6 +584,7 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
             long userId, String roles, long courseId, long chapterId, long lessonId) {
         Course course = requireContentEditable(userId, roles, courseId);
         requireChapter(courseId, chapterId);
+        requireNoPaidOrder(courseId);
         if (teacherCourseMapper.deleteLesson(courseId, chapterId, lessonId) == 0) {
             throw new BizException(ErrorCode.NOT_FOUND);
         }
@@ -862,6 +880,25 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
     }
 
     /**
+     * Refuses content removal from a sold course; an unreachable trade service fails closed.
+     *
+     * @param courseId course primary key
+     * @throws BizException {@code 61009} sold, {@code 50401} trade unavailable
+     * @author Caspian
+     * @since 0.15.0
+     */
+    private void requireNoPaidOrder(long courseId) {
+        Boolean sold = tradeOrderClient.paidOrderExists(courseId);
+        if (sold == null) {
+            throw new BizException(
+                    ErrorCode.DEPENDENCY_UNAVAILABLE, "cannot confirm course sales state");
+        }
+        if (sold) {
+            throw new BizException(ErrorCode.COURSE_CONTENT_LOCKED, "course has paid orders");
+        }
+    }
+
+    /**
      * Returns an offline course to draft after its content changed.
      *
      * @param course course row before the change
@@ -1138,11 +1175,12 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
      * Maps a row to the console projection, converting yuan prices to fen.
      *
      * @param course course row
+     * @param sold {@code true} sold, {@code false} not sold, {@code null} unknown
      * @return console view
      * @author Caspian
      * @since 0.1.0
      */
-    private TeacherCourseView toView(Course course) {
+    private TeacherCourseView toView(Course course, Boolean sold) {
         Long originalPriceFen =
                 course.getOriginalPrice() == null ? null : Money.toFen(course.getOriginalPrice());
         return new TeacherCourseView(
@@ -1159,7 +1197,8 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
                 course.getReviewRemark(),
                 course.getLessonCount() == null ? 0L : course.getLessonCount(),
                 course.getSubmittedAt(),
-                course.getUpdatedAt());
+                course.getUpdatedAt(),
+                sold);
     }
 
     /**
