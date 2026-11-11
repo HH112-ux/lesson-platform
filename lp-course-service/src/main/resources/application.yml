@@ -57,6 +57,18 @@ lp:
       minio-access-key: ${LP_COURSE_UPLOAD_MINIO_ACCESS_KEY:}
       minio-secret-key: ${LP_COURSE_UPLOAD_MINIO_SECRET_KEY:}
       minio-bucket: ${LP_COURSE_UPLOAD_MINIO_BUCKET:${LP_MINIO_BUCKET:lp-media}}
+    # Asynchronous standardization of confirmed lesson videos. The source file stays playable, so a
+    # disabled or failed transcode never blocks review or playback.
+    transcode:
+      enabled: ${LP_COURSE_TRANSCODE_ENABLED:true}
+      # CPU bound work: keep the pool small and let the bounded queue absorb upload bursts.
+      concurrency: ${LP_COURSE_TRANSCODE_CONCURRENCY:2}
+      queue-capacity: ${LP_COURSE_TRANSCODE_QUEUE_CAPACITY:64}
+      ffmpeg-path: ${LP_COURSE_TRANSCODE_FFMPEG_PATH:ffmpeg}
+      timeout: ${LP_COURSE_TRANSCODE_TIMEOUT:2h}
+      max-attempts: ${LP_COURSE_TRANSCODE_MAX_ATTEMPTS:3}
+      retry-backoff: ${LP_COURSE_TRANSCODE_RETRY_BACKOFF:5s}
+      upload-timeout: ${LP_COURSE_TRANSCODE_UPLOAD_TIMEOUT:30m}
 
 management:
   endpoints:
