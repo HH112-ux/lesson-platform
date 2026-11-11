@@ -35,8 +35,8 @@ import org.springframework.web.server.ResponseStatusException;
  * Payment initiation and channel callback endpoints.
  *
  * <p>Callbacks respond with the channel specific acknowledgement only after the service applied the
- * notification. While signature verification is unconfigured, every callback is rejected with
- * {@code 50205} and acknowledged as a failure, never as success.
+ * notification. When the Alipay channel is disabled the unconfigured verifier rejects every
+ * callback with {@code 50205} and the endpoint acknowledges a failure, never a success.
  *
  * @author Caspian
  * @since 0.1.0
@@ -137,10 +137,6 @@ public class PaymentController {
             LOG.warn("alipay notify rejected: {}", exception.getMessage());
             return "failure";
         }
-    }
-
-    private String asString(Object value) {
-        return value == null ? null : String.valueOf(value);
     }
 
     private long requireUser(Long userId) {

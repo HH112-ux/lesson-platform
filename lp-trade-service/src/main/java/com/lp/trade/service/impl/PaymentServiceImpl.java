@@ -18,14 +18,18 @@ import com.lp.trade.mapper.TradeOrderMapper;
 import com.lp.trade.payment.PaymentGateway;
 import com.lp.trade.payment.SignatureVerifier;
 import com.lp.trade.service.AccountDeletionGuard;
+import com.lp.trade.service.PaymentAnomalyRecorder;
 import com.lp.trade.service.PaymentService;
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.ThreadLocalRandom;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -51,6 +55,9 @@ public class PaymentServiceImpl implements PaymentService {
     private static final DateTimeFormatter PAY_NO_TIME =
             DateTimeFormatter.ofPattern("yyyyMMddHHmmssSSS");
 
+    private static final Set<String> ACCEPTED_TRADE_STATUSES =
+            Set.of("TRADE_SUCCESS", "TRADE_FINISHED");
+
     private final TradeOrderMapper tradeOrderMapper;
 
     private final PaymentMapper paymentMapper;
@@ -65,6 +72,8 @@ public class PaymentServiceImpl implements PaymentService {
 
     private final AccountDeletionGuard accountDeletionGuard;
 
+    private final PaymentAnomalyRecorder anomalyRecorder;
+
     /**
      * Creates the service with its dependencies.
      *
@@ -75,6 +84,7 @@ public class PaymentServiceImpl implements PaymentService {
      * @param entitlementService ownership port
      * @param transactionTemplate transaction boundary around the attempt lock
      * @param accountDeletionGuard cooling-off gate applied before an attempt is prepared
+     * @param anomalyRecorder records callbacks that cannot be applied
      * @author Caspian
      * @since 0.1.0
      */
@@ -85,7 +95,8 @@ public class PaymentServiceImpl implements PaymentService {
             SignatureVerifier signatureVerifier,
             EntitlementService entitlementService,
             TransactionTemplate transactionTemplate,
-            AccountDeletionGuard accountDeletionGuard) {
+            AccountDeletionGuard accountDeletionGuard,
+            PaymentAnomalyRecorder anomalyRecorder) {
         this.tradeOrderMapper = tradeOrderMapper;
         this.paymentMapper = paymentMapper;
         this.paymentGateway = paymentGateway;
@@ -93,6 +104,7 @@ public class PaymentServiceImpl implements PaymentService {
         this.entitlementService = entitlementService;
         this.transactionTemplate = transactionTemplate;
         this.accountDeletionGuard = accountDeletionGuard;
+        this.anomalyRecorder = anomalyRecorder;
     }
 
     /**
@@ -170,6 +182,9 @@ public class PaymentServiceImpl implements PaymentService {
     /**
      * Verifies and applies one callback exactly once.
      *
+     * <p>Only {@code TRADE_SUCCESS}/{@code TRADE_FINISHED} advance an order; other callbacks are
+     * recorded and rejected, so a deviation is never silently applied or dropped.
+     *
      * @param channel channel of the callback endpoint
      * @param headers HTTP headers carrying the channel signature
      * @param rawBody raw callback body
@@ -189,13 +204,28 @@ public class PaymentServiceImpl implements PaymentService {
         signatureVerifier.verify(channel, headers, rawBody, notification);
         requireNotification(notification, channel);
         String tradeNo = notification.getChannelTradeNo().trim();
+        String orderNo = notification.getOrderNo().trim();
+        String tradeStatus = notification.getTradeStatus();
+        if (tradeStatus == null || !ACCEPTED_TRADE_STATUSES.contains(tradeStatus)) {
+            LOG.info(
+                    "ignored callback, trade status {} is not payable: channel={}, orderNo={}",
+                    tradeStatus,
+                    channel,
+                    orderNo);
+            return;
+        }
         if (paymentMapper.selectByChannelTradeNo(channel, tradeNo) != null) {
             return;
         }
 
-        TradeOrder order = tradeOrderMapper.selectByOrderNo(notification.getOrderNo().trim());
+        TradeOrder order = tradeOrderMapper.selectByOrderNo(orderNo);
         if (order == null) {
-            throw new BizException(ErrorCode.NOT_FOUND, "order not found");
+            rejectAnomaly(
+                    notification,
+                    null,
+                    PaymentAnomalyRecorder.ORDER_MISSING,
+                    ErrorCode.NOT_FOUND,
+                    "order not found");
         }
         if (order.getChannel() != channel) {
             throw new BizException(ErrorCode.PAYMENT_CHANNEL_MISMATCH);
@@ -205,11 +235,38 @@ public class PaymentServiceImpl implements PaymentService {
             throw new BizException(ErrorCode.NOT_FOUND, "payment not found");
         }
         if (payment.getAmount().compareTo(notification.getAmount()) != 0) {
-            throw new BizException(ErrorCode.PAYMENT_AMOUNT_MISMATCH);
+            rejectAnomaly(
+                    notification,
+                    payment.getAmount(),
+                    PaymentAnomalyRecorder.AMOUNT_MISMATCH,
+                    ErrorCode.PAYMENT_AMOUNT_MISMATCH,
+                    "payment amount " + payment.getAmount());
+        }
+        if (order.getStatus() == OrderStatus.PAID) {
+            rejectAnomaly(
+                    notification,
+                    payment.getAmount(),
+                    PaymentAnomalyRecorder.ORDER_NOT_PAYABLE,
+                    ErrorCode.TRADE_BIZ_ERROR,
+                    "order already paid");
+        }
+        if (order.getStatus() != OrderStatus.PENDING) {
+            rejectAnomaly(
+                    notification,
+                    payment.getAmount(),
+                    PaymentAnomalyRecorder.ORDER_NOT_PAYABLE,
+                    ErrorCode.TRADE_BIZ_ERROR,
+                    "order is not payable");
         }
 
         LocalDateTime paidAt = LocalDateTime.now();
-        int updated = paymentMapper.markSuccess(payment.getId(), tradeNo, paidAt);
+        int updated;
+        try {
+            updated = paymentMapper.markSuccess(payment.getId(), tradeNo, paidAt);
+        } catch (DuplicateKeyException exception) {
+            // uk_channel_trade already holds this trade number: a concurrent retry won the race.
+            return;
+        }
         if (updated == 0) {
             handleNonPendingCallback(order, payment, tradeNo, paidAt);
             return;
@@ -224,6 +281,35 @@ public class PaymentServiceImpl implements PaymentService {
         }
         entitlementService.grant(
                 order.getUserId(), item.getCourseId(), order.getId(), order.getOrderNo());
+    }
+
+    /** Records a callback that cannot be applied and rejects it, never applying a deviation. */
+    private void rejectAnomaly(
+            PaymentNotification notification,
+            BigDecimal expected,
+            int reason,
+            ErrorCode code,
+            String message) {
+        String orderNo = notification.getOrderNo().trim();
+        String tradeNo = notification.getChannelTradeNo().trim();
+        LOG.error(
+                "callback anomaly, reason={}: orderNo={}, tradeNo={}, expected={}, notified={}, status={}",
+                reason,
+                orderNo,
+                tradeNo,
+                expected,
+                notification.getAmount(),
+                notification.getTradeStatus());
+        anomalyRecorder.record(
+                notification.getChannel(),
+                orderNo,
+                tradeNo,
+                expected,
+                notification.getAmount(),
+                notification.getTradeStatus(),
+                reason,
+                message);
+        throw new BizException(code, message);
     }
 
     /**
