@@ -504,6 +504,39 @@ curl -s localhost:8102/actuator/prometheus | grep lp_course_transcode
 - 已经 FAILED 的任务不会自动重跑；装好 ffmpeg 后重新 confirm 同一课时会命中既有任务并跳过（同一 `source_object_key` 幂等），需要先删掉该行或换一次上传会话。
 - 队列满（并发与队列都占满）时 confirm 不受影响，任务直接置 FAILED、原因 `transcode queue is full`；服务重启时停在 `RUNNING` 的任务会在启动扫描里重新排队，超过尝试上限则置 FAILED 并记 `interrupted by restart, attempts exhausted`。
 
+### 4.13 课时视频对象清理队列（course-service）
+
+课时删除或替换视频时，旧对象登记进 `lp_cms.lesson_content_cleanup`（`0 PENDING / 1 RUNNING / 2 DONE / 3 FAILED`），由 course-service 内的定时 tick 删除：每 30 秒一次，`fixedDelay` 从上一次结束算起，不会自我重叠。
+
+```bash
+# 队列现状
+docker exec lp-mysql mysql -uroot -p"${LP_MYSQL_ROOT_PASSWORD:-lp_root_dev}" -e \
+  "SELECT status, COUNT(*) FROM lp_cms.lesson_content_cleanup GROUP BY status"
+# 指标
+curl -s localhost:8102/actuator/prometheus | grep lp_course_cleanup
+# 日志
+docker logs lp-course-service 2>&1 | grep "cleanup of"
+```
+
+配置项都在 `lp.course.cleanup.*`（环境变量 `LP_COURSE_CLEANUP_*`）：`enabled`（默认 `true`）、`batch-size`（默认 20）、`max-attempts`（默认 5，即最多 4 次重试）、`base-backoff`（默认 30s，逐次翻倍）、`max-backoff`（默认 10m）、`defer-delay`（默认 10m）、`stale-after`（默认 10m）。按默认值，退避序列是 30s → 1m → 2m → 4m，约 7.5 分钟后转终态，**`max-backoff=10m` 在这组默认值下不可达**，只有在调大 `max-attempts` 时才有意义。
+
+**引用判定在执行时重查，不用登记快照**：命中未删除课时的 `video_url`、`status=0` 的上传会话、`PENDING/RUNNING` 的转码任务，任一命中就延后 `defer-delay` 且不删对象、不消耗 attempt。被永久引用的对象会无限延后，这是预期行为，不产生告警。
+
+**单实例假设**：worker 与调度器按单实例调参。认领是条件更新（`status=0 → 1`），两个实例同时跑不会重复删除同一个对象，但批量大小与 `stale-after` 都是按单个 tick 设计的；多实例下 `stale-after` 可能误回收另一实例正在处理的行（多消耗一次 attempt，结果仍幂等）。要水平扩展，先加分布式锁或 leader election 让同一时刻只有一个 ticker，再调整 `batch-size`。同进程内的 transcode 线程池与本队列共用数据库和对象存储，属于已知争用点。
+
+**关闭开关的行为**：`LP_COURSE_CLEANUP_ENABLED=false` 只移除定时器 bean（`@ConditionalOnProperty`），不删队列、不改数据结构。已入队的行原样留在表里，重新开启或下次启动后继续处理，不丢数据、不额外消耗 attempt。指标 gauge 停在最后一次刷新值：关闭后新增积压不会体现在 `pending` 上，但**关闭前已经超过阈值的 `oldest_seconds` 告警不会自愈**（值被冻结），需要恢复开关刷新或重启服务。
+
+**已知成本：引用列没有索引（W-4）**
+
+- 具体对象：`lp_cms.course_lesson.video_url`（`countLessonReferences`）、`lp_cms.lesson_upload.object_key`（`countPendingUploads`）两列没有可用索引，每处理一行都会对这两张表各做一次全表扫描；`lp_cms.lesson_video_transcode.source_object_key` 有 `uk_source_object`，`countActiveTranscodes` 走唯一索引，不在成本内。
+- 规模与耗时：**未实测**。按当前 dev 数据（`course_lesson` 约 10³ 行、`lesson_upload` 约 10² 行）全扫在亚毫秒到毫秒级，单行处理可忽略；生产按 10⁵～10⁶ 课时估计时，单次 tick 的扫描成本随 `batch-size × 2` 线性增长，需要实测后再决定。
+- 加索引的触发条件（满足任一即做）：`course_lesson` 行数超过 50 万；或本地/预发实测单个 tick 的引用判定累计超过 50ms；或 `lesson_upload` 单表超过 10 万行。
+- 落地方式：新建 `db/migration/course/V12__lesson_cleanup_reference_index.sql`，在 `lp_cms.course_lesson` 加 `idx_video_url (video_url)`、在 `lp_cms.lesson_upload` 加 `idx_object_key (object_key)`；属于新增索引的 expand 变更，可回滚方式为 `DROP INDEX`。本次改动不做，避免在特性分支里改迁移。
+
+**告警**：规则在 `infra/observability/prometheus-rules.yml` 的 `lp-course-cleanup` 组。`lp_course_cleanup_failed_rows >= 1` 持续 30m 表示有行进入终态（`last_error` 写清原因，`NoSuchBucket` 是配置问题而不是文件已删）；`lp_course_cleanup_oldest_seconds > 3600` 持续 30m 表示已经花过 attempt 的行卡了一小时以上，远超 7.5 分钟的退避预算——这是本仓库第一条时长型阈值，选 3600s 是因为合法等待最多约 7.5 分钟，一小时只可能是 tick 停了或存储持续拒绝。
+
+**指标缺失与陈旧值是两件事，规则分别处理**：两条业务告警都是「有样本且越线」才生效，序列缺失时它们不会触发，也不会被当成 0 静默通过；因此另有 `absent(lp_course_cleanup_pending)` 持续 10m 的 `LpCourseCleanupMetricsMissing`，专门报「采集缺失」（服务挂了、抓取目标没了、actuator 不再暴露 prometheus）。`for: 30m` 的时间窗同时避免重启抖动——gauge 在启动时重算，重启后短暂归零不会立刻告警。开关关闭属于第三种情况：序列仍存在但值被冻结，业务告警维持关闭前的判定，不会因积压增长而新增噪音，但也不会自愈。
+
 ## 5. Web 前端
 
 ```bash
