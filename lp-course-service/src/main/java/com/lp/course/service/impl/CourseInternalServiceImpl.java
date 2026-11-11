@@ -21,6 +21,7 @@ import com.lp.course.mapper.CourseMapper;
 import com.lp.course.mapper.CourseReviewAuditMapper;
 import com.lp.course.service.AdminAuditService;
 import com.lp.course.service.CourseInternalService;
+import com.lp.course.upload.LessonPlaybackKeyResolver;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -44,6 +45,8 @@ public class CourseInternalServiceImpl implements CourseInternalService {
     private final CourseReviewAuditMapper courseReviewAuditMapper;
 
     private final AdminAuditService adminAuditService;
+
+    private final LessonPlaybackKeyResolver playbackKeyResolver;
 
     /** Audit action of an approved course. */
     private static final int ACTION_APPROVE = 1;
@@ -75,16 +78,19 @@ public class CourseInternalServiceImpl implements CourseInternalService {
      * @param courseMapper mapper reading the {@code lp_cms} course tables
      * @param courseReviewAuditMapper mapper appending review audit entries
      * @param adminAuditService unified audit appender, joined to the review transaction
+     * @param playbackKeyResolver picks the media key, transcoded when READY, original otherwise
      * @author Caspian
      * @since 0.1.0
      */
     public CourseInternalServiceImpl(
             CourseMapper courseMapper,
             CourseReviewAuditMapper courseReviewAuditMapper,
-            AdminAuditService adminAuditService) {
+            AdminAuditService adminAuditService,
+            LessonPlaybackKeyResolver playbackKeyResolver) {
         this.courseMapper = courseMapper;
         this.courseReviewAuditMapper = courseReviewAuditMapper;
         this.adminAuditService = adminAuditService;
+        this.playbackKeyResolver = playbackKeyResolver;
     }
 
     /**
@@ -156,7 +162,7 @@ public class CourseInternalServiceImpl implements CourseInternalService {
         return new LessonPlayView(
                 lesson.getId(),
                 lesson.getCourseId(),
-                lesson.getVideoUrl(),
+                playbackKeyResolver.resolve(lesson.getVideoUrl()),
                 lesson.getVideoDurationSec() == null ? 0 : lesson.getVideoDurationSec(),
                 lesson.getIsFree() != null && lesson.getIsFree() == 1,
                 lesson.getCourseStatus() == null ? STATUS_DRAFT : lesson.getCourseStatus());

@@ -22,6 +22,7 @@ import com.lp.course.entity.CourseLesson;
 import com.lp.course.mapper.CourseReviewAuditMapper;
 import com.lp.course.mapper.LessonUploadMapper;
 import com.lp.course.mapper.TeacherCourseMapper;
+import com.lp.course.upload.LessonPlaybackKeyResolver;
 import com.lp.course.upload.LessonTranscodeService;
 import com.lp.course.upload.LessonUploadObjectReader;
 import com.lp.course.upload.LessonUploadUrlSigner;
@@ -62,6 +63,8 @@ class TeacherChapterLessonServiceImplTest {
     @Mock private TradeOrderClient tradeOrderClient;
     @Mock private LessonTranscodeService transcodeService;
 
+    @Mock private LessonPlaybackKeyResolver playbackKeyResolver;
+
     private TeacherCourseServiceImpl service;
 
     /**
@@ -91,7 +94,8 @@ class TeacherChapterLessonServiceImplTest {
                         videoProbe,
                         videoValidator,
                         tradeOrderClient,
-                        transcodeService);
+                        transcodeService,
+                        playbackKeyResolver);
     }
 
     /**

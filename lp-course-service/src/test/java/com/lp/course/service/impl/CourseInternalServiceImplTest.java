@@ -21,6 +21,7 @@ import com.lp.course.dto.CourseInternalView;
 import com.lp.course.dto.CourseReviewAuditView;
 import com.lp.course.dto.CourseReviewResultView;
 import com.lp.course.dto.LessonInternalView;
+import com.lp.course.dto.LessonPlayView;
 import com.lp.course.dto.PendingCoursePageView;
 import com.lp.course.dto.PendingCourseView;
 import com.lp.course.entity.Course;
@@ -29,6 +30,7 @@ import com.lp.course.entity.CourseReviewAudit;
 import com.lp.course.mapper.CourseMapper;
 import com.lp.course.mapper.CourseReviewAuditMapper;
 import com.lp.course.service.AdminAuditService;
+import com.lp.course.upload.LessonPlaybackKeyResolver;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -54,7 +56,33 @@ class CourseInternalServiceImplTest {
 
     @Mock private AdminAuditService adminAuditService;
 
+    @Mock private LessonPlaybackKeyResolver playbackKeyResolver;
+
     @InjectMocks private CourseInternalServiceImpl courseInternalService;
+
+    /**
+     * Playback returns the key chosen by the resolver, so a READY transcode is served.
+     *
+     * @author Caspian
+     * @since 0.11.0
+     */
+    @Test
+    void lessonForPlayUsesTheKeyChosenForPlayback() {
+        CourseLesson lesson = new CourseLesson();
+        lesson.setId(77L);
+        lesson.setCourseId(7L);
+        lesson.setVideoUrl("lesson-videos/7/501.mp4");
+        lesson.setVideoDurationSec(90);
+        lesson.setIsFree(0);
+        lesson.setCourseStatus(2);
+        when(courseMapper.selectPlayableById(77L)).thenReturn(lesson);
+        when(playbackKeyResolver.resolve("lesson-videos/7/501.mp4"))
+                .thenReturn("transcoded/lesson-videos/7/501.mp4");
+
+        LessonPlayView view = courseInternalService.lessonForPlay(77L);
+
+        assertEquals("transcoded/lesson-videos/7/501.mp4", view.getVideoObjectKey());
+    }
 
     /**
      * An existing published course is projected with its price converted to fen.
