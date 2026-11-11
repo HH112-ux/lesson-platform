@@ -23,6 +23,7 @@ import java.time.LocalDateTime;
  * @param lessonCount number of live lessons
  * @param submittedAt last submit time, {@code null} when never submitted
  * @param updatedAt last modification time
+ * @param sold {@code true} sold, {@code false} unsold, {@code null} unknown; only detail fills it
  * @author Caspian
  * @since 0.1.0
  */
@@ -40,4 +41,5 @@ public record TeacherCourseView(
         String reviewRemark,
         long lessonCount,
         LocalDateTime submittedAt,
-        LocalDateTime updatedAt) {}
+        LocalDateTime updatedAt,
+        Boolean sold) {}

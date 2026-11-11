@@ -46,6 +46,24 @@ public interface TradeOrderMapper {
     long countOwned(@Param("userId") long userId, @Param("courseId") long courseId);
 
     /**
+     * Counts orders that still grant the course, so a sold course locks lesson deletion.
+     *
+     * <p>Status 1 (paid) and 4 (refunding) both keep the buyer's entitlement; only 5 (refunded)
+     * releases it.
+     *
+     * @param courseId course id
+     * @return granting order count, {@code 0} when never sold
+     * @author Caspian
+     * @since 0.15.0
+     */
+    @Select(
+            "SELECT COUNT(*) FROM trade_order_item i "
+                    + "INNER JOIN trade_order o ON o.id = i.order_id "
+                    + "WHERE i.course_id = #{courseId} "
+                    + "AND o.deleted = 0 AND i.deleted = 0 AND o.status IN (1, 4)")
+    long countPaidByCourse(@Param("courseId") long courseId);
+
+    /**
      * Finds an order by the client idempotency key.
      *
      * @param userId buyer user id

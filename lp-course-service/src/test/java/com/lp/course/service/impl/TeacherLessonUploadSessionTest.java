@@ -6,12 +6,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.lp.common.exception.BizException;
+import com.lp.course.client.TradeOrderClient;
 import com.lp.course.config.CourseUploadProperties;
 import com.lp.course.domain.LessonUploadStatus;
 import com.lp.course.dto.TeacherLessonView;
@@ -22,8 +25,11 @@ import com.lp.course.entity.Course;
 import com.lp.course.entity.CourseLesson;
 import com.lp.course.entity.LessonUpload;
 import com.lp.course.mapper.CourseReviewAuditMapper;
+import com.lp.course.mapper.LessonContentCleanupMapper;
 import com.lp.course.mapper.LessonUploadMapper;
 import com.lp.course.mapper.TeacherCourseMapper;
+import com.lp.course.upload.LessonPlaybackKeyResolver;
+import com.lp.course.upload.LessonTranscodeService;
 import com.lp.course.upload.LessonUploadObjectReader;
 import com.lp.course.upload.LessonUploadObjectReader.DownloadedVideo;
 import com.lp.course.upload.LessonUploadUrlSigner;
@@ -63,6 +69,12 @@ class TeacherLessonUploadSessionTest {
 
     @Mock private LessonVideoValidator videoValidator;
 
+    @Mock private TradeOrderClient tradeOrderClient;
+    @Mock private LessonTranscodeService transcodeService;
+    @Mock private LessonContentCleanupMapper contentCleanupMapper;
+
+    @Mock private LessonPlaybackKeyResolver playbackKeyResolver;
+
     private TeacherCourseServiceImpl service;
 
     @BeforeEach
@@ -84,7 +96,14 @@ class TeacherLessonUploadSessionTest {
                                 "",
                                 ""),
                         videoProbe,
-                        videoValidator);
+                        videoValidator,
+                        tradeOrderClient,
+                        transcodeService,
+                        playbackKeyResolver,
+                        contentCleanupMapper);
+        lenient()
+                .when(playbackKeyResolver.resolve(anyString()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
     }
 
     @Test
@@ -203,6 +222,7 @@ class TeacherLessonUploadSessionTest {
                         eq(1024L),
                         eq("sha256-value"));
         verify(uploadReader).delete(any(DownloadedVideo.class));
+        verify(transcodeService).enqueue(77L, 501L, OBJECT_KEY, 1024L);
     }
 
     @Test
@@ -290,6 +310,17 @@ class TeacherLessonUploadSessionTest {
                 .thenReturn("https://minio/get");
 
         assertEquals("https://minio/get", service.playUrl(1001L, "ADMIN", 9L, 3L, 77L).playUrl());
+    }
+
+    @Test
+    void signsTheKeyChosenForPlayback() {
+        givenEditableCourse();
+        when(teacherCourseMapper.selectLesson(9L, 3L, 77L)).thenReturn(lesson());
+        when(playbackKeyResolver.resolve(OBJECT_KEY)).thenReturn("transcoded/" + OBJECT_KEY);
+        when(uploadSigner.presignGet("transcoded/" + OBJECT_KEY, Duration.ofMinutes(10)))
+                .thenReturn("https://minio/get");
+
+        assertEquals("https://minio/get", service.playUrl(1001L, "TEACHER", 9L, 3L, 77L).playUrl());
     }
 
     @Test

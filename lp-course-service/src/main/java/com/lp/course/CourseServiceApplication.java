@@ -4,6 +4,7 @@ import com.lp.common.identity.TrustedIdentityConfig;
 import com.lp.common.internal.InternalTokenConfig;
 import com.lp.common.web.GlobalExceptionHandler;
 import com.lp.course.config.CourseUploadProperties;
+import com.lp.course.config.LessonTranscodeProperties;
 import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -24,7 +25,7 @@ import org.springframework.context.annotation.Import;
  */
 @SpringBootApplication
 @MapperScan("com.lp.course.mapper")
-@EnableConfigurationProperties(CourseUploadProperties.class)
+@EnableConfigurationProperties({CourseUploadProperties.class, LessonTranscodeProperties.class})
 @Import({GlobalExceptionHandler.class, InternalTokenConfig.class, TrustedIdentityConfig.class})
 public class CourseServiceApplication {
 

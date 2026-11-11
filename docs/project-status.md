@@ -29,8 +29,8 @@
 | 里程碑 | 状态 | 判定依据 | 最后核对日期 |
 |---|---|---|---|
 | M0 基建 | 完成 | Compose、Flyway、网关、统一返回、身份头、CI、本地验收脚本均可运行；`infra/observability` 已提供 Prometheus / Alertmanager / Grafana 本地编排与抓取配置 | 2026-11-10 |
-| M1 账号与内容（含教师端） | 部分完成 | 注册登录、RBAC 种子、分类/课程/章节课时、教师课程 API、课程审核与审计、教师入驻审核接口已通；视频上传、全文搜索、教师前端未做 | 2026-11-09 |
-| M2 交易与学习 | 部分完成 | 购物车 API、下单幂等、0 元课、模拟支付、权益 outbox、播放签名、进度回写已通；真实支付宝未接 | 2026-11-09 |
+| M1 账号与内容（含教师端） | 部分完成 | 注册登录、RBAC 种子、分类/课程/章节课时、教师课程 API、课程审核与审计、教师入驻审核接口已通（入驻审核为接口级）；教师建课/改价/提交审核/撤回页面、章节课时管理（新增章节、新增/编辑课时）与课时视频上传页（`/lesson-videos`）已可用，2026-11-11 在浏览器里从零建课经章节、课时、上传确认、编辑到提交审核全链路 200，无需 SQL 补课时（证据见 L1-11 行）；全文搜索未做，教师入驻审核页面与独立工作台（数据看板）未做（教师入口寄居运营后台，见 4.2） | 2026-11-11 |
+| M2 交易与学习 | 部分完成 | 购物车 API、下单幂等、0 元课、模拟支付、权益 outbox、学员播放签名（SPEC-LEARN-003 6/6）、进度回写已通；教师预览播放签名 2026-11-10 补齐（#204：只签本人课程、默认 10 分钟；#213 补过期重签）；真实支付宝未接 | 2026-11-10 |
 | M3 互动与后台 | 部分完成 | 运营审核、用户/订单查询、退款审核、看板概览、对账 CSV 导入与差异处置、日结接口已通；UGC、举报处置未做，对账缺自动拉账与运营后台页面 | 2026-11-10 |
 | M4 AI MVP | 未开始 | `lp-ai-service` 仅有启动类与 `package-info` | 2026-11-09 |
 | M5 Web 加固与上线 | 未开始 | 无压测、安全测试、灰度与部署流水线 | 2026-11-09 |
@@ -41,7 +41,7 @@
 
 当前处于 **M2 后端链路可演示、M3 刚起步** 的阶段。可演示的闭环是：教师通过 API 建课并提交 → 运营在后台审核定价上架 → 学员在 Web 下单 → 模拟支付回调 → 权益发放 → 播放签名 → 进度回写 → 学员发起退款申请 → 运营后台审核通过 → 模拟渠道退款成功并回收权益。
 
-该闭环成立的前提是**本地模拟支付**（`LP_PAY_MOCK_ENABLED=true`），并且教师建课与教师入驻审核目前只有后端接口、没有界面。真实支付宝、UGC、AI、教师工作台界面、小程序评论、部署流水线均未完成；监控栈已有本地编排与抓取配置，告警求值证据见 L1-10，详见第 4 章。
+该闭环成立的前提是**本地模拟支付**（`LP_PAY_MOCK_ENABLED=true`），并且教师入驻审核目前只有后端接口、没有界面。真实支付宝、UGC、AI、教师统计看板、小程序评论、部署流水线均未完成；监控栈已有本地编排与抓取配置，告警求值证据见 L1-10，详见第 4 章。
 
 ## 2.4 规格条目索引（条目 → 实现状态）
 
@@ -56,10 +56,10 @@
 | SPEC-COURSE-005 | 教师下架与再上架 | 未开始 | L2-3 | 0/4 |
 | SPEC-COURSE-006 | 运营强制下架 | 未开始 | L2-5 | 0/4 |
 | SPEC-COURSE-007 | 公开展示与访问控制 | 已完成 | — | 4/4 |
-| SPEC-COURSE-008 | 内容结构与删除限制 | 进行中 | L2-3 | 2/4 |
+| SPEC-COURSE-008 | 内容结构与删除限制 | 进行中 | L2-3 | 3/4 |
 | SPEC-COURSE-009 | 教师入驻审核 | 已完成 | — | 5/5 |
 | SPEC-COURSE-010 | 展示字段与长度约束 | 已完成 | — | 5/5 |
-| SPEC-COURSE-011 | 定价口径 | 进行中 | L1-2 | 4/5 |
+| SPEC-COURSE-011 | 定价口径 | 已完成 | L1-2 | 5/5 |
 | SPEC-COURSE-012 | 教师撤回待审 | 已完成 | — | 4/4 |
 | SPEC-TRADE-001 | 下单与幂等 | 已完成 | — | 7/7 |
 | SPEC-TRADE-002 | 0 元订单 | 已完成 | — | 5/5 |
@@ -104,7 +104,7 @@
 | 编号 | 门槛 | 对应规格 | 状态 | 核对说明 | 最后核对 |
 |---|---|---|---|---|---|
 | L1-1 | 退款结果未知 | SPEC-TRADE-009（7/7）、SPEC-TRADE-010（3/3） | 已完成 | 代码先提交状态 1 再调渠道：`RefundServiceImpl.review` 的事务内只执行 `markApproved`（置 1），事务提交后才在 `settleApproved` 调用渠道；用例 `RefundServiceImplTest#approvedStatusIsVisibleWhileChannelIsStillRunning`；原 4.2 的过期缺口已删除 | 2026-11-10 |
-| L1-2 | 金额边界与勾稽 | SPEC-TRADE-013（5/5）、SPEC-COURSE-011（4/5） | 进行中 | 金额单位与订单/支付/退款三处勾稽已完成；定价口径缺教师端提交入口（AC-1），见 4.2 | 2026-11-10 |
+| L1-2 | 金额边界与勾稽 | SPEC-TRADE-013（5/5）、SPEC-COURSE-011（5/5） | 已完成 | 金额单位与订单/支付/退款三处勾稽已完成；教师端拟定价入口于 2026-11-11 浏览器实跑（建课 88.80 → 提交 → 撤回 → 改价 66.60 → 再提交），AC-1 满足；元/分双轨仍为技术债，见 4.2 | 2026-11-11 |
 | L1-3 | 订单超时关单 | SPEC-TRADE-007（5/5） | 已完成 | L1-3 层级已从 SPEC-TRADE-004 移到实际承载它的 SPEC-TRADE-007；004 剩 2 条 AC 属「支付发起与重付」业务缺口，层级改回 L2-2，见 4.2 | 2026-11-10 |
 | L1-4 | 幂等契约 | SPEC-TRADE-001（7/7） | 已完成 | `Idempotency-Key`、最终响应原文缓存、40901 与 40902 已实现；Redis 降级窗口的同键换体限制见 4.2 | 2026-11-10 |
 | L1-5 | 教师入驻审核 | SPEC-COURSE-009（5/5） | 已完成 | 审核接口、权限码 `admin:teacher:audit` 与重新提交已通；运营与教师端无页面，档案未打 L1-5 层级标记 | 2026-11-10 |
@@ -113,7 +113,7 @@
 | L1-8 | 账号注销 | SPEC-PLAT-004（32/33） | 进行中 | 已实现 32 条：AC-1/2/3/4/5/6/7/8/9/10/11/12/13/14/15/16/17/18/19/20/21/23/24/25/26/27/28/29/30/31/32/33，覆盖申请与撤销、7 天冷静期落库、重复申请幂等、阻塞失败关闭、员工账号拒绝、查询与状态门禁、trade 冷静期守卫、执行任务与匿名化、环境变量与指标。2026-11-10 逐条复核结论：AC-6、AC-9、AC-17 的单测断言与 AC 逐条对应（`AccountCancellationServiceImplTest#applyAfterWithdrawalCreatesANewRequestWithANewDeadline`、`OrderTimeoutConcurrencyTest#timedOutOrderNoLongerBlocksAccountDeletion`、`AccountAnonymizationServiceTest#anonymisationRewritesInPlaceAndDeletesNoBusinessRow`，均随 `backend-test` 执行），可判满足；AC-16 由 `lp-trade-service` 的 `NewAccountVisibilityTest`（订单查询按新用户 id 为空、原用户 1 条）与 `lp-learn-service` 的 `NewAccountVisibilityTest`（`hasEntitlement`/`ownedCourseIds` 按新用户 id 为空、原用户有该课程）显式补断言，AC-25 由 `AccountCancellationServiceImplTest#applyAndWithdrawLogTheDeadlineAndSource` 与 `AccountCancellationExecutionJobTest#everyOutcomeIsLoggedWithUserDeadlineAndSource` 覆盖申请/撤销/执行/跳过/失败五处日志（断言 userId、effectiveAt、source），两条闭环；AC-33 已闭环：`LpAuthAccountCancellationCacheInvalidateFailed` 改为 `increase(...[15m]) >= 3` + `for: 5m`（门槛 3 与 5 分钟去抖未动），`scripts/observability-ac33-drill.sh` 改回单批 3 次失败即跑通 pending（采样中 `activeAt` 未后移）→firing→Alertmanager active→inactive，见 `docs/local-dev-guide.md` 4.10；原 `[5m]` 与 `for: 5m` 等长会让单批突发永不触发，已按「不降门槛、改窗口」裁定修正；唯一仍为「部分」的是 AC-22：Web 侧已于 2026-11-10 用真实账号浏览器实跑（申请/倒计时/撤销/67003 常驻提示/67005 下单与支付门禁），小程序真机预览受外部条件阻塞（缺真实 AppID），见 §4.3 外部阻塞 | 2026-11-10 |
 | L1-9 | 支付对账 | SPEC-TRADE-014（3/4） | 进行中 | 已完成：CSV 账单导入与 `uk_channel_date_type` 幂等覆盖、差异明细落库、ERROR 日志与 `reconcile_diff_total{channel}`、日查询、重跑与人工标记（AC-1/AC-2）；`payment_settle_batch`（V12，V13 改为 `uk_active_day`）、日结/作废/详情/列表接口与账单日锁定（AC-3）。AC-3 走的是「作废解锁」路径，不是「关闭后不可变」：作废仅 `ADMIN`（`admin:reconcile:close`）、原因必填（1–300 字）、与统一审计（动作 6 / 对象 3）同事务写入；作废行保留可查（`status=2`），账单日解锁后重新日结插入新批次，不复活原批次。剩余：AC-4 仍因真实收款（支付宝商户号与账单权限）未开而阻塞；运营后台无页面、导出不做，见 4.2。自动拉账待商户号与账单权限 | 2026-11-10 |
 | L1-10 | 发布前工程化验证 | 无对应规格条目 | 进行中 | 依赖与镜像漏洞扫描已进 CI（`.github/workflows/supply-chain-ci.yml`，Trivy 固定版本，非阻断基线期，报告落 artifact）；备份恢复演练脚本已落地并在本地跑通（`scripts/backup-drill.sh`，逻辑备份、无 binlog PITR、耗时不代表生产 RTO）；后端依赖基线已升到 Boot 3.5.16 + Cloud 2025.0.3，Tomcat/Netty/Jackson/BouncyCastle/minio 等以显式 `dependencyManagement` 钉在修复版本，Trivy HIGH 清空、CRITICAL 由 15 条降到 3 条（剩余为 Spring Framework 6.2.19，Boot 3.5 线无修复版本）；E2E 冒烟已进独立 workflow（`e2e-ci.yml`，不进五项必需检查，失败上传六项取证）；监控栈已落 `infra/observability`（Prometheus / Alertmanager / Grafana，`rule_files` 挂载现有规则文件），8 个服务均暴露 `/actuator/prometheus` 并被抓取（2026-11-10 本地 8 个服务 8/8 UP、规则组 `health=ok`）；AC-33 的 firing、Alertmanager 可见与回 inactive 已由 `scripts/observability-ac33-drill.sh` 本地跑通（`increase(...[15m]) >= 3` + `for: 5m`，单批 3 次失败注入），见 3.5 与第 5 章 | 2026-11-10 |
-| L1-11 | 内容生产通路（上传→处理→播放链路，教师端或运营后台任一） | SPEC-PLAT-006（6/6） | 已完成 | 上传会话、浏览器单次 PUT 直传、确认回填、运营后台教师入口与播放预览已成：`apps/admin` 的 `/lesson-videos` 走「建会话→PUT→确认→列表回显」，2026-11-10 用 6 秒 MP4 在本地全栈实跑通过（PUT 200、confirm 200、`course_lesson` 回填 640×360 与字节数、会话置已确认）；AC-6 由 `GET /api/v1/teacher/courses/{courseId}/chapters/{chapterId}/lessons/{lessonId}/play-url` 提供，教师只能签自己课程、默认 10 分钟、只回 `playUrl/expiresIn/expiresAt`，目录改用 `hasVideo` 不再下发对象键；`submit` 要求每条可见课时均已确认视频。播放预览已于 2026-11-10 在本地全栈用 Chrome 实跑（见下方「L1-11 播放预览证据」）：草稿课可预览、签名地址取对象 206、播放器 `currentTime≈3.57s/6s`、`640×360`；非本人课程返回 `40301`，不存在课程返回 `40401`。`deleted=1` 课程路径目前只有代码依据（`selectById` 带 `deleted = 0`），未实测。转码仍未做，属后续独立切片 | 2026-11-10 |
+| L1-11 | 内容生产通路（上传→处理→播放链路，教师端或运营后台任一） | SPEC-PLAT-006（6/6） | 已完成 | 上传会话、浏览器单次 PUT 直传、确认回填、运营后台教师入口与播放预览已成：`apps/admin` 的 `/lesson-videos` 走「建会话→PUT→确认→列表回显」，2026-11-10 用 6 秒 MP4 在本地全栈实跑通过（PUT 200、confirm 200、`course_lesson` 回填 640×360 与字节数、会话置已确认）；AC-6 由 `GET /api/v1/teacher/courses/{courseId}/chapters/{chapterId}/lessons/{lessonId}/play-url` 提供，教师只能签自己课程、默认 10 分钟、只回 `playUrl/expiresIn/expiresAt`，目录改用 `hasVideo` 不再下发对象键；`submit` 要求每条可见课时均已确认视频。播放预览已于 2026-11-10 在本地全栈用 Chrome 实跑（见下方「L1-11 播放预览证据」）：草稿课可预览、签名地址取对象 206、播放器 `currentTime≈3.57s/6s`、`640×360`；非本人课程返回 `40301`，不存在课程返回 `40401`。`deleted=1` 课程路径目前只有代码依据（`selectById` 带 `deleted = 0`），未实测。转码仍未做，属后续独立切片。**2026-11-11 从零跑通教师端自助链路**：浏览器新建课程（99.00/129.00）→ 行内「课时」跳到 `/lesson-videos?courseId=` → 新增章节 → 新增课时 → 上传 6 秒 MP4 并确认（`hasVideo=true`、`durationSec=6`、H264 320×240）→ 编辑课时标题与排序 → 提交审核（待审核），全程无 SQL；转码展示位已在列表预留，字段未上线时显示 `--` | 2026-11-11 |
 
 **L1-11 播放预览证据（2026-11-10）**：Chrome 以 `--host-resolver-rules=MAP minio 127.0.0.1` 启动（未改 `/etc/hosts`），`demo_teacher_lin` 登录 `apps/admin` → 草稿课 990012（`status=0`）→ 课时 990285（6 秒、640×360）→ 预览。`play-url` 返回 HTTP 200（响应含 `playUrl`、`expiresIn=600`、`expiresAt`）；签名地址 host 为 `minio:9000`、`X-Amz-Expires=600`；`video/mp4` 取对象 206，播放器 `readyState=4`、`currentTime≈3.57s`、`duration=6`、`videoWidth×videoHeight=640×360`，无 media error。**前置条件**：本地浏览器必须能解析 `minio`（hosts 或上述 Chrome 参数），生产必须由公网 HTTPS 媒体域名签发，不能沿用容器内主机名（见 4.2）。
 
@@ -163,7 +163,7 @@
 | 用户与订单 | 关键词/订单号查询、分页列表 | `UsersView.vue`、`OrdersView.vue` | 2026-11-09 |
 | 退款审核 | 按状态筛选的退款队列、通过/驳回（驳回必填原因）、分页与操作错误提示 | `RefundQueueView.vue`、`controller/AdminRefundController.java` | 2026-11-09 |
 | 教师入驻审核接口 | 按状态筛选的审核队列、通过/驳回（驳回必填原因）、权限码 `admin:teacher:audit`；**无运营页面**，仅接口可用 | `controller/AdminTeacherController.java`、`service/impl/AdminTeacherAuditServiceImpl.java` | 2026-11-09 |
-| 未做 | 教师入驻审核页面、课程/课时管理、评论与举报处置、角色与菜单管理、教师工作台界面 | `apps/admin/src/router.ts` 仅有 5 个业务页面 | 2026-11-09 |
+| 未做 | 教师入驻审核页面、课时删除与拖拽排序（课时新增/编辑已可用）、评论与举报处置、角色与菜单管理、教师统计看板 | 教师课程页（建课/改价/提交/撤回）、课时视频页（章节/课时新增与编辑、上传）已可用，`router.ts` 仍无上述页面 | 2026-11-11 |
 
 ## 3.4 微信小程序
 
@@ -209,21 +209,24 @@
 |---|---|---|---|---|
 | 日结与结算的运营后台页面与导出 | SPEC-TRADE-014 AC-3 与 Q-2；engineering-plan 5.2、5.5 | 接口已实现：日结、作废、详情、列表（`/api/v1/reconcile/settlements/**`），批次落 `payment_settle_batch`，日结后锁定账单日；口径已于 2026-11-10 冻结（只封账与净额汇总，不含手续费/分账/教师结算） | 运营后台无日结页面，本期只有接口；批次导出不做 | 2026-11-10 |
 | 对账账单对象存储归档 | SPEC-TRADE-014 Q-3；engineering-plan 10.4 | 已定：维持库内 `payment_reconcile.raw_bill`，不迁 MinIO。账单是文本、单日行数量级小，对象存储归档属可选优化；**如单日账单体积上量再评估对象存储归档** | 无（按需评估，不阻塞上线） | 2026-11-10 |
+| 已售课程的单个课时下架（停用课时） | SPEC-COURSE-008 AC-2；product-lifecycle 6.4 | 2026-11-11 起已售课程的课时禁止删除，未售课程可软删；单个课时「停用」未实现，本期只有拒绝 | 待定：需要课时级停用状态与学员侧下架提示口径；在冻结口径前不做，删除请求继续由 `61009` 兜底 | 2026-11-11 |
 | 评论、两级回复、收藏、举报与内容审核 | product-lifecycle F11/F12、4.3；engineering-plan 13.2 M3 | `lp-ugc-service` 仅有启动类与 `package-info`，`lp_ugc` 仅有 V1 基线 | 未排期；依赖 UGC 表设计与审核链路 | 2026-11-09 |
 | AI 课程画像、审核、文案、学伴、BYO 模型配置 | product-lifecycle F15–F18；engineering-plan 第 7 章、13.2 M4 | `lp-ai-service` 仅有启动类与 `package-info`，`lp_ai` 仅有 V1 基线 | 未排期；缺客户模型 key 与配置界面 | 2026-11-09 |
 | 购物车页面 | product-lifecycle F07、4.3 | 后端 `/api/v1/cart` 可用，Web 无购物车页面 | 未排期 | 2026-11-09 |
 | 优惠券发券与领券 | product-lifecycle F07 | 只有 `coupon`/`user_coupon` 表与下单核销逻辑，无发券、领券、券列表接口 | 未排期；无运营配置入口 | 2026-11-09 |
 | 教师入驻审核页面 | product-lifecycle F04；engineering-plan 13.2 M1 | 审核接口、权限码与教师重新提交接口已通；运营后台与教师端均无页面 | 未排期；依赖后台与教师工作台界面 | 2026-11-09 |
 | 教师审核驳回原因超 300 字静默截断 | SPEC-PLAT-010、`AdminAuditService.record` | 驳回原因写入审计前按 300 字截断，接口不报错也不提示；超过 300 字时审计备注与实际驳回原因不一致 | 已知问题；处置方向：接口校验拒绝，超过 300 字返回 `40001` 并说明上限，不静默截断；不放宽 `remark` 字段 | 2026-11-10 |
-| 教师工作台界面与数据看板 | engineering-plan 1.2、2.1；product-lifecycle F13；SPEC-COURSE-011 | 仅有课程 CRUD 接口；后台无教师页面，无销售/学习/评论统计接口 | 未排期；缺 `course_daily_stat` 等汇总表 | 2026-11-09 |
-| 教师提交拟定价（前端入口） | SPEC-COURSE-011 AC-1、SPEC-COURSE-012 | 教师端已有建课/改价页面（`/teacher-courses`）：`price`/`originalPrice` 以元提交，仅草稿（0）/已下架（3）可改，待审核（1）与已上架（2）只读并给出状态提示；待审行提供「撤回」入口（确认弹窗，仅状态 1 可点），撤回后回到草稿可重新改价提交；运营审核通过时以 `priceFen` 定最终价 | 已可用；价格变更留痕复用审核审计（见下方技术债）；已购订单按快照价，不补差价、不退差价 | 2026-11-10 |
+| 教师工作台数据看板 | engineering-plan 1.2、2.1；product-lifecycle F13；SPEC-COURSE-011 | 教师建课/改价/提交/撤回页面已可用（`/teacher-courses`）；仍无销售/学习/评论统计接口与看板 | 未排期；缺 `course_daily_stat` 等汇总表 | 2026-11-11 |
+| 教师提交拟定价（前端入口） | SPEC-COURSE-011 AC-1、SPEC-COURSE-012 | 教师端已有建课/改价页面（`/teacher-courses`）：`price`/`originalPrice` 以元提交，仅草稿（0）/已下架（3）可改，待审核（1）与已上架（2）只读并给出状态提示；待审行提供「撤回」入口（确认弹窗，仅状态 1 可点），撤回后回到草稿可重新改价提交；运营审核通过时以 `priceFen` 定最终价；建课与改价表单已含副标题、简介与难度（难度 1/2/3 与后端枚举一致，前端不另造校验）；2026-11-11 用 Chrome 实跑「建课 → 提交审核 → 撤回 → 改价并清空划线价 → 再提交」，行内提交在表单未保存时禁用 | 已可用；价格变更留痕复用审核审计（见下方技术债）；已购订单按快照价，不补差价、不退差价 | 2026-11-11 |
 | 教师入驻审核只有接口，没有审核页面 | SPEC-COURSE-009；L1-5 | 审核接口、权限码 `admin:teacher:audit` 与重新提交已通；运营后台无审核页面，教师端也没有入驻入口与状态页 | 接口级完成，L1-5 的「已完成」只覆盖 AC，不代表可用；页面未排期 | 2026-11-10 |
 | 视频上传与 ffprobe 校验 | product-lifecycle F06；engineering-plan 15.2 D5 | 上传会话（`upload-sessions`）、MinIO 直传与确认（`confirm`）接口已通（1c-1/1c-2）；运营后台已提供按 TEACHER 角色显示的课时视频上传页（1c-3b-2） | 教师独立工作台界面未排期，当前入口寄居运营后台 | 2026-11-10 |
 | 前端上传上限是服务端配置的镜像常量 | `CourseUploadProperties#maxSizeBytes`、V9 `chk_lesson_upload_size`、`apps/admin` `MAX_VIDEO_BYTES` | `apps/admin` 以 `2_147_483_648` 镜像 `lp.course.upload.max-size-bytes`，只用于上传前快速失败；权威判定仍只有服务端一处，两侧靠注释约束同步 | 技术债：将来应由服务端下发（会话响应或配置接口返回上限），前端不再持有常量。现阶段可接受，因为客户端只做快速失败、服务端才是权威 | 2026-11-10 |
-| 教师端入口已可用，缺口收窄为入驻前提 | 1c-3b-2；`apps/admin/src/router.ts` | 教师已可登录 `apps/admin`，入口为「课程管理」（`/teacher-courses`，建课与拟定价）与「课时视频」（`/lesson-videos`）；准入、守卫与菜单由前端 `router.ts` 的纯函数 `canAccess` / `defaultRouteFor` / `visibleMenu` 驱动，两个教师页守卫放 ADMIN+TEACHER、菜单项只给 TEACHER，双角色落地 `/`；数据边界仍在后端：`/api/v1/admin/**` 对 TEACHER 仍返回 `40301`。仍需注意：纯 TEACHER 必须有 `teacher_profile` 才有数据，否则教师接口 403、页面提示「当前账号尚未完成教师入驻」。播放预览已于 2026-11-10 补齐（`play-url` 签名 GET + 页面预览播放器）。当时验证用的本地夹具未进仓库 | 剩余缺口是转码与教师独立工作台；登录准入与播放预览本身已不再是缺口 | 2026-11-10 |
+| 教师端入口已可用，缺口收窄为入驻前提 | 1c-3b-2；`apps/admin/src/router.ts` | 教师已可登录 `apps/admin`，入口为「课程管理」（`/teacher-courses`，建课与拟定价）与「课时视频」（`/lesson-videos`，章节/课时新增与编辑、上传与预览）；准入、守卫与菜单由前端 `router.ts` 的纯函数 `canAccess` / `defaultRouteFor` / `visibleMenu` 驱动，两个教师页守卫放 ADMIN+TEACHER、菜单项只给 TEACHER，双角色落地 `/`；数据边界仍在后端：`/api/v1/admin/**` 对 TEACHER 仍返回 `40301`。仍需注意：纯 TEACHER 必须有 `teacher_profile` 才有数据，否则教师接口 403、页面提示「当前账号尚未完成教师入驻」。播放预览已于 2026-11-10 补齐（`play-url` 签名 GET + 页面预览播放器）。当时验证用的本地夹具未进仓库 | 剩余缺口是转码与教师独立工作台；登录准入与播放预览本身已不再是缺口 | 2026-11-10 |
 | 支付重付约束 | SPEC-TRADE-004 AC-3、AC-4；engineering-plan 2.3 | 重新发起支付时直接复用未关闭的支付单，未返回 62006；`ErrorCode` 中没有 62006，也不要求先关闭原单 | 未排期；属支付发起与重付的业务缺口（L2-2），不阻塞 L1 上线 | 2026-11-10 |
 | 全文搜索与多维筛选 | product-lifecycle F02；engineering-plan 1.3 | 仅 `LIKE` 标题/副标题；无难度、热度、上新排序；`ft_` 索引未被查询使用 | 未排期 | 2026-11-09 |
 | 资料维护与账号注销 | product-lifecycle F01；engineering-plan 15.2 D8；SPEC-PLAT-004 | 资料修改未实现；注销已有 `POST/DELETE/GET /api/v1/auth/account-cancellation`（冷静期 7 天、重复申请幂等、阻塞返回 67003、依赖失败返回 50401），trade 冷静期守卫已实现（下单与支付返回 67005、200ms 探测、45s 缓存、提交后异步主动失效）；执行任务与匿名化已由定时任务自动执行，告警规则见 `infra/observability/prometheus-rules.yml`（3 条，已由本地监控栈加载求值；AC-33 的 firing 已由 `scripts/observability-ac33-drill.sh` 跑通）；Web `/account` 与小程序账号页已提供注销申请、冷静期倒计时、撤销与阻塞提示，Web 侧 2026-11-10 用真实账号实跑验证（截图与请求响应原文在仓库外 `/Users/caspian/lesson-platform-evidence/ac22-20261110/`），小程序真机预览因无 AppID 无法验证（见 §4.3） | 进行中（SPEC-PLAT-004 32/33，仅剩 AC-22 外部阻塞，见 §4.3） | 2026-11-10 |
+| 游客试看免费课时 | product-lifecycle 6.3、6.8 播放权限、F03；SPEC-LEARN-003 | 需求侧：product-lifecycle 6.3 允许未登录游客浏览课程详情并试看免费课时，6.8 的口径是「免费课时所有用户可看」。实现侧：网关 `lp.identity.optional-auth` 只含 `/api/v1/courses/**`、`/api/v1/categories/**` 与 `/api/v1/orders/purchase-ticket/redeem`，`/api/v1/lessons/**` 不在其中，匿名请求在网关即返回 `40101`；即使放行，`LessonController#playToken` 在缺少 `X-User-Id` 时同样抛 `40101`。规格侧：SPEC-LEARN-003 的 AC-1 至 AC-6 全部以已登录用户为前提，没有匿名试看的 AC | 未排期；需先冻结匿名试看口径（是否签发匿名凭证、频控、防盗链），再决定是否把播放接口加入 `optional-auth`；当前「免费课时可试看」只对已登录用户成立 | 2026-11-10 |
+| 同一用户同一课时最多 2 路并发播放 | product-lifecycle 6.5 视频上传与播放约束；F03 | 仅产品承诺：SPEC-LEARN-003 没有并发路数的 AC；`lp-learn-service` 的 `play-token` 只校验登录与权益，不计数也不拒绝，同一用户可对同一课时无限次取签名并同时播放，无播放会话表或 Redis 占位 | 未排期；要么补 AC 并在签发或播放链路落地计数（Redis 租约或播放会话表），要么从产品口径中删除；当前既不实现也不校验 | 2026-11-10 |
 | 注销后原用户名登录返回 `40101`，`67001` 只在匿名名上可达 | SPEC-PLAT-004 AC-13/AC-14 与 AC-15；`AuthServiceImpl.login`、`AccountAnonymizationMapper` | #150（`02a790b`）已按方案 A 落地「仅 `status=3` 先判状态、后验密码」，用 `deleted_{userId}` 登录返回 `67001`。但 AC-15 同时要求 `username` 改为不可逆占位，匿名化后原用户名不再存在，原用户名登录在查账号阶段即返回 `40101`；真实验证覆盖旧 token 下的 `/me`、`/refresh` 与匿名名登录的 `67001` | 已按方案 A 收敛，不再待裁决；演练脚本同时断言原用户名 `40101` 与匿名名 `67001`，并用「仅改 `status=3`、密码不变」的 fixture 证明状态门禁先于密码，禁用账号分支断言「密码优先、`40301` 在后」 | 2026-11-10 |
 | 手动取消不释放优惠券 | SPEC-TRADE-006、SPEC-TRADE-007 AC-5 | 超时关单会释放订单占用的优惠券，手动取消（`OrderServiceImpl.cancel`）只关闭订单与支付单，券仍停留为已使用且绑定该订单，用户丢券且两种取消行为不一致 | 未排期；行为不一致 | 2026-11-09 |
 | 幂等层降级时同键换 body 无法识别 | SPEC-TRADE-001 AC-5、SPEC-TRADE-008 | Redis 不可用时幂等层记录 WARN 日志并累加 `lp.trade.idempotency.degraded` 指标后放行，该窗口内同键换请求体不会被识别为 `40901`，仅靠数据库唯一键（`uk_idempotency`、`uk_active_order`、支付单行锁）兜底 | 已接受；依赖监控告警 | 2026-11-09 |
@@ -281,7 +284,7 @@
 | 文档表述 | 实际实现 | 处理建议 | 最后核对日期 |
 |---|---|---|---|
 | README "初版不包含退款与对账" | 退款闭环已合并（`1a56af8`、`b4be3b6`）；对账已合并 CSV 导入、重跑、人工标记与日结接口，自动拉账与日结页面未做 | 拆分表述：退款已做；对账已做 CSV 链路与日结接口，自动拉账与页面未做 | 2026-11-10 |
-| engineering-plan 1.2 教师工作台位于 `apps/admin` | 后台仅有运营页面，无教师建课界面 | 标注为"仅 API，界面未做" | 2026-11-09 |
+| engineering-plan 1.2 教师工作台位于 `apps/admin` | 教师建课/改价/提交审核/撤回页面已在 `/teacher-courses` 落地；仍无独立教师工作台与统计看板 | 标注为「基础课程页已做，数据看板未做」 | 2026-11-11 |
 | engineering-plan 15.2 D11 下单 30 分钟自动关单 | 无定时关单任务 | 标注为未实现 | 2026-11-09 |
 | engineering-plan 1.3 允许 MySQL 全文索引搜索 | 查询使用 `LIKE`，`ft_` 索引未使用 | 标注当前为 `LIKE`，全文检索待做 | 2026-11-09 |
 | product-lifecycle 3.1 游客可试看 | 播放签名接口要求登录（`40101`） | 确认是否允许匿名试看，再改实现或文档 | 2026-11-09 |

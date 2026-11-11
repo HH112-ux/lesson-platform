@@ -13,17 +13,22 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.lp.common.exception.BizException;
+import com.lp.course.client.TradeOrderClient;
 import com.lp.course.config.CourseUploadProperties;
 import com.lp.course.dto.TeacherCoursePageView;
 import com.lp.course.dto.TeacherCourseRequest;
 import com.lp.course.dto.TeacherCourseStatusCounts;
 import com.lp.course.dto.TeacherCourseView;
 import com.lp.course.entity.Course;
+import com.lp.course.entity.CourseChapter;
 import com.lp.course.entity.CourseReviewAudit;
 import com.lp.course.entity.TeacherCourseStatusRow;
 import com.lp.course.mapper.CourseReviewAuditMapper;
+import com.lp.course.mapper.LessonContentCleanupMapper;
 import com.lp.course.mapper.LessonUploadMapper;
 import com.lp.course.mapper.TeacherCourseMapper;
+import com.lp.course.upload.LessonPlaybackKeyResolver;
+import com.lp.course.upload.LessonTranscodeService;
 import com.lp.course.upload.LessonUploadObjectReader;
 import com.lp.course.upload.LessonUploadUrlSigner;
 import com.lp.course.upload.LessonVideoProbe;
@@ -61,6 +66,12 @@ class TeacherCourseServiceImplTest {
 
     @Mock private LessonVideoValidator videoValidator;
 
+    @Mock private TradeOrderClient tradeOrderClient;
+    @Mock private LessonTranscodeService transcodeService;
+    @Mock private LessonContentCleanupMapper contentCleanupMapper;
+
+    @Mock private LessonPlaybackKeyResolver playbackKeyResolver;
+
     private TeacherCourseServiceImpl service;
 
     /**
@@ -88,7 +99,11 @@ class TeacherCourseServiceImplTest {
                                 "",
                                 ""),
                         videoProbe,
-                        videoValidator);
+                        videoValidator,
+                        tradeOrderClient,
+                        transcodeService,
+                        playbackKeyResolver,
+                        contentCleanupMapper);
     }
 
     /**
@@ -533,6 +548,61 @@ class TeacherCourseServiceImplTest {
         assertEquals(9L, page.items().get(0).courseId());
         assertNull(page.items().get(0).reviewRemark());
         assertEquals(new TeacherCourseStatusCounts(1, 0, 2, 3), page.counts());
+    }
+
+    /**
+     * Deletion is refused unless the trade service confirms the course was never sold.
+     *
+     * @author Caspian
+     * @since 0.15.0
+     */
+    @Test
+    void rejectsLessonDeletionUnlessCourseIsConfirmedUnsold() {
+        when(teacherCourseMapper.selectTeacherIdByUser(1001L)).thenReturn(55L);
+        when(teacherCourseMapper.selectById(9L)).thenReturn(draft(9L, 55L, 0));
+        when(teacherCourseMapper.selectChapter(9L, 71L)).thenReturn(chapter(71L, 9L));
+        when(tradeOrderClient.paidOrderExists(9L)).thenReturn(true, (Boolean) null);
+
+        BizException sold =
+                assertThrows(
+                        BizException.class,
+                        () -> service.deleteLesson(1001L, "TEACHER", 9L, 71L, 81L));
+        BizException unknown =
+                assertThrows(
+                        BizException.class,
+                        () -> service.deleteLesson(1001L, "TEACHER", 9L, 71L, 81L));
+
+        assertEquals(61009, sold.getCode());
+        assertEquals(50401, unknown.getCode());
+        verify(teacherCourseMapper, never()).deleteLesson(anyLong(), anyLong(), anyLong());
+        verify(contentCleanupMapper, never()).insertLessonCleanup(anyLong(), anyLong(), anyLong());
+    }
+
+    /**
+     * An unsold course still allows deleting a lesson.
+     *
+     * @author Caspian
+     * @since 0.15.0
+     */
+    @Test
+    void deletesLessonWhenCourseIsNotSold() {
+        when(teacherCourseMapper.selectTeacherIdByUser(1001L)).thenReturn(55L);
+        when(teacherCourseMapper.selectById(9L)).thenReturn(draft(9L, 55L, 0));
+        when(teacherCourseMapper.selectChapter(9L, 71L)).thenReturn(chapter(71L, 9L));
+        when(tradeOrderClient.paidOrderExists(9L)).thenReturn(false);
+        when(teacherCourseMapper.deleteLesson(9L, 71L, 81L)).thenReturn(1);
+
+        service.deleteLesson(1001L, "TEACHER", 9L, 71L, 81L);
+
+        verify(contentCleanupMapper).insertLessonCleanup(9L, 71L, 81L);
+        verify(teacherCourseMapper).deleteLesson(9L, 71L, 81L);
+    }
+
+    private CourseChapter chapter(long id, long courseId) {
+        CourseChapter chapter = new CourseChapter();
+        chapter.setId(id);
+        chapter.setCourseId(courseId);
+        return chapter;
     }
 
     /**

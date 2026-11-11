@@ -39,6 +39,9 @@ lp:
     # Used only to fill the catalog owned flag; failures degrade to anonymous.
     learn-base-url: ${LP_LEARN_BASE_URL:http://127.0.0.1:8104}
     learn-read-timeout-ms: ${LP_LEARN_READ_TIMEOUT_MS:2000}
+    # Locks lesson deletion once a course is sold; an unreachable trade service never allows it.
+    trade-base-url: ${LP_TRADE_BASE_URL:http://127.0.0.1:8103}
+    trade-read-timeout-ms: ${LP_COURSE_TRADE_READ_TIMEOUT_MS:2000}
     upload:
       # Presigned PUT credentials are short lived on purpose: they are issued per session.
       session-ttl: ${LP_COURSE_UPLOAD_SESSION_TTL:30m}
@@ -57,6 +60,19 @@ lp:
       minio-access-key: ${LP_COURSE_UPLOAD_MINIO_ACCESS_KEY:}
       minio-secret-key: ${LP_COURSE_UPLOAD_MINIO_SECRET_KEY:}
       minio-bucket: ${LP_COURSE_UPLOAD_MINIO_BUCKET:${LP_MINIO_BUCKET:lp-media}}
+    # Asynchronous standardization of confirmed lesson videos. The source file stays playable, so a
+    # disabled or failed transcode never blocks review or playback.
+    transcode:
+      enabled: ${LP_COURSE_TRANSCODE_ENABLED:true}
+      # CPU bound work: keep the pool small and let the bounded queue absorb upload bursts.
+      concurrency: ${LP_COURSE_TRANSCODE_CONCURRENCY:2}
+      queue-capacity: ${LP_COURSE_TRANSCODE_QUEUE_CAPACITY:64}
+      ffmpeg-path: ${LP_COURSE_TRANSCODE_FFMPEG_PATH:ffmpeg}
+      timeout: ${LP_COURSE_TRANSCODE_TIMEOUT:2h}
+      max-attempts: ${LP_COURSE_TRANSCODE_MAX_ATTEMPTS:3}
+      retry-backoff: ${LP_COURSE_TRANSCODE_RETRY_BACKOFF:5s}
+      download-timeout: ${LP_COURSE_TRANSCODE_DOWNLOAD_TIMEOUT:30m}
+      upload-timeout: ${LP_COURSE_TRANSCODE_UPLOAD_TIMEOUT:30m}
 
 management:
   endpoints:

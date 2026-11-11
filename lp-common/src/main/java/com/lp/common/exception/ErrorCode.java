@@ -110,6 +110,12 @@ public enum ErrorCode {
     /** The lesson or its course is not in a state that accepts a new upload session. */
     LESSON_UPLOAD_STATE_INVALID(61008, "lesson does not accept an upload session"),
 
+    /**
+     * The course already has a paid order, so its lessons cannot be deleted; removal would break
+     * the playback of buyers whose progress points at them.
+     */
+    COURSE_CONTENT_LOCKED(61009, "course content is locked by paid orders"),
+
     /** Trade domain failure. */
     TRADE_BIZ_ERROR(62001, "trade operation failed"),
 

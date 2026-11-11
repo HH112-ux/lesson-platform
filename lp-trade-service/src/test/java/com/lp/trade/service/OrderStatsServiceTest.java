@@ -1,6 +1,8 @@
 package com.lp.trade.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.when;
 
 import com.lp.trade.dto.OrderStatsView;
@@ -59,5 +61,19 @@ class OrderStatsServiceTest {
         OrderStatsView stats = orderStatsService.stats();
 
         assertEquals(0L, stats.paidAmountFen());
+    }
+
+    /**
+     * A course counts as sold only while an order still grants it.
+     *
+     * @author Caspian
+     * @since 0.15.0
+     */
+    @Test
+    void reportsWhetherCourseHasPaidOrders() {
+        when(tradeOrderMapper.countPaidByCourse(9L)).thenReturn(2L, 0L);
+
+        assertTrue(orderStatsService.hasPaidOrder(9L));
+        assertFalse(orderStatsService.hasPaidOrder(9L));
     }
 }

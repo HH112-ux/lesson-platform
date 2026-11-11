@@ -22,6 +22,7 @@ import {
   type TeacherCoursePayload,
 } from '../api/teacher'
 import { ApiError } from '../api/client'
+import { navigate } from '../router'
 import { describeError } from '../utils/errors'
 import { formatFen } from '../utils/format'
 
@@ -29,6 +30,7 @@ const PAGE_SIZE = 50
 const EDITABLE_STATUS: readonly number[] = [0, 3]
 const STATUS_TEXT: Record<number, string> = { 0: '草稿', 1: '待审核', 2: '已上架', 3: '已下架' }
 const STATUS_HINT: Record<number, string> = { 2: '已上架，不可直接改价' }
+const LEVEL_TEXT: Record<number, string> = { 1: '入门', 2: '进阶', 3: '高级' }
 const AMOUNT_PATTERN = /^\d+(\.\d{1,2})?$/
 
 const courses = ref<TeacherCourse[]>([])
@@ -44,6 +46,9 @@ const formOpen = ref(false)
 
 const form = reactive({
   title: '',
+  subtitle: '',
+  description: '',
+  level: 1,
   coverUrl: '',
   categoryId: null as number | null,
   price: '',
@@ -53,6 +58,11 @@ const form = reactive({
 
 function isEditable(course: TeacherCourse): boolean {
   return EDITABLE_STATUS.includes(course.status)
+}
+
+/** Opens the lesson screen with this course preselected. */
+function openLessons(course: TeacherCourse): void {
+  navigate(`/lesson-videos?courseId=${course.courseId}`)
 }
 
 /** Returns the amount in yuan, {@code null} when empty and {@code NaN} when malformed. */
@@ -113,6 +123,9 @@ async function load(): Promise<void> {
 
 function resetForm(): void {
   form.title = ''
+  form.subtitle = ''
+  form.description = ''
+  form.level = 1
   form.coverUrl = ''
   form.categoryId = null
   form.price = ''
@@ -138,6 +151,9 @@ function openEdit(course: TeacherCourse): void {
   resetForm()
   editing.value = course
   form.title = course.title
+  form.subtitle = course.subtitle ?? ''
+  form.description = course.description ?? ''
+  form.level = course.level
   form.coverUrl = course.coverUrl
   form.categoryId = course.categoryId
   errorText.value = ''
@@ -174,6 +190,9 @@ async function save(): Promise<void> {
   }
   const payload: TeacherCoursePayload = {
     title: form.title.trim(),
+    subtitle: form.subtitle.trim(),
+    description: form.description.trim(),
+    level: form.level,
     coverUrl: form.coverUrl.trim(),
     categoryId: form.categoryId ?? undefined,
   }
@@ -307,6 +326,37 @@ onMounted(() => {
         >
       </label>
       <label class="lp-field">
+        <span class="lp-label">副标题（可选，不超过 200 字）</span>
+        <input
+          v-model="form.subtitle"
+          class="lp-input"
+          maxlength="200"
+        >
+      </label>
+      <label class="lp-field">
+        <span class="lp-label">课程简介（可选）</span>
+        <textarea
+          v-model="form.description"
+          class="lp-input"
+          rows="4"
+        />
+      </label>
+      <label class="lp-field">
+        <span class="lp-label">难度</span>
+        <select
+          v-model.number="form.level"
+          class="lp-input"
+        >
+          <option
+            v-for="(text, value) in LEVEL_TEXT"
+            :key="value"
+            :value="Number(value)"
+          >
+            {{ text }}
+          </option>
+        </select>
+      </label>
+      <label class="lp-field">
         <span class="lp-label">分类</span>
         <select
           v-model="form.categoryId"
@@ -400,6 +450,7 @@ onMounted(() => {
         <thead>
           <tr>
             <th>课程</th>
+            <th>难度</th>
             <th>状态</th>
             <th>拟定价（元）</th>
             <th>划线价（元）</th>
@@ -414,12 +465,19 @@ onMounted(() => {
             <td>
               <strong>{{ course.title }}</strong>
               <div
+                v-if="course.subtitle"
+                class="lp-muted small"
+              >
+                {{ course.subtitle }}
+              </div>
+              <div
                 v-if="course.reviewRemark"
                 class="lp-muted small"
               >
                 驳回原因：{{ course.reviewRemark }}
               </div>
             </td>
+            <td>{{ LEVEL_TEXT[course.level] ?? course.level }}</td>
             <td>
               <span class="lp-tag">{{ STATUS_TEXT[course.status] ?? course.status }}</span>
             </td>
@@ -427,6 +485,13 @@ onMounted(() => {
             <td>{{ course.originalPrice === null ? '--' : formatFen(course.originalPrice) }}</td>
             <td>
               <div class="row-actions">
+                <button
+                  class="lp-btn"
+                  type="button"
+                  @click="openLessons(course)"
+                >
+                  课时
+                </button>
                 <template v-if="course.status === 1">
                   <button
                     class="lp-btn"
