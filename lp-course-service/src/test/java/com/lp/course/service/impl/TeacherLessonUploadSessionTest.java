@@ -21,6 +21,7 @@ import com.lp.course.dto.TeacherUploadSessionView;
 import com.lp.course.entity.Course;
 import com.lp.course.entity.CourseLesson;
 import com.lp.course.entity.LessonUpload;
+import com.lp.course.mapper.CourseReviewAuditMapper;
 import com.lp.course.mapper.LessonUploadMapper;
 import com.lp.course.mapper.TeacherCourseMapper;
 import com.lp.course.upload.LessonUploadObjectReader;
@@ -52,6 +53,8 @@ class TeacherLessonUploadSessionTest {
 
     @Mock private LessonUploadMapper lessonUploadMapper;
 
+    @Mock private CourseReviewAuditMapper courseReviewAuditMapper;
+
     @Mock private LessonUploadUrlSigner uploadSigner;
 
     @Mock private LessonUploadObjectReader uploadReader;
@@ -68,6 +71,7 @@ class TeacherLessonUploadSessionTest {
                 new TeacherCourseServiceImpl(
                         teacherCourseMapper,
                         lessonUploadMapper,
+                        courseReviewAuditMapper,
                         uploadSigner,
                         uploadReader,
                         new CourseUploadProperties(

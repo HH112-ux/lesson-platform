@@ -152,7 +152,7 @@ flowchart TB
 
 ## 2.3 关键流程的状态机
 
-**课程状态**：`0 草稿 → 1 待审核 → 2 已上架 → 3 已下架`；审核驳回回到 `0` 并记录 `review_remark`。规则（见 SPEC-COURSE-002/004）：**待审核只读**，不可编辑、不可撤回、不可重复提交；运营**审核通过与定价、首次上架为同一动作**（`1→2`），不设置「审核通过待上架」的中间状态；已下架课程**未发生内容变更**可直接再上架（`3→2`），一旦编辑内容即回草稿（`3→0`）并必须重新审核。教师只能对自己 `owner_teacher_id` 的课程发起 `0→1`、`2→3`、`3→2`；`1→2` 只能由运营执行。
+**课程状态**：`0 草稿 → 1 待审核 → 2 已上架 → 3 已下架`；审核驳回回到 `0` 并记录 `review_remark`。规则（见 SPEC-COURSE-002/004/012）：**待审核只读**，不可编辑、不可改价、不可重复提交，但教师本人可撤回为草稿（`1→0`，写入审核审计）；运营**审核通过与定价、首次上架为同一动作**（`1→2`），不设置「审核通过待上架」的中间状态；已下架课程**未发生内容变更**可直接再上架（`3→2`），一旦编辑内容即回草稿（`3→0`）并必须重新审核。教师只能对自己 `owner_teacher_id` 的课程发起 `0→1`、`1→0`（撤回）、`2→3`、`3→2`；`1→2` 只能由运营执行。
 
 **订单状态**（仅支付宝单渠道，`payment_record.channel=1`；历史 `channel=2` 记录只读）：
 
@@ -548,10 +548,10 @@ erDiagram
 |---|---|---|---|
 | id | BIGINT UNSIGNED | PK | — |
 | course_id | BIGINT UNSIGNED | NOT NULL | `course.id` |
-| action | TINYINT | NOT NULL | 1 通过/2 驳回 |
+| action | TINYINT | NOT NULL | 1 通过/2 驳回/3 教师撤回 |
 | from_status | TINYINT | NOT NULL | 决策前状态，固定为 1 待审核 |
 | to_status | TINYINT | NOT NULL | 决策后状态：2 已上架/0 草稿 |
-| reviewer_id | BIGINT UNSIGNED | NOT NULL | 审核人用户 id |
+| reviewer_id | BIGINT UNSIGNED | NOT NULL | 操作人用户 id（运营审核人或撤回的教师） |
 | remark | VARCHAR(300) | NULL | 审核意见，驳回时必填 |
 | created_at | DATETIME(3) | NOT NULL | 决策时间 |
 
@@ -760,6 +760,27 @@ erDiagram
 
 唯一 `uk_channel_date_type(channel, bill_date, bill_type)`（同一渠道同一天同一账单类型只允许一条，重跑对账为覆盖更新）；索引 `idx_status_date(status, bill_date)`。
 
+**payment_settle_batch 日结批次**
+
+| 字段 | 类型 | 约束 | 说明 |
+|---|---|---|---|
+| id | BIGINT UNSIGNED | PK | — |
+| channel | TINYINT | NOT NULL | 1 支付宝（首版唯一启用） |
+| bill_date | DATE | NOT NULL | 账单日 |
+| channel_pay_count / channel_pay_amount | INT / DECIMAL(12,2) | NOT NULL DEFAULT 0 | 渠道支付账单笔数与金额 |
+| channel_refund_count / channel_refund_amount | INT / DECIMAL(12,2) | NOT NULL DEFAULT 0 | 渠道退款账单笔数与金额 |
+| local_pay_count / local_pay_amount | INT / DECIMAL(12,2) | NOT NULL DEFAULT 0 | 本地 `payment_record` 笔数与金额 |
+| local_refund_count / local_refund_amount | INT / DECIMAL(12,2) | NOT NULL DEFAULT 0 | 本地 `refund_request` 笔数与金额 |
+| net_channel_amount / net_local_amount | DECIMAL(12,2) | NOT NULL DEFAULT 0 | 支付减退款的净额（渠道/本地） |
+| diff_count / diff_amount | INT / DECIMAL(12,2) | NOT NULL DEFAULT 0 | 两份账单差异笔数与金额合计 |
+| status | TINYINT | NOT NULL DEFAULT 1 | 1 已日结/2 已作废 |
+| closed_by / closed_at | BIGINT UNSIGNED / DATETIME(3) | NOT NULL | 日结操作人与时间 |
+| void_by / void_at | BIGINT UNSIGNED / DATETIME(3) | NULL | 作废操作人与时间 |
+| active_day_key | VARCHAR(64) | NULL | 有效批次键 `channel-bill_date`，作废置 NULL，只服务唯一约束，不对外返回 |
+| 公共字段 | — | — | — |
+
+唯一 `uk_active_day(active_day_key)`（`active_day_key` 为 `channel-bill_date`，仅有效批次写入，作废置 NULL，因此同一渠道账单日只允许一条有效批次，作废历史可多条并存）；作废后重新日结插入新批次，不复活旧行；索引 `idx_status_date(status, bill_date)`。日结只封账与汇总净额，不含手续费、分账、教师结算与任何资金动作。
+
 ### 4.3.4 学习（`lp_lms`）
 
 **user_entitlement 课程权益**
@@ -929,11 +950,11 @@ erDiagram
 
 ### 4.3.7 审计（`lp_cms`，L1-7）
 
-**admin_audit_log 统一操作审计（追加写）**：`id, operator_id, operator_role TINYINT, action_type TINYINT, object_type TINYINT, object_id, from_status TINYINT, to_status TINYINT, remark VARCHAR(300), trace_id VARCHAR(64), dedupe_key VARCHAR(128), created_at`；唯一 `uk_dedupe(dedupe_key)`、`idx_object_created(object_type, object_id, created_at)`、`idx_operator_created(operator_id, created_at)`。当前只覆盖课程审核、退款审核、教师审核六种动作；字段含义、索引与建表校验见迁移 `course/V7__admin_audit_log.sql`，事务边界在 5.9.1（PR-B 课程/教师、PR-C 退款）。
+**admin_audit_log 统一操作审计（追加写）**：`id, operator_id, operator_role TINYINT, action_type TINYINT, object_type TINYINT, object_id, from_status TINYINT, to_status TINYINT, remark VARCHAR(300), trace_id VARCHAR(64), dedupe_key VARCHAR(128), created_at`；唯一 `uk_dedupe(dedupe_key)`、`idx_object_created(object_type, object_id, created_at)`、`idx_operator_created(operator_id, created_at)`。当前只覆盖课程审核、退款审核、教师审核与结算作废七种动作（结算作废由 trade-service 经 `lp_oms.audit_outbox` 同事务投递，作废原因写入 `remark`）；字段含义、索引与建表校验见迁移 `course/V7__admin_audit_log.sql`，事务边界在 5.9.1（PR-B 课程/教师、PR-C 退款与结算作废）。
 
 **位置调整说明**：原方案把审计放在 `lp_ums`（`audit_log`）。实际落地改为放在 `lp_cms`、由 course-service 持有，原因是三类动作的状态分别在 `lp_cms`（课程、教师）与 `lp_oms`（退款），而 `admin-service` 无数据源；放在 `lp_ums` 会让课程与教师审核必须跨服务写审计，"状态已改、审计未写"无法用单库事务排除。`lp_ums.audit_log` 保留给后续账号、角色、AI 模型配置等非本次范围的管理操作，尚未建表。
 
-**退款侧的投递箱（`lp_oms.audit_outbox`）**：`id, dedupe_key, operator_id, operator_role, action_type, object_type, object_id, from_status, to_status, remark, trace_id, occurred_at, status TINYINT(0 待投递/1 已投递/2 已放弃), retry_count, next_retry_at, delivered_at, last_error, created_at, updated_at`；唯一 `uk_dedupe(dedupe_key)`、`idx_status_next(status, next_retry_at)`。用于补齐退款审核无法跨库同事务的缺口，规则见 5.9.1（PR-C）。
+**审计投递箱（`lp_oms.audit_outbox`）**：`id, dedupe_key, operator_id, operator_role, action_type, object_type, object_id, from_status, to_status, remark, trace_id, occurred_at, status TINYINT(0 待投递/1 已投递/2 已放弃), retry_count, next_retry_at, delivered_at, last_error, created_at, updated_at`；唯一 `uk_dedupe(dedupe_key)`、`idx_status_next(status, next_retry_at)`。用于补齐退款审核与结算作废无法跨库同事务的缺口，规则见 5.9.1（PR-C）。
 
 **与 `course_review_audit` 的关系**：保留且继续双写，不迁移历史数据，也不删表。`course_review_audit` 继续服务单课程审核历史查询（含审核人、备注、时间），`admin_audit_log` 提供跨域统一视图；旧行没有 `operator_role` 与 `trace_id`，因此不回填、不合并，`course_review_audit` 自本版起视为只读历史表。
 
@@ -998,7 +1019,7 @@ erDiagram
 | 50201 | 下游服务失败 | Feign 超时/错误 |
 | 50202 | 支付宝渠道失败 | 支付宝下单/退款返回失败 |
 | 50203 | 已移除（原微信支付渠道失败） | 微信支付已下线，保留编码不复用 |
-| 50204 | 对账存在未处理差异 | 重跑对账后仍为 `status=2` 时返回；结算前置校验沿用该码（日结接口尚未实现，见 SPEC-TRADE-014） |
+| 50204 | 对账存在未处理差异 | 重跑对账后仍为 `status=2` 时返回；日结前置校验沿用该码，差异未处置时不写 `payment_settle_batch`（SPEC-TRADE-014 AC-3） |
 | 50205 | 支付渠道或验签未配置 | 未配置密钥时发起支付与回调，禁止伪造成功 |
 | 50206 | 对象存储未配置或签名失败 | 播放签名缺少 MinIO 凭据时显式失败，禁止伪造 URL |
 | 50301 | AI 服务暂不可用 | 熔断/内部错误，AI 入口整体不可用 |
@@ -1024,6 +1045,7 @@ erDiagram
 | 62009 | 支付金额不一致 | 回调金额与订单应付金额不一致，拒绝并保留待人工核对 |
 | 62010 | 回调渠道不匹配 | 回调渠道与订单固定渠道不一致 |
 | 62011 | 支付方式已下线 | 小程序（微信支付）下单或发起支付；客户端应引导到网页用支付宝购买 |
+| 62019 | 日结前置账单不完整 | 支付与退款账单未全部导入时触发日结（SPEC-TRADE-014 AC-3） |
 | 63001 | 学习进度越界 | 超出视频时长 |
 | 64001 | 内容含违规信息 | 本地关键词兜底 |
 | 64002 | 举报目标不存在 | — |
@@ -1071,7 +1093,7 @@ erDiagram
 | GET | `/internal/v1/courses` | 内部接口，不经网关对外：批量课程摘要（交易校验与下单取价） | query:`ids`（逗号分隔，必填） | `[{courseId,title,coverUrl,price,status,teacherId,lessonCount}]` | 40001 |
 | GET | `/internal/v1/courses/{courseId}/lessons` | 内部接口，不经网关对外：课时列表（`free` 为试看标记） | — | `[{lessonId,chapterId,title,free,sort}]` | 40401 |
 | GET | `/internal/v1/courses/stats` | 内部接口，不经网关对外：课程按状态计数（运营看板数据源） | — | `{total,draft,pendingReview,published,offline}` | — |
-| GET | `/internal/v1/courses/{courseId}/review-audits` | 内部接口，不经网关对外：课程审核审计流水（按决策时间倒序） | — | `[{auditId,courseId,action,fromStatus,toStatus,reviewerId,remark,createdAt}]`；`action` 1 通过/2 驳回 | 40401 |
+| GET | `/internal/v1/courses/{courseId}/review-audits` | 内部接口，不经网关对外：课程审核审计流水（按决策时间倒序） | — | `[{auditId,courseId,action,fromStatus,toStatus,reviewerId,remark,createdAt}]`；`action` 1 通过/2 驳回/3 教师撤回 | 40401 |
 | POST | `/api/v1/comments` | 发评论 | `{courseId,lessonId?,parentId?,content}` | `{id,status:0}` | 40001,40301(未购),64001 |
 | DELETE | `/api/v1/comments/{commentId}` | 删本人评论（逻辑删） | — | `{deleted:true}` | 40301,40401 |
 | POST | `/api/v1/reports` | 举报 | `{targetType,targetId,reasonType,content}` | `{id}` | 40001,64002 |
@@ -1133,8 +1155,12 @@ spec:
 | POST | `/api/v1/reconcile/import` | 导入一个账单日账单（运营/管理员；权限码 `admin:reconcile:handle`） | `multipart/form-data`：`channel(默认 1)`、`billDate`、`billType(1 支付/2 退款)`、`file`（UTF-8 CSV） | `{id,channel,billDate,billType,channelCount,channelAmount,localCount,localAmount,diffCount,diffAmount,status}` | 40001,40101,40301 |
 | POST | `/api/v1/reconcile/{reconcileId}/recheck` | 重跑对账（运营/管理员；权限码 `admin:reconcile:recheck`） | `{}` | `{status,diffCount,diffAmount}`；重算结果先落库再返回 | 40101,40301,40401,50204 |
 | POST | `/api/v1/reconcile/{reconcileId}/handle` | 人工标记差异已处理（运营/管理员；权限码 `admin:reconcile:handle`；操作人取网关注入的 `X-User-Id`） | `{}` | `{status:3,handledBy,handledAt}` | 40001,40101,40301,40401,40901 |
+| POST | `/api/v1/reconcile/settlements` | 日结一个账单日（仅管理员；权限码 `admin:reconcile:close`；操作人取 `X-User-Id`） | `{channel(默认 1),billDate}` | `{id,channel,billDate,channelPayCount,channelPayAmountFen,...,netChannelAmountFen,netLocalAmountFen,diffCount,diffAmountFen,status,closedBy,closedAt,voidBy,voidAt}`，金额以分返回 | 40001,40101,40301,50204,62019 |
+| POST | `/api/v1/reconcile/settlements/{batchId}/void` | 作废日结批次并解锁账单日（仅管理员；权限码 `admin:reconcile:close`；原因必填并写统一审计） | `{reason}`，去除首尾空白后 1–300 字 | 同上，`status=2` 并带 `voidBy`/`voidAt`；批次行保留，重新日结生成新批次 | 40001,40101,40301,40401,40901 |
+| GET | `/api/v1/reconcile/settlements/{batchId}` | 日结批次详情（运营/管理员；权限码 `admin:reconcile:view`） | — | 单个批次，金额以分返回 | 40101,40301,40401 |
+| GET | `/api/v1/reconcile/settlements` | 日结批次分页（运营/管理员；权限码 `admin:reconcile:view`） | query:`channel(默认 1),billDate,status,pageNum,pageSize` | 分页 `{records:[批次],total,pageNum,pageSize}`，按账单日倒序 | 40001,40101,40301 |
 
-> **对账口径（SPEC-TRADE-014）**：账单来源**仅 CSV 上传**，UTF-8，表头 `tradeNo,merchantOrderNo,amount,occurredAt`，金额为元、两位小数、恒为正，账单日按 Asia/Shanghai 切分。**支付宝账单接口尚未接入**（需商户号与账单权限），自动拉取登记为待办，不得在文档或页面宣称已直连渠道。导入按 `uk_channel_date_type` 幂等覆盖，重复导入不产生重复差异。匹配规则：支付按 `payment_record.channel_trade_no` + 金额，退款按 `refund_request.channel_refund_no` + 金额；渠道多收为正差。差异只落 `payment_reconcile.diff_detail` 并告警，处置手段只有人工标记已处理，**不做任何自动冲正或资金操作**。日结与结算接口未实现，`50204` 为该场景保留。
+> **对账口径（SPEC-TRADE-014）**：账单来源**仅 CSV 上传**，UTF-8，表头 `tradeNo,merchantOrderNo,amount,occurredAt`，金额为元、两位小数、恒为正，账单日按 Asia/Shanghai 切分。**支付宝账单接口尚未接入**（需商户号与账单权限），自动拉取登记为待办，不得在文档或页面宣称已直连渠道。导入按 `uk_channel_date_type` 幂等覆盖，重复导入不产生重复差异。匹配规则：支付按 `payment_record.channel_trade_no` + 金额，退款按 `refund_request.channel_refund_no` + 金额；渠道多收为正差。差异只落 `payment_reconcile.diff_detail` 并告警，处置手段只有人工标记已处理，**不做任何自动冲正或资金操作**。日结按 2026-11-10 冻结口径实现（SPEC-TRADE-014 Q-2）：支付与退款账单都已导入方可日结（缺任一 `62019`），存在 `status=2` 差异返回 `50204` 且不写批次；日结成功后写入 `payment_settle_batch` 并锁定账单日，重复日结返回同一批次，日结后导入与重跑返回 `40901`；作废仅 `ADMIN`（`admin:reconcile:close`），原因必填（1–300 字）并写统一审计（动作 6 / 对象 3），作废后解锁，重新日结插入新批次，原作废批次保留可查。日结只封账与汇总净额，不含手续费、分账、教师结算与任何资金动作，**导出本期不做**。
 
 > **金额单位**：本表与 5.9、5.10 的交易、支付、退款金额字段（`totalAmount`、`discountAmount`、`payAmount`、`amount` 等）对外一律以**分**表示；库内 `DECIMAL(10,2)` 存元，换算在服务边界完成（SPEC-TRADE-013）。
 
@@ -1224,7 +1250,7 @@ spec:
 | POST | `/api/v1/admin/courses/{courseId}/submit` | 提交审核（运营代提交） | `{}` | `{status:1}` | 40901 |
 | GET | `/api/v1/admin/courses/pending` | 课程审核队列（`status=1`，按提交时间正序） | query:`pageNum,pageSize` | 分页 `{records:[{courseId,title,coverUrl,ownerTeacherId,price,submittedAt}],total,pageNum,pageSize}`；`price` 单位分 | 40301 |
 | POST | `/api/v1/admin/courses/{courseId}/review` | **审核课程**（通过：定价并上架同一动作 `1→2`，无「待上架」中间态；驳回→草稿，`remark` 必填） | `{approved:bool,priceFen?,remark?}` | `{courseId,status:0\|2,priceFen,reviewedAt}` | 40001,40301,40401,61005 |
-| GET | `/api/v1/admin/courses/{courseId}/review-audits` | 课程审核审计流水（按决策时间倒序，供运营追溯） | — | `[{auditId,courseId,action,fromStatus,toStatus,reviewerId,remark,createdAt}]`；`action` 1 通过/2 驳回 | 40301,40401,50201 |
+| GET | `/api/v1/admin/courses/{courseId}/review-audits` | 课程审核审计流水（按决策时间倒序，供运营追溯） | — | `[{auditId,courseId,action,fromStatus,toStatus,reviewerId,remark,createdAt}]`；`action` 1 通过/2 驳回/3 教师撤回 | 40301,40401,50201 |
 | POST | `/api/v1/admin/courses/{courseId}/publish` | 上架并定价（运营；已下架未变更可直接再上架 `3→2`，内容变更过须回草稿复审；`price` 单位分） | `{price?,categoryId?}` | `{status:2}` | 40301,40901 |
 | POST | `/api/v1/admin/courses/{courseId}/unpublish` | 下架 | `{reason}` | `{status:3}` | 40301 |
 | POST | `/api/v1/admin/entitlements/grant` | 运营发放课程权益（免费课开通/客诉补偿，不产生订单，15.2 D9） | `{userId,courseId,reason}` | `{entitlementId}` | 40001,40301,40901(已有权益) |
@@ -1259,7 +1285,7 @@ spec:
 
 ### 5.9.1 统一操作审计（L1-7）
 
-**范围**：只覆盖课程审核（通过/驳回）、退款审核（通过/驳回）、教师审核（通过/驳回）六种动作，不做"全管理操作审计"。动作类型 `0 课程通过 / 1 课程驳回 / 2 退款通过 / 3 退款驳回 / 4 教师通过 / 5 教师驳回`，对象类型 `0 课程 / 1 退款 / 2 教师`，操作人角色 `0 运营 / 1 管理员`，均由代码常量类映射（`AuditAction`、`AuditObject`、`OperatorRole`），禁止字符串魔法值。
+**范围**：只覆盖课程审核（通过/驳回）、退款审核（通过/驳回）、教师审核（通过/驳回）、结算作废七种动作，不做"全管理操作审计"。动作类型 `0 课程通过 / 1 课程驳回 / 2 退款通过 / 3 退款驳回 / 4 教师通过 / 5 教师驳回 / 6 结算作废`，对象类型 `0 课程 / 1 退款 / 2 教师 / 3 结算批次`，操作人角色 `0 运营 / 1 管理员`，均由代码常量类映射（`AuditAction`、`AuditObject`、`OperatorRole`），禁止字符串魔法值。
 
 **存储**：`lp_cms.admin_audit_log`（迁移 `course/V7`），索引满足两种检索——`idx_object_created(object_type, object_id, created_at)` 支撑按对象查，`idx_operator_created(operator_id, created_at)` 支撑按操作人+时间查。
 
@@ -1270,10 +1296,11 @@ spec:
 | 课程审核 | `lp_cms.course` | 状态更新与审计同库同事务 | 同一数据源，审计失败即整体回滚，不会出现"改了状态没审计" |
 | 教师审核 | `lp_cms.teacher_profile` | 同上 | 同上 |
 | 退款审核 | `lp_oms.refund_request` | 审核事务内写 `audit_outbox` 投递意图，再由 trade-service 中继投递到 `lp_cms.admin_audit_log` | 状态与审计表跨库，无法同事务；若先改状态再 HTTP 写审计，失败即丢审计。改为在同一事务内写意图，"状态改了必有意图"；投递为至少一次，`dedupe_key` 唯一键吸收重复；超过重试上限置 `status=2 已放弃` 并打 ERROR 与指标，留人工对账 |
+| 结算作废 | `lp_oms.payment_settle_batch` | 作废事务内写 `audit_outbox` 投递意图，复用退款中继 | 批次状态与审计表跨库；作废会解封账务日，属高风险动作，同样要求"状态改了必有意图"，去重键取 `settle-void:{batchId}`，重试与放弃规则同上 |
 
 课程审核与教师审核的审计写入在 `@Transactional` 方法内完成：先写业务状态，再写 `admin_audit_log`，任一步抛异常由同一事务回滚，因此不存在"状态已改、审计缺失"的中间态。
 
-**退款投递语义**：中继按 `status=0` 且 `next_retry_at <= now` 取批（默认 50 条），失败按 5s 起指数退避、上限 300s；course-service 侧 `INSERT ... ON DUPLICATE KEY UPDATE dedupe_key = dedupe_key` 保证重复投递不产生第二行。**积压发现方式**：`SELECT status, COUNT(*) FROM audit_outbox GROUP BY status`，待投递持续增长或 `status=2` 出现即告警；中继同时累加投递成功/失败/放弃三类指标，`status=2` 需人工补写审计。
+**投递语义（退款审核与结算作废共用）**：中继按 `status=0` 且 `next_retry_at <= now` 取批（默认 50 条），失败按 5s 起指数退避、上限 300s；course-service 侧 `INSERT ... ON DUPLICATE KEY UPDATE dedupe_key = dedupe_key` 保证重复投递不产生第二行。**积压发现方式**：`SELECT status, COUNT(*) FROM audit_outbox GROUP BY status`，待投递持续增长或 `status=2` 出现即告警；中继同时累加投递成功/失败/放弃三类指标，`status=2` 需人工补写审计。
 
 **查询接口**：`GET /api/v1/admin/audit-logs`，`admin-service` 无数据源，经 `X-Internal-Token` 调 course-service `GET /internal/v1/audit-logs`；两种模式互斥——传 `objectType`+`objectId` 按对象查，否则必须传 `operatorId`+`dateFrom`+`dateTo`（`from < to`，左闭右开），分页固定 `pageNum/pageSize`（默认 1/20，上限 100）。权限码 `admin:audit:list`，默认只授予 `ADMIN`，运营需管理员单独授权。
 
@@ -1281,7 +1308,7 @@ spec:
 
 ### 5.9.1 统一操作审计（L1-7）
 
-**范围**：只覆盖课程审核（通过/驳回）、退款审核（通过/驳回）、教师审核（通过/驳回）六种动作，不做"全管理操作审计"。动作类型 `0 课程通过 / 1 课程驳回 / 2 退款通过 / 3 退款驳回 / 4 教师通过 / 5 教师驳回`，对象类型 `0 课程 / 1 退款 / 2 教师`，操作人角色 `0 运营 / 1 管理员`，均由代码常量类映射（`AuditAction`、`AuditObject`、`OperatorRole`），禁止字符串魔法值。
+**范围**：只覆盖课程审核（通过/驳回）、退款审核（通过/驳回）、教师审核（通过/驳回）、结算作废七种动作，不做"全管理操作审计"。动作类型 `0 课程通过 / 1 课程驳回 / 2 退款通过 / 3 退款驳回 / 4 教师通过 / 5 教师驳回 / 6 结算作废`，对象类型 `0 课程 / 1 退款 / 2 教师 / 3 结算批次`，操作人角色 `0 运营 / 1 管理员`，均由代码常量类映射（`AuditAction`、`AuditObject`、`OperatorRole`），禁止字符串魔法值。
 
 **存储**：`lp_cms.admin_audit_log`（迁移 `course/V7`），索引满足两种检索——`idx_object_created(object_type, object_id, created_at)` 支撑按对象查，`idx_operator_created(operator_id, created_at)` 支撑按操作人+时间查。
 
@@ -1292,10 +1319,11 @@ spec:
 | 课程审核 | `lp_cms.course` | 状态更新与审计同库同事务 | 同一数据源，审计失败即整体回滚，不会出现"改了状态没审计" |
 | 教师审核 | `lp_cms.teacher_profile` | 同上 | 同上 |
 | 退款审核 | `lp_oms.refund_request` | 审核事务内写 `audit_outbox` 投递意图，再由 trade-service 中继投递到 `lp_cms.admin_audit_log` | 状态与审计表跨库，无法同事务；若先改状态再 HTTP 写审计，失败即丢审计。改为在同一事务内写意图，"状态改了必有意图"；投递为至少一次，`dedupe_key` 唯一键吸收重复；超过重试上限置 `status=2 已放弃` 并打 ERROR 与指标，留人工对账 |
+| 结算作废 | `lp_oms.payment_settle_batch` | 作废事务内写 `audit_outbox` 投递意图，复用退款中继 | 批次状态与审计表跨库；作废会解封账务日，属高风险动作，同样要求"状态改了必有意图"，去重键取 `settle-void:{batchId}`，重试与放弃规则同上 |
 
 课程审核与教师审核的审计写入在 `@Transactional` 方法内完成：先写业务状态，再写 `admin_audit_log`，任一步抛异常由同一事务回滚，因此不存在"状态已改、审计缺失"的中间态。
 
-**退款投递语义**：中继按 `status=0` 且 `next_retry_at <= now` 取批（默认 50 条），失败按 5s 起指数退避、上限 300s；course-service 侧 `INSERT ... ON DUPLICATE KEY UPDATE dedupe_key = dedupe_key` 保证重复投递不产生第二行。**积压发现方式**：`SELECT status, COUNT(*) FROM audit_outbox GROUP BY status`，待投递持续增长或 `status=2` 出现即告警；中继同时累加投递成功/失败/放弃三类指标，`status=2` 需人工补写审计。
+**投递语义（退款审核与结算作废共用）**：中继按 `status=0` 且 `next_retry_at <= now` 取批（默认 50 条），失败按 5s 起指数退避、上限 300s；course-service 侧 `INSERT ... ON DUPLICATE KEY UPDATE dedupe_key = dedupe_key` 保证重复投递不产生第二行。**积压发现方式**：`SELECT status, COUNT(*) FROM audit_outbox GROUP BY status`，待投递持续增长或 `status=2` 出现即告警；中继同时累加投递成功/失败/放弃三类指标，`status=2` 需人工补写审计。
 
 **与 `course_review_audit` 的关系**：保留、继续双写、历史数据不迁移。课程审核同时写 `course_review_audit`（单课程历史查询）与 `admin_audit_log`（跨域统一视图）；旧行没有 `operator_role` 与 `trace_id`，不回填、不合并，`course_review_audit` 视为只读历史表。
 
@@ -1303,7 +1331,7 @@ spec:
 
 鉴权要求：`X-User-Roles` 含 `TEACHER`，且存在 `teacher_profile.user_id = X-User-Id` 的启用档案；`ADMIN` 可读写任意课程，但建课与列表仍要求本人教师档案。**每条请求都在 service 层按 `owner_teacher_id = 当前用户对应 teacher_profile.id` 过滤**，不接受前端传教师 ID，越权返回 `40301`。
 
-**编辑与状态规则**（与 3.2 状态机一致）：草稿（`0`）可编辑；待审核（`1`）对教师只读，不可撤回、不可重复提交；已上架（`2`）教师不可直接编辑，须由运营下架为 `3`；已下架（`3`）可编辑，编辑成功即回草稿（`3→0`）并须重新提交审核。教师提交的 `price` 是拟定价格，运营在审核通过（`1→2`）时确认最终价格（`priceFen` 可选覆盖）。
+**编辑与状态规则**（与 3.2 状态机一致）：草稿（`0`）可编辑；待审核（`1`）对教师只读，不可编辑、不可重复提交，教师本人可撤回为草稿（`1→0`）；已上架（`2`）教师不可直接编辑，须由运营下架为 `3`；已下架（`3`）可编辑，编辑成功即回草稿（`3→0`）并须重新提交审核。教师提交的 `price` 是拟定价格，运营在审核通过（`1→2`）时确认最终价格（`priceFen` 可选覆盖）。
 
 | 方法 | 路径 | 用途 | 请求 | 响应 | 主要错误码 |
 |---|---|---|---|---|---|
@@ -1312,9 +1340,10 @@ spec:
 | GET | `/api/v1/teacher/overview` | 教师总览（规划中；`totalRevenue30d` 单位分） | — | `{courseCount,publishedCount,pendingReviewCount,totalRevenue30d,learnerCount30d}` | 40101,40301 |
 | GET | `/api/v1/teacher/courses` | 我的课程列表 | query:`status,pageNum,pageSize` | 分页 `{items:[{courseId,title,subtitle,coverUrl,description,price,originalPrice,categoryId,level,status,reviewRemark,lessonCount,submittedAt,updatedAt}],total,pageNum,pageSize,counts:{draft,pending,published,offline}}`；`price` 单位分；`counts` 为本人全部课程按状态计数，不受 `status` 过滤与分页影响 | 40001,40101,40301 |
 | GET | `/api/v1/teacher/courses/{courseId}` | 我的课程详情（不含章节/课时，目录走 5.4 公开接口） | — | 同上单条 | 40301,40401 |
-| POST | `/api/v1/teacher/courses` | 建课草稿（`price`、`originalPrice` 单位分；入驻审核未通过返回 `61006`） | `{categoryId,title,subtitle?,coverUrl,description?,price,originalPrice?,level}` | 课程详情，`status:0` | 40001,40101,40301,61006 |
+| POST | `/api/v1/teacher/courses` | 建课草稿（`price`、`originalPrice` 单位**元**；审核接口以分定最终价，换算在服务端做，前端不得自行换算；入驻审核未通过返回 `61006`） | `{categoryId,title,subtitle?,coverUrl,description?,price,originalPrice?,level}` | 课程详情，`status:0` | 40001,40101,40301,61006 |
 | PUT | `/api/v1/teacher/courses/{courseId}` | 编辑本人课程（草稿/已下架可改，字段可选；已下架编辑后回草稿 `3→0` 须重新审核；入驻审核未通过返回 `61006`） | 同建课字段，均可选 | 课程详情 | 40001,40301,40401,40901,61006 |
 | POST | `/api/v1/teacher/courses/{courseId}/submit` | 提交审核（`0→1` 或 `3→1`；至少 1 个带视频与有效时长的课时；待审核期间只读） | `{}` | 课程详情，`status:1` | 40001,40301,40401,40901 |
+| POST | `/api/v1/teacher/courses/{courseId}/withdraw` | 撤回待审（`1→0`；仅课程归属教师本人，管理员不代撤回；写入审核审计 `action=3`） | `{}` | 课程详情，`status:0` | 40301,40401,40901 |
 | POST | `/api/v1/teacher/courses/{courseId}/publish` | 本人课程再上架（`3→2`；仅内容未变更可直接上架，编辑过须回草稿复审） | `{}` | `{status:2}` | 40301,40901 |
 | POST | `/api/v1/teacher/courses/{courseId}/unpublish` | 本人课程下架（`2→3`） | `{reason}` | `{status:3}` | 40301,40901 |
 | GET | `/api/v1/teacher/courses/{courseId}/chapters` | 章节+课时目录（含隐藏项；`hasVideo` 表示是否已确认视频，不下发对象键） | — | `[{chapterId,title,sort,status,lessons:[{lessonId,chapterId,title,hasVideo,durationSec,free,sort,status}]}]` | 40301,40401 |
@@ -1822,7 +1851,7 @@ flowchart LR
 | 域 | 必测内容 |
 |---|---|
 | 认证 | 注册/登录/刷新/退出、Token 过期、越权、**小程序 code 登录与 code 重放**、**绑定手机号冲突（不自动合并账号，15.2 D8）**、注销冷静期申请与撤销 |
-| 课程 | 列表/搜索/详情/目录、未购不可播、上下架；**待审核只读/不可撤回/不可重复提交、已下架编辑回草稿复审**（SPEC-COURSE-002/003）；**无评分展示**（product-lifecycle 2.5） |
+| 课程 | 列表/搜索/详情/目录、未购不可播、上下架；**待审核只读/不可重复提交、教师本人可撤回为草稿、已下架编辑回草稿复审**（SPEC-COURSE-002/003/012）；**无评分展示**（product-lifecycle 2.5） |
 | **教师端** | 建课→提交→审核→上架全流程；**用教师 A 访问教师 B 的课程/章节/课时/看板必须全部 40301**；教师可提交拟定价但不能自行设定最终价；未通过入驻审核不能建课；**审核通过与定价上架同一动作（无「待上架」态，SPEC-COURSE-004）** |
 | 交易 | 购物车（仅 Web）、优惠券、下单幂等、超时关单（30 分钟，15.2 D11）、**支付宝回调（微信回调已随渠道移除）**、退款（**7 天/进度 ≤ 20% 准入与全额退款，15.2 D6**）、**小程序下单必须返回 62011**、**重付仅限原渠道（SPEC-TRADE-004）**、**0 元订单创建即完成并发放权益（D9），不使用 62008** |
 | **对账** | 支付宝单渠道账单比对、差异识别（长款/短款）、重跑幂等、`uk_channel_date_type` 覆盖更新；**未完成对账能力不得开启真实收款** |
@@ -2305,7 +2334,7 @@ DoD：学伴无法回答率 ≤ 30%、找课点击率 +10%、售后 FAQ 命中�
 
 **教师端**
 - [ ] 教师访问他人课程（改课/看数据）用例全部返回 40301
-- [ ] 教师无法修改课程价格（写接口不含 price 字段）
+- [ ] 教师不可直接设定最终价，仅提交拟定价，最终价由运营审核确定
 - [ ] 未通过入驻审核的账号无法进入教师工作台
 
 **安全**

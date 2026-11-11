@@ -1,6 +1,7 @@
 package com.lp.course.service.impl;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
@@ -18,7 +19,9 @@ import com.lp.course.dto.TeacherCourseRequest;
 import com.lp.course.dto.TeacherCourseStatusCounts;
 import com.lp.course.dto.TeacherCourseView;
 import com.lp.course.entity.Course;
+import com.lp.course.entity.CourseReviewAudit;
 import com.lp.course.entity.TeacherCourseStatusRow;
+import com.lp.course.mapper.CourseReviewAuditMapper;
 import com.lp.course.mapper.LessonUploadMapper;
 import com.lp.course.mapper.TeacherCourseMapper;
 import com.lp.course.upload.LessonUploadObjectReader;
@@ -31,6 +34,7 @@ import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -46,6 +50,8 @@ class TeacherCourseServiceImplTest {
     @Mock private TeacherCourseMapper teacherCourseMapper;
 
     @Mock private LessonUploadMapper lessonUploadMapper;
+
+    @Mock private CourseReviewAuditMapper courseReviewAuditMapper;
 
     @Mock private LessonUploadUrlSigner uploadSigner;
 
@@ -69,6 +75,7 @@ class TeacherCourseServiceImplTest {
                 new TeacherCourseServiceImpl(
                         teacherCourseMapper,
                         lessonUploadMapper,
+                        courseReviewAuditMapper,
                         uploadSigner,
                         uploadReader,
                         new CourseUploadProperties(
@@ -229,6 +236,53 @@ class TeacherCourseServiceImplTest {
     }
 
     /**
+     * Clearing the crossed out price removes it instead of keeping the previous value.
+     *
+     * @author Caspian
+     * @since 0.12.0
+     */
+    @Test
+    void clearsOriginalPriceWhenRequested() {
+        Course existing = draft(9L, 55L, 0);
+        existing.setOriginalPrice(new BigDecimal("299.00"));
+        when(teacherCourseMapper.selectTeacherIdByUser(1001L)).thenReturn(55L);
+        when(teacherCourseMapper.selectAuditStatusByTeacherId(55L)).thenReturn(1);
+        when(teacherCourseMapper.selectById(9L)).thenReturn(existing);
+        when(teacherCourseMapper.updateEditable(any(Course.class))).thenReturn(1);
+        TeacherCourseRequest request =
+                new TeacherCourseRequest(3L, "Course", null, "cover", null, null, null, 1, true);
+
+        service.update(1001L, "TEACHER", 9L, request);
+
+        ArgumentCaptor<Course> captor = ArgumentCaptor.forClass(Course.class);
+        verify(teacherCourseMapper).updateEditable(captor.capture());
+        assertNull(captor.getValue().getOriginalPrice());
+    }
+
+    /**
+     * A payload that both sets and clears the crossed out price is contradictory and rejected.
+     *
+     * @author Caspian
+     * @since 0.12.0
+     */
+    @Test
+    void rejectsSettingAndClearingOriginalPriceAtOnce() {
+        when(teacherCourseMapper.selectTeacherIdByUser(1001L)).thenReturn(55L);
+        when(teacherCourseMapper.selectAuditStatusByTeacherId(55L)).thenReturn(1);
+        when(teacherCourseMapper.selectById(9L)).thenReturn(draft(9L, 55L, 0));
+        TeacherCourseRequest request =
+                new TeacherCourseRequest(
+                        3L, "Course", null, "cover", null, null, new BigDecimal("299.00"), 1, true);
+
+        BizException exception =
+                assertThrows(
+                        BizException.class, () -> service.update(1001L, "TEACHER", 9L, request));
+
+        assertEquals(40001, exception.getCode());
+        verify(teacherCourseMapper, never()).updateEditable(any());
+    }
+
+    /**
      * Submission is refused while the course has no lesson with a video and duration.
      *
      * @author Caspian
@@ -307,6 +361,88 @@ class TeacherCourseServiceImplTest {
     }
 
     /**
+     * Withdrawing a pending course returns it to draft and records who did it.
+     *
+     * @author Caspian
+     * @since 0.13.0
+     */
+    @Test
+    void withdrawsOwnPendingCourse() {
+        when(teacherCourseMapper.selectTeacherIdByUser(1001L)).thenReturn(55L);
+        when(teacherCourseMapper.selectById(9L))
+                .thenReturn(draft(9L, 55L, 1))
+                .thenReturn(draft(9L, 55L, 0));
+        when(teacherCourseMapper.withdraw(9L)).thenReturn(1);
+
+        TeacherCourseView view = service.withdraw(1001L, "TEACHER", 9L);
+
+        assertEquals(0, view.status());
+        ArgumentCaptor<CourseReviewAudit> captor = ArgumentCaptor.forClass(CourseReviewAudit.class);
+        verify(courseReviewAuditMapper).insert(captor.capture());
+        CourseReviewAudit audit = captor.getValue();
+        assertEquals(3, audit.getAction());
+        assertEquals(1, audit.getFromStatus());
+        assertEquals(0, audit.getToStatus());
+        assertEquals(1001L, audit.getReviewerId());
+        assertNotNull(audit.getCreatedAt());
+    }
+
+    /**
+     * Only pending courses can be withdrawn; published or draft rows are rejected.
+     *
+     * @author Caspian
+     * @since 0.13.0
+     */
+    @Test
+    void rejectsWithdrawWhenCourseIsNotPending() {
+        when(teacherCourseMapper.selectTeacherIdByUser(1001L)).thenReturn(55L);
+        when(teacherCourseMapper.selectById(9L)).thenReturn(draft(9L, 55L, 2));
+
+        BizException exception =
+                assertThrows(BizException.class, () -> service.withdraw(1001L, "TEACHER", 9L));
+
+        assertEquals(40901, exception.getCode());
+        verify(teacherCourseMapper, never()).withdraw(anyLong());
+    }
+
+    /**
+     * Operations cannot withdraw a teacher's course on the teacher's behalf.
+     *
+     * @author Caspian
+     * @since 0.13.0
+     */
+    @Test
+    void rejectsAdminWithdrawOnBehalf() {
+        when(teacherCourseMapper.selectTeacherIdByUser(1001L)).thenReturn(null);
+        when(teacherCourseMapper.selectById(9L)).thenReturn(draft(9L, 55L, 1));
+
+        BizException exception =
+                assertThrows(BizException.class, () -> service.withdraw(1001L, "ADMIN", 9L));
+
+        assertEquals(40301, exception.getCode());
+        verify(teacherCourseMapper, never()).withdraw(anyLong());
+    }
+
+    /**
+     * A concurrent review decision leaves nothing to withdraw and reports a state conflict.
+     *
+     * @author Caspian
+     * @since 0.13.0
+     */
+    @Test
+    void rejectsWithdrawWhenStatusAlreadyChanged() {
+        when(teacherCourseMapper.selectTeacherIdByUser(1001L)).thenReturn(55L);
+        when(teacherCourseMapper.selectById(9L)).thenReturn(draft(9L, 55L, 1));
+        when(teacherCourseMapper.withdraw(9L)).thenReturn(0);
+
+        BizException exception =
+                assertThrows(BizException.class, () -> service.withdraw(1001L, "TEACHER", 9L));
+
+        assertEquals(40901, exception.getCode());
+        verify(courseReviewAuditMapper, never()).insert(any(CourseReviewAudit.class));
+    }
+
+    /**
      * A negative price is rejected before the insert.
      *
      * @author Caspian
@@ -318,7 +454,7 @@ class TeacherCourseServiceImplTest {
         when(teacherCourseMapper.selectAuditStatusByTeacherId(55L)).thenReturn(1);
         TeacherCourseRequest request =
                 new TeacherCourseRequest(
-                        3L, "Course", null, "cover", null, new BigDecimal("-1"), null, 1);
+                        3L, "Course", null, "cover", null, new BigDecimal("-1"), null, 1, null);
 
         BizException exception =
                 assertThrows(BizException.class, () -> service.create(1001L, "TEACHER", request));
@@ -339,7 +475,7 @@ class TeacherCourseServiceImplTest {
         when(teacherCourseMapper.selectAuditStatusByTeacherId(55L)).thenReturn(1);
         TeacherCourseRequest request =
                 new TeacherCourseRequest(
-                        3L, "Course", null, "cover", null, new BigDecimal("9.999"), null, 1);
+                        3L, "Course", null, "cover", null, new BigDecimal("9.999"), null, 1, null);
 
         BizException exception =
                 assertThrows(BizException.class, () -> service.create(1001L, "TEACHER", request));
@@ -360,7 +496,15 @@ class TeacherCourseServiceImplTest {
         when(teacherCourseMapper.selectAuditStatusByTeacherId(55L)).thenReturn(1);
         TeacherCourseRequest request =
                 new TeacherCourseRequest(
-                        3L, "Course", null, "cover", null, new BigDecimal("100000000.00"), null, 1);
+                        3L,
+                        "Course",
+                        null,
+                        "cover",
+                        null,
+                        new BigDecimal("100000000.00"),
+                        null,
+                        1,
+                        null);
 
         BizException exception =
                 assertThrows(BizException.class, () -> service.create(1001L, "TEACHER", request));
@@ -444,6 +588,14 @@ class TeacherCourseServiceImplTest {
      */
     private TeacherCourseRequest validRequest() {
         return new TeacherCourseRequest(
-                3L, "Course", "Subtitle", "cover", "Description", new BigDecimal("99.00"), null, 1);
+                3L,
+                "Course",
+                "Subtitle",
+                "cover",
+                "Description",
+                new BigDecimal("99.00"),
+                null,
+                1,
+                null);
     }
 }

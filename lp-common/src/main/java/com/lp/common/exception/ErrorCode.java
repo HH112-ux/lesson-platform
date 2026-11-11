@@ -155,6 +155,11 @@ public enum ErrorCode {
     /** The first release supports full refunds only, so the amount must equal the paid amount. */
     REFUND_AMOUNT_INVALID(62018, "refund amount must equal the paid amount"),
 
+    /**
+     * A bill day cannot be closed before both the payment bill and the refund bill were imported.
+     */
+    SETTLE_BILL_INCOMPLETE(62019, "settle requires both payment and refund bills"),
+
     /** Learning domain failure. */
     LEARN_BIZ_ERROR(63001, "learning operation failed"),
 

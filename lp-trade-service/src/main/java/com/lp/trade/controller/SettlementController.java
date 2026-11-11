@@ -1,0 +1,179 @@
+package com.lp.trade.controller;
+
+import com.lp.common.exception.BizException;
+import com.lp.common.exception.ErrorCode;
+import com.lp.common.identity.IdentityHeaders;
+import com.lp.common.result.Result;
+import com.lp.common.web.TraceIds;
+import com.lp.trade.reconcile.CloseSettlementRequest;
+import com.lp.trade.reconcile.ReconcilePermissions;
+import com.lp.trade.reconcile.SettlementPageView;
+import com.lp.trade.reconcile.SettlementView;
+import com.lp.trade.reconcile.VoidSettlementRequest;
+import com.lp.trade.service.SettlementService;
+import jakarta.servlet.http.HttpServletRequest;
+import java.time.LocalDate;
+import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+/**
+ * Operations endpoints that close or void one settled bill day of the Alipay channel.
+ *
+ * <p>A settlement closes one bill day and stores its net summary; it never moves money. Both
+ * endpoints require the {@code admin:reconcile:close} permission, which only {@code ADMIN} holds;
+ * void additionally requires the {@code ADMIN} role itself and a non-empty reason. The gateway
+ * injects the role and permission headers after JWT verification, so a browser cannot forge them.
+ *
+ * @author Caspian
+ * @since 0.6.2
+ */
+@RestController
+@RequestMapping("/api/v1/reconcile/settlements")
+public class SettlementController {
+
+    private static final int DEFAULT_CHANNEL = 1;
+
+    private final SettlementService settlementService;
+
+    /**
+     * Creates the controller.
+     *
+     * @param settlementService day-end settlement service
+     * @author Caspian
+     * @since 0.6.2
+     */
+    public SettlementController(SettlementService settlementService) {
+        this.settlementService = settlementService;
+    }
+
+    /**
+     * Closes one bill day and returns the stored batch.
+     *
+     * @param roles gateway injected roles
+     * @param permissions gateway injected permission codes
+     * @param userId gateway injected operator id
+     * @param body channel and bill day to close
+     * @param request current request, used to resolve the trace id
+     * @return closed batch, or the existing batch when the day was already closed
+     * @author Caspian
+     * @since 0.6.2
+     */
+    @PostMapping
+    public Result<SettlementView> close(
+            @RequestHeader(value = IdentityHeaders.USER_ROLES, required = false) String roles,
+            @RequestHeader(value = IdentityHeaders.USER_PERMISSIONS, required = false)
+                    String permissions,
+            @RequestHeader(value = IdentityHeaders.USER_ID, required = false) Long userId,
+            @RequestBody CloseSettlementRequest body,
+            HttpServletRequest request) {
+        ReconcilePermissions.require(roles, permissions, ReconcilePermissions.CLOSE);
+        long closedBy = requireUserId(userId);
+        Integer channel = body.channel() == null ? DEFAULT_CHANNEL : body.channel();
+        return Result.ok(
+                SettlementView.from(settlementService.close(channel, body.billDate(), closedBy)),
+                TraceIds.resolve(request));
+    }
+
+    /**
+     * Voids a closed batch, unlocks its bill day and records the reason in the unified audit.
+     *
+     * @param roles gateway injected roles, must contain {@code ADMIN}
+     * @param permissions gateway injected permission codes
+     * @param userId gateway injected operator id
+     * @param batchId primary key of the batch
+     * @param body mandatory void reason
+     * @param request current request, used to resolve the trace id
+     * @return voided batch
+     * @author Caspian
+     * @since 0.6.2
+     */
+    @PostMapping("/{batchId}/void")
+    public Result<SettlementView> voidSettleBatch(
+            @RequestHeader(value = IdentityHeaders.USER_ROLES, required = false) String roles,
+            @RequestHeader(value = IdentityHeaders.USER_PERMISSIONS, required = false)
+                    String permissions,
+            @RequestHeader(value = IdentityHeaders.USER_ID, required = false) Long userId,
+            @PathVariable("batchId") long batchId,
+            @RequestBody(required = false) VoidSettlementRequest body,
+            HttpServletRequest request) {
+        ReconcilePermissions.requireAdmin(roles, permissions, ReconcilePermissions.CLOSE);
+        long voidBy = requireUserId(userId);
+        String traceId = TraceIds.resolve(request);
+        String reason = body == null ? null : body.reason();
+        return Result.ok(
+                SettlementView.from(
+                        settlementService.voidSettleBatch(batchId, voidBy, reason, traceId)),
+                traceId);
+    }
+
+    /**
+     * Loads one settlement batch.
+     *
+     * @param roles gateway injected roles
+     * @param permissions gateway injected permission codes
+     * @param batchId primary key of the batch
+     * @param request current request, used to resolve the trace id
+     * @return stored batch
+     * @author Caspian
+     * @since 0.6.2
+     */
+    @GetMapping("/{batchId}")
+    public Result<SettlementView> detail(
+            @RequestHeader(value = IdentityHeaders.USER_ROLES, required = false) String roles,
+            @RequestHeader(value = IdentityHeaders.USER_PERMISSIONS, required = false)
+                    String permissions,
+            @PathVariable("batchId") long batchId,
+            HttpServletRequest request) {
+        ReconcilePermissions.require(roles, permissions, ReconcilePermissions.VIEW);
+        return Result.ok(
+                SettlementView.from(settlementService.get(batchId)), TraceIds.resolve(request));
+    }
+
+    /**
+     * Lists the settlement batches of one channel.
+     *
+     * @param roles gateway injected roles
+     * @param permissions gateway injected permission codes
+     * @param channel payment channel, defaults to 1 (Alipay)
+     * @param billDate optional bill day filter
+     * @param status optional status filter, 1 closed or 2 voided
+     * @param pageNum one based page number, defaults to 1
+     * @param pageSize page size, defaults to 20 and is capped at 100
+     * @param request current request, used to resolve the trace id
+     * @return batch page ordered by bill day descending
+     * @author Caspian
+     * @since 0.6.2
+     */
+    @GetMapping
+    public Result<SettlementPageView> page(
+            @RequestHeader(value = IdentityHeaders.USER_ROLES, required = false) String roles,
+            @RequestHeader(value = IdentityHeaders.USER_PERMISSIONS, required = false)
+                    String permissions,
+            @RequestParam(value = "channel", defaultValue = "1") Integer channel,
+            @RequestParam(value = "billDate", required = false)
+                    @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
+                    LocalDate billDate,
+            @RequestParam(value = "status", required = false) Integer status,
+            @RequestParam(value = "pageNum", defaultValue = "1") int pageNum,
+            @RequestParam(value = "pageSize", defaultValue = "20") int pageSize,
+            HttpServletRequest request) {
+        ReconcilePermissions.require(roles, permissions, ReconcilePermissions.VIEW);
+        return Result.ok(
+                settlementService.page(channel, billDate, status, pageNum, pageSize),
+                TraceIds.resolve(request));
+    }
+
+    private long requireUserId(Long userId) {
+        if (userId == null || userId <= 0) {
+            throw new BizException(ErrorCode.UNAUTHENTICATED);
+        }
+        return userId;
+    }
+}

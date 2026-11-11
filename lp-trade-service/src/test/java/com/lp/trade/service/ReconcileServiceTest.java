@@ -10,10 +10,12 @@ import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lp.common.exception.BizException;
+import com.lp.common.exception.ErrorCode;
 import com.lp.trade.entity.PaymentReconcile;
 import com.lp.trade.entity.PaymentRecord;
 import com.lp.trade.entity.RefundRequest;
 import com.lp.trade.mapper.PaymentReconcileMapper;
+import com.lp.trade.mapper.PaymentSettleBatchMapper;
 import com.lp.trade.reconcile.ReconcileBillCsvParser;
 import com.lp.trade.reconcile.ReconcileCalculator;
 import com.lp.trade.reconcile.ReconcilePageView;
@@ -37,6 +39,8 @@ class ReconcileServiceTest {
 
     @Mock private PaymentReconcileMapper reconcileMapper;
 
+    @Mock private PaymentSettleBatchMapper settleBatchMapper;
+
     private ReconcileService service;
 
     @BeforeEach
@@ -44,10 +48,40 @@ class ReconcileServiceTest {
         service =
                 new ReconcileService(
                         reconcileMapper,
+                        settleBatchMapper,
                         new ReconcileBillCsvParser(),
                         new ReconcileCalculator(),
                         new ObjectMapper(),
                         new SimpleMeterRegistry());
+    }
+
+    @Test
+    void rejectsImportWhenBillDayIsSettled() {
+        when(settleBatchMapper.countClosed(1, BILL_DATE)).thenReturn(1L);
+
+        BizException error =
+                assertThrows(
+                        BizException.class,
+                        () -> service.importBill(1, BILL_DATE, 1, csv("T1,LP1,9.90,")));
+
+        assertEquals(ErrorCode.STATE_CONFLICT.getCode(), error.getCode());
+        verify(reconcileMapper, never()).upsert(any());
+    }
+
+    @Test
+    void rejectsRecheckWhenBillDayIsSettled() {
+        PaymentReconcile existing = new PaymentReconcile();
+        existing.setChannel(1);
+        existing.setBillDate(BILL_DATE);
+        existing.setBillType(1);
+        existing.setRawBill(csv("T1,LP1,9.90,"));
+        when(reconcileMapper.selectById(7L)).thenReturn(existing);
+        when(settleBatchMapper.countClosed(1, BILL_DATE)).thenReturn(1L);
+
+        BizException error = assertThrows(BizException.class, () -> service.recheck(7L));
+
+        assertEquals(ErrorCode.STATE_CONFLICT.getCode(), error.getCode());
+        verify(reconcileMapper, never()).upsert(any());
     }
 
     @Test

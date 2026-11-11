@@ -14,6 +14,9 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.lp.auth.client.AccountDeletionBlockerClient;
 import com.lp.auth.config.AccountDeletionProperties;
 import com.lp.auth.dto.AccountDeletionBlockerView;
@@ -23,13 +26,16 @@ import com.lp.auth.service.AccountAnonymizationService;
 import com.lp.common.exception.BizException;
 import com.lp.common.exception.ErrorCode;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import java.time.LocalDateTime;
 import java.util.List;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.slf4j.LoggerFactory;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.support.SimpleTransactionStatus;
@@ -45,6 +51,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 @ExtendWith(MockitoExtension.class)
 class AccountCancellationExecutionJobTest {
 
+    private static final LocalDateTime EFFECTIVE_AT = LocalDateTime.of(2026, 11, 17, 10, 0);
+
     @Mock private UserAccountCancellationMapper cancellationMapper;
 
     @Mock private AccountAnonymizationService anonymizationService;
@@ -55,6 +63,8 @@ class AccountCancellationExecutionJobTest {
 
     private SimpleMeterRegistry meterRegistry;
     private AccountCancellationExecutionJob job;
+    private Logger jobLogger;
+    private ListAppender<ILoggingEvent> appender;
 
     /** Builds the job under test with in-memory metrics and a mock transaction manager. */
     @BeforeEach
@@ -71,6 +81,16 @@ class AccountCancellationExecutionJobTest {
                         properties("test-salt"),
                         new TransactionTemplate(transactionManager),
                         meterRegistry);
+        jobLogger = (Logger) LoggerFactory.getLogger(AccountCancellationExecutionJob.class);
+        appender = new ListAppender<>();
+        appender.start();
+        jobLogger.addAppender(appender);
+    }
+
+    /** Detaches the appender so the other tests of this module keep their own log state. */
+    @AfterEach
+    void detachLogAppender() {
+        jobLogger.detachAppender(appender);
     }
 
     @Test
@@ -169,6 +189,68 @@ class AccountCancellationExecutionJobTest {
         assertThat(counter(METRIC_EXECUTED)).isZero();
     }
 
+    /**
+     * AC-25: executed, skipped and failed requests each leave one structured line carrying the user
+     * id, the request id, the promised deadline and the trigger source.
+     *
+     * @author Caspian
+     * @since 0.3.0
+     */
+    @Test
+    void everyOutcomeIsLoggedWithUserDeadlineAndSource() {
+        givenDue(request(1L, 10L), request(2L, 20L), request(3L, 30L), request(4L, 40L));
+        when(blockerClient.blockers(10L)).thenReturn(view(10L, true));
+        when(blockerClient.blockers(20L)).thenReturn(view(20L, false));
+        when(cancellationMapper.markExecuted(eq(2L), any())).thenReturn(0);
+        when(blockerClient.blockers(30L)).thenReturn(view(30L, false));
+        when(cancellationMapper.markExecuted(eq(3L), any())).thenReturn(1);
+        when(anonymizationService.anonymize(30L)).thenReturn(true);
+        when(blockerClient.blockers(40L))
+                .thenThrow(new BizException(ErrorCode.DEPENDENCY_UNAVAILABLE));
+
+        assertThat(job.runOnce()).isEqualTo(1);
+
+        List<String> lines =
+                appender.list.stream().map(ILoggingEvent::getFormattedMessage).toList();
+        assertThat(lines)
+                .anySatisfy(
+                        line ->
+                                assertThat(line)
+                                        .contains(
+                                                "account cancellation executed",
+                                                "userId=30",
+                                                "requestId=3",
+                                                "effectiveAt=" + EFFECTIVE_AT,
+                                                "source=job"))
+                .anySatisfy(
+                        line ->
+                                assertThat(line)
+                                        .contains(
+                                                "account cancellation skipped",
+                                                "userId=10",
+                                                "requestId=1",
+                                                "reason=blocked",
+                                                "source=job"))
+                .anySatisfy(
+                        line ->
+                                assertThat(line)
+                                        .contains(
+                                                "account cancellation skipped",
+                                                "userId=20",
+                                                "requestId=2",
+                                                "reason=already-claimed",
+                                                "source=job"))
+                .anySatisfy(
+                        line ->
+                                assertThat(line)
+                                        .contains(
+                                                "account cancellation failed",
+                                                "userId=40",
+                                                "requestId=4",
+                                                "source=job",
+                                                "reason="));
+    }
+
     private static AccountDeletionProperties properties(String salt) {
         AccountDeletionProperties properties = new AccountDeletionProperties();
         properties.setAnonymizeSalt(salt);
@@ -201,6 +283,7 @@ class AccountCancellationExecutionJobTest {
         UserAccountCancellation request = new UserAccountCancellation();
         request.setId(id);
         request.setUserId(userId);
+        request.setEffectiveAt(EFFECTIVE_AT);
         return request;
     }
 }

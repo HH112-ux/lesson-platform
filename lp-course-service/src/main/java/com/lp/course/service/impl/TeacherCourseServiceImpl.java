@@ -19,8 +19,10 @@ import com.lp.course.dto.TeacherUploadSessionView;
 import com.lp.course.entity.Course;
 import com.lp.course.entity.CourseChapter;
 import com.lp.course.entity.CourseLesson;
+import com.lp.course.entity.CourseReviewAudit;
 import com.lp.course.entity.LessonUpload;
 import com.lp.course.entity.TeacherCourseStatusRow;
+import com.lp.course.mapper.CourseReviewAuditMapper;
 import com.lp.course.mapper.LessonUploadMapper;
 import com.lp.course.mapper.TeacherCourseMapper;
 import com.lp.course.service.TeacherCourseService;
@@ -60,8 +62,14 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
     /** Draft status. */
     private static final int STATUS_DRAFT = 0;
 
+    /** Status of a course waiting for an operations review decision. */
+    private static final int STATUS_PENDING_REVIEW = 1;
+
     /** Status of a course taken offline by operations. */
     private static final int STATUS_OFFLINE = 3;
+
+    /** Audit action code for a teacher withdrawal stored in {@code course_review_audit}. */
+    private static final int ACTION_WITHDRAW = 3;
 
     /** Onboarding audit status of a teacher allowed to write courses. */
     private static final int AUDIT_APPROVED = 1;
@@ -83,6 +91,7 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
 
     private final TeacherCourseMapper teacherCourseMapper;
     private final LessonUploadMapper lessonUploadMapper;
+    private final CourseReviewAuditMapper courseReviewAuditMapper;
     private final LessonUploadUrlSigner uploadSigner;
     private final LessonUploadObjectReader uploadReader;
     private final CourseUploadProperties uploadProperties;
@@ -94,6 +103,7 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
      *
      * @param teacherCourseMapper teacher scoped course statements
      * @param lessonUploadMapper upload session statements
+     * @param courseReviewAuditMapper mapper appending course review audit entries
      * @param uploadSigner issues presigned PUT credentials
      * @param uploadReader stats, downloads and cleans stored objects
      * @param uploadProperties upload limits and credential lifetime
@@ -105,6 +115,7 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
     public TeacherCourseServiceImpl(
             TeacherCourseMapper teacherCourseMapper,
             LessonUploadMapper lessonUploadMapper,
+            CourseReviewAuditMapper courseReviewAuditMapper,
             LessonUploadUrlSigner uploadSigner,
             LessonUploadObjectReader uploadReader,
             CourseUploadProperties uploadProperties,
@@ -112,6 +123,7 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
             LessonVideoValidator videoValidator) {
         this.teacherCourseMapper = teacherCourseMapper;
         this.lessonUploadMapper = lessonUploadMapper;
+        this.courseReviewAuditMapper = courseReviewAuditMapper;
         this.uploadSigner = uploadSigner;
         this.uploadReader = uploadReader;
         this.uploadProperties = uploadProperties;
@@ -289,6 +301,47 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
         if (teacherCourseMapper.submit(courseId, LocalDateTime.now()) == 0) {
             throw new BizException(ErrorCode.STATE_CONFLICT, "course is no longer submittable");
         }
+        return toView(teacherCourseMapper.selectById(courseId));
+    }
+
+    /**
+     * Withdraws the caller's own pending submission and sends the course back to draft.
+     *
+     * <p>Ownership is checked against the teacher profile even for administrators, so an operations
+     * user never withdraws on a teacher's behalf. The conditional update also keeps a concurrent
+     * review decision from overwriting the withdrawal.
+     *
+     * @param userId authenticated user id
+     * @param roles comma separated gateway roles
+     * @param courseId course primary key
+     * @return the course back in draft status
+     * @author Caspian
+     * @since 0.13.0
+     */
+    @Override
+    @Transactional
+    public TeacherCourseView withdraw(long userId, String roles, long courseId) {
+        Actor actor = resolveActor(userId, roles);
+        Course course = requireAccessible(actor, courseId);
+        if (!Objects.equals(course.getOwnerTeacherId(), actor.teacherId())) {
+            throw new BizException(ErrorCode.FORBIDDEN, "only the owning teacher can withdraw");
+        }
+        if (course.getStatus() != STATUS_PENDING_REVIEW) {
+            throw new BizException(
+                    ErrorCode.STATE_CONFLICT, "only pending courses can be withdrawn");
+        }
+        LocalDateTime withdrawnAt = LocalDateTime.now();
+        if (teacherCourseMapper.withdraw(courseId) == 0) {
+            throw new BizException(ErrorCode.STATE_CONFLICT, "course is no longer pending");
+        }
+        CourseReviewAudit audit = new CourseReviewAudit();
+        audit.setCourseId(courseId);
+        audit.setAction(ACTION_WITHDRAW);
+        audit.setFromStatus(STATUS_PENDING_REVIEW);
+        audit.setToStatus(STATUS_DRAFT);
+        audit.setReviewerId(userId);
+        audit.setCreatedAt(withdrawnAt);
+        courseReviewAuditMapper.insert(audit);
         return toView(teacherCourseMapper.selectById(courseId));
     }
 
@@ -945,7 +998,13 @@ public class TeacherCourseServiceImpl implements TeacherCourseService {
         if (request.price() != null) {
             course.setPrice(requireMoney(request.price(), "price"));
         }
-        if (request.originalPrice() != null) {
+        if (Boolean.TRUE.equals(request.clearOriginalPrice())) {
+            if (request.originalPrice() != null) {
+                throw new BizException(
+                        ErrorCode.PARAM_INVALID, "cannot set and clear originalPrice at once");
+            }
+            course.setOriginalPrice(null);
+        } else if (request.originalPrice() != null) {
             course.setOriginalPrice(requireMoney(request.originalPrice(), "originalPrice"));
         }
         if (request.level() != null) {
