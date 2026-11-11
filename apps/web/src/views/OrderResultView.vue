@@ -2,13 +2,17 @@
 import { computed, onMounted, ref } from 'vue'
 import { listOrders, ORDER_STATUS_PAID } from '../api/orders'
 import { currentRoute } from '../router'
+import { isUnauthorized } from '../utils/errors'
 
-type ResultStatus = 'checking' | 'paid' | 'pending' | 'unknown'
+type ResultStatus = 'checking' | 'paid' | 'pending' | 'anonymous' | 'unknown'
 
 const orderNo = currentRoute.value.params.orderNo
 const status = ref<ResultStatus>('checking')
 
 const title = computed(() => (status.value === 'paid' ? '支付成功' : '支付结果确认中'))
+
+/** Login page that comes back to this result page once the visitor signs in again. */
+const loginHref = `/login?next=${encodeURIComponent(`/orders/${orderNo}/result`)}`
 
 /**
  * Looks the order up in the buyer's most recent orders.
@@ -30,9 +34,10 @@ async function refresh(): Promise<void> {
       return
     }
     status.value = row.status === ORDER_STATUS_PAID ? 'paid' : 'pending'
-  } catch {
-    // A failed read never means the payment failed, so the page keeps the neutral message.
-    status.value = 'unknown'
+  } catch (error) {
+    // A missing or expired session is reported as such instead of looking like a failed payment
+    // or leaving the page spinning; any other read failure keeps the neutral message.
+    status.value = isUnauthorized(error) ? 'anonymous' : 'unknown'
   }
 }
 
@@ -56,6 +61,9 @@ onMounted(() => {
             <template v-else-if="status === 'pending'">
               尚未收到支付结果，完成支付后课程会自动开通。
             </template>
+            <template v-else-if="status === 'anonymous'">
+              登录状态已失效，请重新登录后在「我的订单」中查看支付结果。
+            </template>
             <template v-else-if="status === 'unknown'">
               暂时无法确认支付结果，请稍后在「我的订单」中查看。
             </template>
@@ -77,6 +85,12 @@ onMounted(() => {
 
           <div class="actions">
             <a
+              v-if="status === 'anonymous'"
+              class="lp-btn lp-btn--primary lp-btn--block"
+              :href="loginHref"
+            >重新登录</a>
+            <a
+              v-else
               class="lp-btn lp-btn--primary lp-btn--block"
               href="/learning/my-courses"
             >去我的课程</a>
