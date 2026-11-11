@@ -56,15 +56,47 @@ jobs:
 
       - name: 身份与鉴权越权断言
         continue-on-error: true
-        run: bash scripts/security/authz-drill.sh 2>&1 | tee /tmp/authz-drill.log
+        run: |
+          bash scripts/security/authz-drill.sh 2>&1 | tee /tmp/authz-drill.log
+          code=${PIPESTATUS[0]}
+          if ! grep -q '^SUMMARY pass=' /tmp/authz-drill.log; then
+            echo "ERROR 越权演练没有输出 SUMMARY 行，断言从未执行，判为脚本失败。" >&2
+            exit 1
+          fi
+          # A non-zero exit with zero FAIL means the script died after printing SUMMARY.
+          # The one registered FAIL (docs/project-status.md 4.2) is judged by the next step.
+          if [ "${code}" -ne 0 ] && grep -q '^SUMMARY pass=[0-9]* fail=0$' /tmp/authz-drill.log; then
+            echo "ERROR 退出码 ${code} 但 fail=0，判为脚本异常退出。" >&2
+            exit 1
+          fi
 
       - name: 交易与回调断言
         continue-on-error: true
-        run: bash scripts/security/payment-drill.sh 2>&1 | tee /tmp/payment-drill.log
+        run: |
+          bash scripts/security/payment-drill.sh 2>&1 | tee /tmp/payment-drill.log
+          code=${PIPESTATUS[0]}
+          if ! grep -q '^SUMMARY pass=' /tmp/payment-drill.log; then
+            echo "ERROR 交易与回调演练没有输出 SUMMARY 行，断言从未执行，判为脚本失败。" >&2
+            exit 1
+          fi
+          if [ "${code}" -ne 0 ] && grep -q '^SUMMARY pass=[0-9]* fail=0$' /tmp/payment-drill.log; then
+            echo "ERROR 退出码 ${code} 但 fail=0，判为脚本异常退出。" >&2
+            exit 1
+          fi
 
       - name: 安全响应头断言
         continue-on-error: true
-        run: bash scripts/security-headers-check.sh 2>&1 | tee /tmp/security-headers.log
+        run: |
+          bash scripts/security-headers-check.sh 2>&1 | tee /tmp/security-headers.log
+          code=${PIPESTATUS[0]}
+          if ! grep -q '^SUMMARY pass=' /tmp/security-headers.log; then
+            echo "ERROR 安全响应头检查没有输出 SUMMARY 行，断言从未执行，判为脚本失败。" >&2
+            exit 1
+          fi
+          if [ "${code}" -ne 0 ] && grep -q '^SUMMARY pass=[0-9]* fail=0$' /tmp/security-headers.log; then
+            echo "ERROR 退出码 ${code} 但 fail=0，判为脚本异常退出。" >&2
+            exit 1
+          fi
 
       - name: 判定断言结果
         run: |
