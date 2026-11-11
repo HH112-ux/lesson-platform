@@ -4,6 +4,7 @@ import com.lp.common.result.Result;
 import com.lp.common.web.TraceIds;
 import com.lp.trade.domain.PaymentChannel;
 import com.lp.trade.dto.PaymentNotification;
+import com.lp.trade.payment.ChannelTradeState;
 import com.lp.trade.payment.MockPaySignatures;
 import com.lp.trade.service.PaymentService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -68,7 +69,7 @@ public class MockPaymentController {
         notification.setOrderNo(orderNo);
         notification.setChannelTradeNo(payNo);
         notification.setAmount(new BigDecimal(amount));
-        notification.setTradeStatus("TRADE_SUCCESS");
+        notification.setTradeStatus(ChannelTradeState.TRADE_SUCCESS);
         String canonical = MockPaySignatures.canonical(payNo, orderNo, amount);
         paymentService.handleNotify(
                 PaymentChannel.ALIPAY,

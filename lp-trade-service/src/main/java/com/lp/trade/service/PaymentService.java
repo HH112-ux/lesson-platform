@@ -2,6 +2,8 @@ package com.lp.trade.service;
 
 import com.lp.trade.dto.PayView;
 import com.lp.trade.dto.PaymentNotification;
+import com.lp.trade.entity.PaymentRecord;
+import com.lp.trade.entity.TradeOrder;
 import java.util.Map;
 
 /**
@@ -46,4 +48,21 @@ public interface PaymentService {
             Map<String, String> headers,
             String rawBody,
             PaymentNotification notification);
+
+    /**
+     * Applies one channel-confirmed payment to an existing attempt.
+     *
+     * <p>Shared by the signed callback and by trade-query reconciliation so both paths use the same
+     * amount guard, the same conditional status update, the same channel trade number uniqueness
+     * and the same ownership grant.
+     *
+     * @param notification channel fields that confirmed the payment
+     * @param order order the attempt belongs to
+     * @param payment attempt selected by the caller
+     * @return {@code true} when the attempt is successful after the call
+     * @author Caspian
+     * @since 0.5.0
+     */
+    boolean applyConfirmedPayment(
+            PaymentNotification notification, TradeOrder order, PaymentRecord payment);
 }
