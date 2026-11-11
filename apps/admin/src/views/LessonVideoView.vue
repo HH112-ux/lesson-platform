@@ -77,7 +77,7 @@ const lessonForm = reactive({
   chapterTitle: '',
   lessonId: null as number | null,
   title: '',
-  sort: 0,
+  sort: 0 as number | '',
   durationSec: 0,
 })
 
@@ -165,7 +165,7 @@ function openLessonForm(chapter: TeacherChapter): void {
   lessonForm.chapterTitle = chapter.title
   lessonForm.lessonId = null
   lessonForm.title = ''
-  lessonForm.sort = chapter.lessons.length
+  lessonForm.sort = chapter.lessons.reduce((max, lesson) => Math.max(max, lesson.sort), -1) + 1
   lessonForm.durationSec = 0
   notice.value = ''
   failure.value = ''
@@ -195,7 +195,7 @@ async function saveLesson(): Promise<void> {
     failure.value = '课时标题不能为空'
     return
   }
-  if (!Number.isInteger(sort) || sort < 0) {
+  if (lessonForm.sort === '' || !Number.isInteger(sort) || sort < 0) {
     failure.value = '排序需为非负整数'
     return
   }
