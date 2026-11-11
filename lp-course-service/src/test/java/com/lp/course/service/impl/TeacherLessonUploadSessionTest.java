@@ -14,6 +14,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.lp.common.exception.BizException;
+import com.lp.course.client.TradeOrderClient;
 import com.lp.course.config.CourseUploadProperties;
 import com.lp.course.domain.LessonUploadStatus;
 import com.lp.course.dto.TeacherLessonView;
@@ -67,6 +68,7 @@ class TeacherLessonUploadSessionTest {
 
     @Mock private LessonVideoValidator videoValidator;
 
+    @Mock private TradeOrderClient tradeOrderClient;
     @Mock private LessonTranscodeService transcodeService;
 
     @Mock private LessonPlaybackKeyResolver playbackKeyResolver;
@@ -93,6 +95,7 @@ class TeacherLessonUploadSessionTest {
                                 ""),
                         videoProbe,
                         videoValidator,
+                        tradeOrderClient,
                         transcodeService,
                         playbackKeyResolver);
         lenient()

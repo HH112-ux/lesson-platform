@@ -205,6 +205,7 @@ services:
       <<: *service-env
       LP_COURSE_DB_URL: jdbc:mysql://mysql:3306/lp_cms?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
       LP_LEARN_BASE_URL: http://learn-service:8104
+      LP_TRADE_BASE_URL: http://trade-service:8103
       # Confirmation reads the uploaded object back from inside the compose network, so the
       # endpoint must be the service name. The same host ends up in presigned PUT URLs handed to
       # the browser, see the MinIO section of docs/local-dev-guide.md.

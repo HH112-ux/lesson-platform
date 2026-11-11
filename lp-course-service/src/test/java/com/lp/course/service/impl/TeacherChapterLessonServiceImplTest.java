@@ -10,6 +10,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.lp.common.exception.BizException;
+import com.lp.course.client.TradeOrderClient;
 import com.lp.course.config.CourseUploadProperties;
 import com.lp.course.dto.TeacherChapterRequest;
 import com.lp.course.dto.TeacherChapterView;
@@ -59,6 +60,7 @@ class TeacherChapterLessonServiceImplTest {
 
     @Mock private LessonVideoValidator videoValidator;
 
+    @Mock private TradeOrderClient tradeOrderClient;
     @Mock private LessonTranscodeService transcodeService;
 
     @Mock private LessonPlaybackKeyResolver playbackKeyResolver;
@@ -91,6 +93,7 @@ class TeacherChapterLessonServiceImplTest {
                                 ""),
                         videoProbe,
                         videoValidator,
+                        tradeOrderClient,
                         transcodeService,
                         playbackKeyResolver);
     }
@@ -157,11 +160,33 @@ class TeacherChapterLessonServiceImplTest {
     void deletingChapterAlsoDeletesItsLessons() {
         givenOwnedCourse(0);
         when(teacherCourseMapper.selectChapter(9L, 71L)).thenReturn(chapter(71L, 9L));
+        when(tradeOrderClient.paidOrderExists(9L)).thenReturn(false);
 
         service.deleteChapter(1001L, "TEACHER", 9L, 71L);
 
         verify(teacherCourseMapper).deleteChapter(9L, 71L);
         verify(teacherCourseMapper).deleteLessonsByChapter(9L, 71L);
+    }
+
+    /**
+     * A chapter of a sold course cannot be deleted, so its lessons stay reachable.
+     *
+     * @author Caspian
+     * @since 0.15.0
+     */
+    @Test
+    void rejectsChapterDeletionWhenCourseIsSold() {
+        givenOwnedCourse(0);
+        when(teacherCourseMapper.selectChapter(9L, 71L)).thenReturn(chapter(71L, 9L));
+        when(tradeOrderClient.paidOrderExists(9L)).thenReturn(true);
+
+        BizException exception =
+                assertThrows(
+                        BizException.class, () -> service.deleteChapter(1001L, "TEACHER", 9L, 71L));
+
+        assertEquals(61009, exception.getCode());
+        verify(teacherCourseMapper, never()).deleteChapter(9L, 71L);
+        verify(teacherCourseMapper, never()).deleteLessonsByChapter(9L, 71L);
     }
 
     /**

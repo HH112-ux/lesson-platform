@@ -39,6 +39,9 @@ lp:
     # Used only to fill the catalog owned flag; failures degrade to anonymous.
     learn-base-url: ${LP_LEARN_BASE_URL:http://127.0.0.1:8104}
     learn-read-timeout-ms: ${LP_LEARN_READ_TIMEOUT_MS:2000}
+    # Locks lesson deletion once a course is sold; an unreachable trade service never allows it.
+    trade-base-url: ${LP_TRADE_BASE_URL:http://127.0.0.1:8103}
+    trade-read-timeout-ms: ${LP_COURSE_TRADE_READ_TIMEOUT_MS:2000}
     upload:
       # Presigned PUT credentials are short lived on purpose: they are issued per session.
       session-ttl: ${LP_COURSE_UPLOAD_SESSION_TTL:30m}

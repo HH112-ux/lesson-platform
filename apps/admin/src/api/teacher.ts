@@ -61,6 +61,8 @@ export interface TeacherCourse {
   lessonCount: number
   submittedAt: string | null
   updatedAt: string
+  /** Whether a paid order locks lesson deletion; {@code null} means unknown. Only detail fills it. */
+  sold: boolean | null
 }
 
 /** Form payload of the teacher course endpoints, aligned with {@code TeacherCourseRequest}. */
@@ -193,6 +195,17 @@ export function updateTeacherCourse(
 }
 
 /**
+ * Loads one owned course with the sales state that locks lesson deletion.
+ *
+ * @param courseId course identifier
+ * @author Caspian
+ * @since 0.15.0
+ */
+export function getTeacherCourse(courseId: number): Promise<TeacherCourse> {
+  return apiRequest<TeacherCourse>(`/api/v1/teacher/courses/${courseId}`)
+}
+
+/**
  * Lists the public category catalog for the course form.
  *
  * @returns categories ordered by sort
@@ -317,6 +330,26 @@ export function updateTeacherLesson(
       method: 'PUT',
       body: JSON.stringify(payload),
     },
+  )
+}
+
+/**
+ * Deletes one lesson; the backend refuses with {@code 61009} once the course has a paid order.
+ *
+ * @param courseId course identifier
+ * @param chapterId owning chapter identifier
+ * @param lessonId lesson identifier
+ * @author Caspian
+ * @since 0.15.0
+ */
+export function deleteTeacherLesson(
+  courseId: number,
+  chapterId: number,
+  lessonId: number,
+): Promise<void> {
+  return apiRequest<void>(
+    `/api/v1/teacher/courses/${courseId}/chapters/${chapterId}/lessons/${lessonId}`,
+    { method: 'DELETE' },
   )
 }
 

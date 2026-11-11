@@ -56,7 +56,7 @@
 | SPEC-COURSE-005 | 教师下架与再上架 | 未开始 | L2-3 | 0/4 |
 | SPEC-COURSE-006 | 运营强制下架 | 未开始 | L2-5 | 0/4 |
 | SPEC-COURSE-007 | 公开展示与访问控制 | 已完成 | — | 4/4 |
-| SPEC-COURSE-008 | 内容结构与删除限制 | 进行中 | L2-3 | 2/4 |
+| SPEC-COURSE-008 | 内容结构与删除限制 | 进行中 | L2-3 | 3/4 |
 | SPEC-COURSE-009 | 教师入驻审核 | 已完成 | — | 5/5 |
 | SPEC-COURSE-010 | 展示字段与长度约束 | 已完成 | — | 5/5 |
 | SPEC-COURSE-011 | 定价口径 | 已完成 | L1-2 | 5/5 |
@@ -209,6 +209,7 @@
 |---|---|---|---|---|
 | 日结与结算的运营后台页面与导出 | SPEC-TRADE-014 AC-3 与 Q-2；engineering-plan 5.2、5.5 | 接口已实现：日结、作废、详情、列表（`/api/v1/reconcile/settlements/**`），批次落 `payment_settle_batch`，日结后锁定账单日；口径已于 2026-11-10 冻结（只封账与净额汇总，不含手续费/分账/教师结算） | 运营后台无日结页面，本期只有接口；批次导出不做 | 2026-11-10 |
 | 对账账单对象存储归档 | SPEC-TRADE-014 Q-3；engineering-plan 10.4 | 已定：维持库内 `payment_reconcile.raw_bill`，不迁 MinIO。账单是文本、单日行数量级小，对象存储归档属可选优化；**如单日账单体积上量再评估对象存储归档** | 无（按需评估，不阻塞上线） | 2026-11-10 |
+| 已售课程的单个课时下架（停用课时） | SPEC-COURSE-008 AC-2；product-lifecycle 6.4 | 2026-11-11 起已售课程的课时禁止删除，未售课程可软删；单个课时「停用」未实现，本期只有拒绝 | 待定：需要课时级停用状态与学员侧下架提示口径；在冻结口径前不做，删除请求继续由 `61009` 兜底 | 2026-11-11 |
 | 评论、两级回复、收藏、举报与内容审核 | product-lifecycle F11/F12、4.3；engineering-plan 13.2 M3 | `lp-ugc-service` 仅有启动类与 `package-info`，`lp_ugc` 仅有 V1 基线 | 未排期；依赖 UGC 表设计与审核链路 | 2026-11-09 |
 | AI 课程画像、审核、文案、学伴、BYO 模型配置 | product-lifecycle F15–F18；engineering-plan 第 7 章、13.2 M4 | `lp-ai-service` 仅有启动类与 `package-info`，`lp_ai` 仅有 V1 基线 | 未排期；缺客户模型 key 与配置界面 | 2026-11-09 |
 | 购物车页面 | product-lifecycle F07、4.3 | 后端 `/api/v1/cart` 可用，Web 无购物车页面 | 未排期 | 2026-11-09 |
