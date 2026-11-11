@@ -71,6 +71,7 @@ lp:
       timeout: ${LP_COURSE_TRANSCODE_TIMEOUT:2h}
       max-attempts: ${LP_COURSE_TRANSCODE_MAX_ATTEMPTS:3}
       retry-backoff: ${LP_COURSE_TRANSCODE_RETRY_BACKOFF:5s}
+      download-timeout: ${LP_COURSE_TRANSCODE_DOWNLOAD_TIMEOUT:30m}
       upload-timeout: ${LP_COURSE_TRANSCODE_UPLOAD_TIMEOUT:30m}
 
 management:

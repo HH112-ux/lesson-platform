@@ -72,6 +72,7 @@ class LessonVideoTranscoderTest {
                 Duration.ofSeconds(5),
                 3,
                 Duration.ofSeconds(1),
+                Duration.ofMinutes(1),
                 Duration.ofMinutes(1));
     }
 }
