@@ -25,6 +25,7 @@ import com.lp.course.entity.Course;
 import com.lp.course.entity.CourseLesson;
 import com.lp.course.entity.LessonUpload;
 import com.lp.course.mapper.CourseReviewAuditMapper;
+import com.lp.course.mapper.LessonContentCleanupMapper;
 import com.lp.course.mapper.LessonUploadMapper;
 import com.lp.course.mapper.TeacherCourseMapper;
 import com.lp.course.upload.LessonPlaybackKeyResolver;
@@ -70,6 +71,7 @@ class TeacherLessonUploadSessionTest {
 
     @Mock private TradeOrderClient tradeOrderClient;
     @Mock private LessonTranscodeService transcodeService;
+    @Mock private LessonContentCleanupMapper contentCleanupMapper;
 
     @Mock private LessonPlaybackKeyResolver playbackKeyResolver;
 
@@ -97,7 +99,8 @@ class TeacherLessonUploadSessionTest {
                         videoValidator,
                         tradeOrderClient,
                         transcodeService,
-                        playbackKeyResolver);
+                        playbackKeyResolver,
+                        contentCleanupMapper);
         lenient()
                 .when(playbackKeyResolver.resolve(anyString()))
                 .thenAnswer(invocation -> invocation.getArgument(0));

@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -20,6 +21,7 @@ import com.lp.course.entity.Course;
 import com.lp.course.entity.CourseChapter;
 import com.lp.course.entity.CourseLesson;
 import com.lp.course.mapper.CourseReviewAuditMapper;
+import com.lp.course.mapper.LessonContentCleanupMapper;
 import com.lp.course.mapper.LessonUploadMapper;
 import com.lp.course.mapper.TeacherCourseMapper;
 import com.lp.course.upload.LessonPlaybackKeyResolver;
@@ -62,6 +64,7 @@ class TeacherChapterLessonServiceImplTest {
 
     @Mock private TradeOrderClient tradeOrderClient;
     @Mock private LessonTranscodeService transcodeService;
+    @Mock private LessonContentCleanupMapper contentCleanupMapper;
 
     @Mock private LessonPlaybackKeyResolver playbackKeyResolver;
 
@@ -95,7 +98,8 @@ class TeacherChapterLessonServiceImplTest {
                         videoValidator,
                         tradeOrderClient,
                         transcodeService,
-                        playbackKeyResolver);
+                        playbackKeyResolver,
+                        contentCleanupMapper);
     }
 
     /**
@@ -164,6 +168,7 @@ class TeacherChapterLessonServiceImplTest {
 
         service.deleteChapter(1001L, "TEACHER", 9L, 71L);
 
+        verify(contentCleanupMapper).insertChapterLessonsCleanup(9L, 71L);
         verify(teacherCourseMapper).deleteChapter(9L, 71L);
         verify(teacherCourseMapper).deleteLessonsByChapter(9L, 71L);
     }
@@ -187,6 +192,7 @@ class TeacherChapterLessonServiceImplTest {
         assertEquals(61009, exception.getCode());
         verify(teacherCourseMapper, never()).deleteChapter(9L, 71L);
         verify(teacherCourseMapper, never()).deleteLessonsByChapter(9L, 71L);
+        verify(contentCleanupMapper, never()).insertChapterLessonsCleanup(anyLong(), anyLong());
     }
 
     /**

@@ -24,6 +24,7 @@ import com.lp.course.entity.CourseChapter;
 import com.lp.course.entity.CourseReviewAudit;
 import com.lp.course.entity.TeacherCourseStatusRow;
 import com.lp.course.mapper.CourseReviewAuditMapper;
+import com.lp.course.mapper.LessonContentCleanupMapper;
 import com.lp.course.mapper.LessonUploadMapper;
 import com.lp.course.mapper.TeacherCourseMapper;
 import com.lp.course.upload.LessonPlaybackKeyResolver;
@@ -67,6 +68,7 @@ class TeacherCourseServiceImplTest {
 
     @Mock private TradeOrderClient tradeOrderClient;
     @Mock private LessonTranscodeService transcodeService;
+    @Mock private LessonContentCleanupMapper contentCleanupMapper;
 
     @Mock private LessonPlaybackKeyResolver playbackKeyResolver;
 
@@ -100,7 +102,8 @@ class TeacherCourseServiceImplTest {
                         videoValidator,
                         tradeOrderClient,
                         transcodeService,
-                        playbackKeyResolver);
+                        playbackKeyResolver,
+                        contentCleanupMapper);
     }
 
     /**
@@ -572,6 +575,7 @@ class TeacherCourseServiceImplTest {
         assertEquals(61009, sold.getCode());
         assertEquals(50401, unknown.getCode());
         verify(teacherCourseMapper, never()).deleteLesson(anyLong(), anyLong(), anyLong());
+        verify(contentCleanupMapper, never()).insertLessonCleanup(anyLong(), anyLong(), anyLong());
     }
 
     /**
@@ -590,6 +594,7 @@ class TeacherCourseServiceImplTest {
 
         service.deleteLesson(1001L, "TEACHER", 9L, 71L, 81L);
 
+        verify(contentCleanupMapper).insertLessonCleanup(9L, 71L, 81L);
         verify(teacherCourseMapper).deleteLesson(9L, 71L, 81L);
     }
 
