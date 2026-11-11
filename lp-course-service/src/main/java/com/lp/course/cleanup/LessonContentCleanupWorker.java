@@ -16,6 +16,10 @@ import org.springframework.stereotype.Component;
  * reference check runs here rather than at registration time because a lesson may have been
  * switched to another object and a transcode may have started in between.
  *
+ * <p>Rows are handled in isolation: an unexpected runtime exception is logged and the rest of the
+ * batch still runs. The failing row stays RUNNING and the next tick reclaims it once {@code
+ * stale-after} elapses, so a single poisoned row cannot stall the queue.
+ *
  * <p>An object still referenced by a live lesson, a pending upload session or an active transcode
  * is deferred forever on purpose. It keeps waiting, spends no attempt and raises no alert; do not
  * add a "maximum deferrals" rule that turns this correct state into a failure.
@@ -67,8 +71,14 @@ public class LessonContentCleanupWorker {
         int claimed = 0;
         for (LessonCleanupRow row : mapper.selectPending(now, properties.batchSize())) {
             if (mapper.claim(row.id()) == 1) {
-                handle(row, now);
                 claimed++;
+                try {
+                    handle(row, now);
+                } catch (RuntimeException e) {
+                    // Keep the rest of the batch alive; the row stays RUNNING and the next tick
+                    // reclaims it once stale-after elapses.
+                    log.error("cleanup of {} failed unexpectedly", row.objectKey(), e);
+                }
             }
         }
         return claimed;
