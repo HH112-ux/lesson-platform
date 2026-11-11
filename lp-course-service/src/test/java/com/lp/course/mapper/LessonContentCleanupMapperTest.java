@@ -292,6 +292,40 @@ class LessonContentCleanupMapperTest {
         assertEquals(1, mapper.countActiveTranscodes("shared.mp4"));
     }
 
+    /**
+     * The backlog gauges split waiting rows from terminal ones.
+     *
+     * @author Caspian
+     * @since 0.17.0
+     */
+    @Test
+    void countsPendingAndFailedRowsSeparately() {
+        insertCleanup(1L, "k1", 0, 0, null, null);
+        insertCleanup(2L, "k2", 1, 1, null, null);
+        insertCleanup(3L, "k3", 0, 0, null, null);
+        insertCleanup(4L, "k4", 3, 5, null, "AccessDenied");
+
+        assertEquals(2, mapper.countPendingRows());
+        assertEquals(1, mapper.countFailedRows());
+    }
+
+    /**
+     * The age gauge only looks at rows that already spent an attempt, ignoring fresh backlog.
+     *
+     * @author Caspian
+     * @since 0.17.0
+     */
+    @Test
+    void returnsOldestAttemptedRegistrationOnly() {
+        LocalDateTime fresh = LocalDateTime.of(2026, 11, 11, 10, 0);
+        LocalDateTime attempted = LocalDateTime.of(2026, 11, 11, 9, 0);
+        insertCleanup(1L, "fresh", 0, 0, null, null, fresh, fresh);
+        insertCleanup(2L, "attempted", 0, 2, null, null, attempted, fresh);
+        insertCleanup(3L, "terminal", 3, 5, null, "AccessDenied", attempted, fresh);
+
+        assertEquals(attempted, mapper.oldestAttemptedCreatedAt());
+    }
+
     private void insertCleanup(
             long id,
             String objectKey,
