@@ -4,8 +4,14 @@ import com.alipay.api.AlipayApiException;
 import com.alipay.api.AlipayClient;
 import com.alipay.api.AlipayConfig;
 import com.alipay.api.DefaultAlipayClient;
+import com.alipay.api.domain.AlipayTradeCloseModel;
 import com.alipay.api.domain.AlipayTradePagePayModel;
+import com.alipay.api.domain.AlipayTradeQueryModel;
+import com.alipay.api.request.AlipayTradeCloseRequest;
 import com.alipay.api.request.AlipayTradePagePayRequest;
+import com.alipay.api.request.AlipayTradeQueryRequest;
+import com.alipay.api.response.AlipayTradeCloseResponse;
+import com.alipay.api.response.AlipayTradeQueryResponse;
 import com.lp.common.exception.BizException;
 import com.lp.common.exception.ErrorCode;
 import com.lp.trade.config.AlipayPayProperties;
@@ -16,6 +22,7 @@ import com.lp.trade.entity.PaymentRecord;
 import com.lp.trade.entity.TradeOrder;
 import com.lp.trade.entity.TradeOrderItem;
 import com.lp.trade.mapper.TradeOrderMapper;
+import com.lp.trade.payment.ChannelTradeState;
 import com.lp.trade.payment.PaymentGateway;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -58,6 +65,9 @@ public class AlipayPaymentGateway implements PaymentGateway {
 
     private static final int SUBJECT_MAX_LENGTH = 100;
 
+    /** Alipay sub code of a trade it never created or already removed. */
+    private static final String TRADE_NOT_EXIST = "ACQ.TRADE_NOT_EXIST";
+
     private final AlipayPayProperties properties;
 
     private final TradeProperties tradeProperties;
@@ -83,9 +93,34 @@ public class AlipayPaymentGateway implements PaymentGateway {
             TradeOrderMapper tradeOrderMapper,
             AlipayCredentials credentials)
             throws AlipayApiException {
+        this(properties, tradeProperties, tradeOrderMapper, newClient(properties, credentials));
+    }
+
+    /**
+     * Creates the adapter around a prepared SDK client so the request mapping can be tested without
+     * channel credentials.
+     *
+     * @param properties channel settings
+     * @param tradeProperties trade settings holding the public web base URL
+     * @param tradeOrderMapper order reader used to build channel requests
+     * @param client SDK client, already configured with the application credentials
+     * @author Caspian
+     * @since 0.5.0
+     */
+    AlipayPaymentGateway(
+            AlipayPayProperties properties,
+            TradeProperties tradeProperties,
+            TradeOrderMapper tradeOrderMapper,
+            AlipayClient client) {
         this.properties = properties;
         this.tradeProperties = tradeProperties;
         this.tradeOrderMapper = tradeOrderMapper;
+        this.client = client;
+    }
+
+    private static AlipayClient newClient(
+            AlipayPayProperties properties, AlipayCredentials credentials)
+            throws AlipayApiException {
         AlipayConfig config = new AlipayConfig();
         config.setServerUrl(properties.getGatewayUrl());
         config.setAppId(credentials.appId());
@@ -94,7 +129,7 @@ public class AlipayPaymentGateway implements PaymentGateway {
         config.setFormat("json");
         config.setCharset(CHARSET);
         config.setSignType(SIGN_TYPE);
-        this.client = new DefaultAlipayClient(config);
+        return new DefaultAlipayClient(config);
     }
 
     /**
@@ -160,6 +195,102 @@ public class AlipayPaymentGateway implements PaymentGateway {
     public String refund(PaymentRecord payment, String refundNo, BigDecimal amount) {
         throw new BizException(
                 ErrorCode.CHANNEL_UPSTREAM_ERROR, "alipay refund is not implemented yet");
+    }
+
+    /**
+     * Queries the channel for the current state of the trade behind one payment attempt.
+     *
+     * <p>A trade the channel does not know is a normal answer, not an error: it means the buyer
+     * never reached the channel, so there is nothing to close or reconcile.
+     *
+     * @param payment payment attempt to inspect
+     * @return channel state, never {@code null}
+     * @throws BizException when the request fails or the channel rejects it
+     * @author Caspian
+     * @since 0.5.0
+     */
+    @Override
+    public ChannelTradeState query(PaymentRecord payment) {
+        TradeOrder order = requireOrder(payment);
+        AlipayTradeQueryModel model = new AlipayTradeQueryModel();
+        model.setOutTradeNo(order.getOrderNo());
+        AlipayTradeQueryRequest request = new AlipayTradeQueryRequest();
+        request.setBizModel(model);
+        AlipayTradeQueryResponse response;
+        try {
+            response = client.execute(request);
+        } catch (AlipayApiException exception) {
+            throw new BizException(ErrorCode.CHANNEL_UPSTREAM_ERROR, "alipay trade query failed");
+        }
+        if (response == null) {
+            throw new BizException(
+                    ErrorCode.CHANNEL_UPSTREAM_ERROR, "alipay returned no trade query response");
+        }
+        if (!response.isSuccess()) {
+            if (TRADE_NOT_EXIST.equals(response.getSubCode())) {
+                LOG.info("alipay trade does not exist, orderNo={}", order.getOrderNo());
+                return ChannelTradeState.notFound();
+            }
+            throw new BizException(
+                    ErrorCode.CHANNEL_UPSTREAM_ERROR,
+                    "alipay trade query rejected: " + response.getSubCode());
+        }
+        if (!StringUtils.hasText(response.getTradeStatus())) {
+            throw new BizException(
+                    ErrorCode.CHANNEL_UPSTREAM_ERROR, "alipay trade query returned no status");
+        }
+        if (!StringUtils.hasText(response.getTotalAmount())) {
+            throw new BizException(
+                    ErrorCode.CHANNEL_UPSTREAM_ERROR, "alipay trade query returned no amount");
+        }
+        try {
+            return new ChannelTradeState(
+                    response.getTradeStatus(),
+                    response.getTradeNo(),
+                    new BigDecimal(response.getTotalAmount()));
+        } catch (NumberFormatException exception) {
+            throw new BizException(
+                    ErrorCode.CHANNEL_UPSTREAM_ERROR,
+                    "alipay trade query returned an invalid amount");
+        }
+    }
+
+    /**
+     * Closes the trade behind one payment attempt so the buyer can no longer pay it.
+     *
+     * <p>An unknown trade is a successful close. A trade that already moved on, such as a paid
+     * trade, is reported as an upstream error so the caller can query the trade and converge.
+     *
+     * @param payment pending payment attempt
+     * @return {@code true} when no further payment can complete on this trade
+     * @throws BizException when the request fails or the channel rejects the close
+     * @author Caspian
+     * @since 0.5.0
+     */
+    @Override
+    public boolean close(PaymentRecord payment) {
+        TradeOrder order = requireOrder(payment);
+        AlipayTradeCloseModel model = new AlipayTradeCloseModel();
+        model.setOutTradeNo(order.getOrderNo());
+        AlipayTradeCloseRequest request = new AlipayTradeCloseRequest();
+        request.setBizModel(model);
+        AlipayTradeCloseResponse response;
+        try {
+            response = client.execute(request);
+        } catch (AlipayApiException exception) {
+            throw new BizException(ErrorCode.CHANNEL_UPSTREAM_ERROR, "alipay trade close failed");
+        }
+        if (response == null) {
+            throw new BizException(
+                    ErrorCode.CHANNEL_UPSTREAM_ERROR, "alipay returned no trade close response");
+        }
+        if (response.isSuccess() || TRADE_NOT_EXIST.equals(response.getSubCode())) {
+            LOG.info("alipay trade close accepted, orderNo={}", order.getOrderNo());
+            return true;
+        }
+        throw new BizException(
+                ErrorCode.CHANNEL_UPSTREAM_ERROR,
+                "alipay trade close rejected: " + response.getSubCode());
     }
 
     private TradeOrder requireOrder(PaymentRecord payment) {
