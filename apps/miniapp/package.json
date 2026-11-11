@@ -3,6 +3,8 @@
   "private": true,
   "version": "0.0.0",
   "scripts": {
-    "check": "node scripts/check.mjs"
+    "check": "node scripts/check.mjs",
+    "check:upload": "node scripts/check.mjs --require-public-api",
+    "prepare:env": "node scripts/prepare-env.mjs"
   }
 }
