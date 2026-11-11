@@ -30,8 +30,7 @@ class AlipayCredentialLoaderTest {
                 {
                   "appId": "2021000000000001",
                   "appPrivateKey": "placeholder-private-key",
-                  "alipayPublicKey": "placeholder-public-key",
-                  "pid": "2088000000000001"
+                  "alipayPublicKey": "placeholder-public-key"
                 }
               ]
             }
@@ -51,7 +50,8 @@ class AlipayCredentialLoaderTest {
         Files.writeString(file, FIXTURE);
         AlipayCredentials credentials = load(file);
         assertEquals("2021000000000001", credentials.appId());
-        assertEquals("2088000000000001", credentials.sellerId());
+        assertEquals("placeholder-private-key", credentials.appPrivateKey());
+        assertEquals("placeholder-public-key", credentials.alipayPublicKey());
     }
 
     @Test

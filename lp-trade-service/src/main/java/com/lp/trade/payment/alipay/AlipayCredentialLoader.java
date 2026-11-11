@@ -105,8 +105,7 @@ public final class AlipayCredentialLoader {
         String appId = text(application, "appId");
         String appPrivateKey = text(application, "appPrivateKey");
         String alipayPublicKey = text(application, "alipayPublicKey");
-        String sellerId = optionalText(application, "pid");
-        return new AlipayCredentials(appId, appPrivateKey, alipayPublicKey, sellerId);
+        return new AlipayCredentials(appId, appPrivateKey, alipayPublicKey);
     }
 
     private String text(JsonNode application, String field) {
@@ -115,11 +114,6 @@ public final class AlipayCredentialLoader {
             throw new IllegalStateException("credential file is missing field '" + field + "'");
         }
         return value.trim();
-    }
-
-    private String optionalText(JsonNode application, String field) {
-        String value = application.path(field).asText("");
-        return StringUtils.hasText(value) ? value.trim() : null;
     }
 
     private void rejectSandboxOnReleaseProfile() {
