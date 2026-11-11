@@ -636,7 +636,7 @@ erDiagram
 | 文件完整性 | `moov` 原子可解析，`duration` 可读 | 「文件损坏或不完整，请重新上传」 |
 
 - 校验实现：`ffprobe` 只读取元信息（不转码、不落临时副本）；单次解析 5s 超时，整体确认流程（`statObject` + 下载 + 解析 + 落库）30s 预算，超时按失败处理并提示重试。
-- 落库顺序：校验通过 → 服务端流式上传对象存储（不经客户端直传）→ 写 `course_lesson` 技术字段；失败返回 `61003`（第 5.2 节）。上传中断产生的孤儿对象由 `job-worker` 每日清理。
+- 落库顺序：校验通过 → 服务端流式上传对象存储（不经客户端直传）→ 写 `course_lesson` 技术字段；失败返回 `61003`（第 5.2 节）。上传中断产生的孤儿对象，以及课时/章节删除后的旧对象，由 course-service 内的清理队列异步删除（V11 + 30s tick，开关与指标见 `docs/local-dev-guide.md` 4.13）；`job-worker` 目前未实现定时清理。
 - 播放与防盗链：签名 URL 有效期 10min，绑定 `userId + lessonId`，一次性签发；CDN 开启 Referer 白名单（仅平台域名与小程序来源）、URL 签名校验，并禁止空 Referer；单用户同一课时并发播放 ≤ 2 路（签名接口按 `userId` 计数，超限返回 `61004`）。
 
 **course_daily_stat 课程日统计（教师看板数据源）**
@@ -1471,9 +1471,9 @@ spec:
 | D 清理 | 注入 | 忽略/废弃用户 ID 参数 | 前端完成改造 |
 | E 多端接入 | 增加小程序来源识别并注入 `X-User-Source=miniapp`；小程序登录走白名单 | 小程序不提供支付；教师接口按 `TEACHER` + 归属过滤 | 小程序体验版全链路通过、miniapp 下单返回 62011 的用例通过（SPEC-PLAT-002） |
 
-开关：**当前没有 Nacos 动态刷新**（Nacos 客户端未引入，见 3.4）。`pay.channel.alipay.enabled` 与 `mp.enabled` 在当前代码中**不存在**；`identity.enforce.paths`、`identity.sign.enabled` 未实现；网关身份相关项实际以 `lp.identity.*` 存在且不随 Nacos 刷新——`inject-enabled` 硬编码为 `true`（`lp-gateway/src/main/resources/application.yml:50`），`enforce-mode` 取 `LP_IDENTITY_ENFORCE_MODE`（同文件 `:49`，取值 `obs|soft|hard`）。当前真实可用的开关是环境变量，且**改动后必须重启对应容器**（配置在启动时绑定，`@ConditionalOnProperty` 决定 bean 是否装配）：`LP_MINIAPP_LOGIN_ENABLED`（`lp-auth-service/src/main/resources/application.yml:54`）、`LP_MINIAPP_LOGIN_MOCK_ENABLED`（同文件 `:55`）、`LP_PAY_MOCK_ENABLED`（`lp-trade-service/src/main/resources/application.yml:75`）、`LP_PAY_ALIPAY_ENABLED`（同文件 `:83`）、`LP_CORS_ENABLED`（`lp-gateway/src/main/resources/application.yml:91`）。微信支付开关已随渠道移除。
+开关：**当前没有 Nacos 动态刷新**（Nacos 客户端未引入，见 3.4）。`pay.channel.alipay.enabled` 与 `mp.enabled` 在当前代码中**不存在**；`identity.enforce.paths`、`identity.sign.enabled` 未实现；网关身份相关项实际以 `lp.identity.*` 存在且不随 Nacos 刷新——`inject-enabled` 硬编码为 `true`（`lp-gateway/src/main/resources/application.yml:50`），`enforce-mode` 取 `LP_IDENTITY_ENFORCE_MODE`（同文件 `:49`，取值 `obs|soft|hard`）。当前真实可用的开关是环境变量，且**改动后必须重启对应容器**（配置在启动时绑定，`@ConditionalOnProperty` 决定 bean 是否装配）：`LP_MINIAPP_LOGIN_ENABLED`（`lp-auth-service/src/main/resources/application.yml:54`）、`LP_MINIAPP_LOGIN_MOCK_ENABLED`（同文件 `:55`）、`LP_PAY_MOCK_ENABLED`（`lp-trade-service/src/main/resources/application.yml:75`）、`LP_PAY_ALIPAY_ENABLED`（同文件 `:83`，只覆盖台阶 1：开启装配真实网关、可发起支付表单并跳转支付宝，关闭回落 `UnconfiguredPaymentGateway` 返回 `50205`；台阶 2–5 未落地，台阶定义与依据见 `docs/project-status.md` §4.1）、`LP_CORS_ENABLED`（`lp-gateway/src/main/resources/application.yml:91`）。微信支付开关已随渠道移除。
 
-回滚：**没有秒级动态开关**，支付侧也没有可用的渠道开关：`LP_PAY_ALIPAY_ENABLED` 只控制支付宝凭据加载器是否装配（`lp-trade-service/src/main/java/com/lp/trade/config/AlipayPayConfig.java:23`），仓内尚无支付宝 `PaymentGateway` 实现，关掉它不改变支付接口行为；`LP_PAY_MOCK_ENABLED=false` 时由 `UnconfiguredPaymentGateway` 固定返回 `50205`（`lp-trade-service/src/main/java/com/lp/trade/payment/UnconfiguredPaymentGateway.java:21-25`）。可用手段是改环境变量后重启容器（分钟级，有秒级中断）：先把 `LP_IDENTITY_ENFORCE_MODE` 由 `hard` 改为非 `hard`（代码里 `obs` 与 `soft` 都是只记录不拒绝，`lp-gateway/src/main/java/com/lp/gateway/filter/JwtAuthFilter.java:199`），再回滚下游镜像 tag；无需数据回滚。触发阈值：支付成功率下降 > 0.5%，或出现跨用户数据事件，或网关 P95 增量 > 20ms。
+回滚：**没有秒级动态开关**，支付侧也没有可用的渠道降级开关：`LP_PAY_ALIPAY_ENABLED` 只覆盖台阶 1（发起表单并跳转支付），台阶 2–5 未落地、回调固定 `50205`、退款未实现（依据见 `docs/project-status.md` §4.1），开与不开都不能闭环收款，它只能用于「停止发起新支付」；`LP_PAY_MOCK_ENABLED=false` 时由 `UnconfiguredPaymentGateway` 固定返回 `50205`（`lp-trade-service/src/main/java/com/lp/trade/payment/UnconfiguredPaymentGateway.java:21-25`）。可用手段是改环境变量后重启容器（分钟级，有秒级中断）：先把 `LP_IDENTITY_ENFORCE_MODE` 由 `hard` 改为非 `hard`（代码里 `obs` 与 `soft` 都是只记录不拒绝，`lp-gateway/src/main/java/com/lp/gateway/filter/JwtAuthFilter.java:199`），再回滚下游镜像 tag；无需数据回滚。触发阈值：支付成功率下降 > 0.5%，或出现跨用户数据事件，或网关 P95 增量 > 20ms。
 
 ## 6.5 数据分层与脱敏落地
 
@@ -1966,9 +1966,9 @@ AI 功能单独灰度：先单课程白名单 + 10% 用户，观察无法回答�
 | 端 | 回滚手段 | 时效 | 限制 |
 |---|---|---|---|
 | 后端 / Web | 镜像 tag 回退 + 环境变量/配置文件回滚；当前为单机 Compose，`rollout undo` 与 Nacos 配置回滚在 K8s + Nacos 落地前不适用（Nacos 现状见 3.4） | 分钟级 | 数据库变更需向前兼容 |
-| **小程序** | **不能直接回滚到上一版**（微信不提供一键版本回退）：① 关闭服务端开关降级功能——注意 `mp.enabled` 与 `pay.channel.wxpay.enabled` **在当前代码中不存在**，可用的实际开关是环境变量 `LP_MINIAPP_LOGIN_ENABLED`（`lp-auth-service/src/main/resources/application.yml:54`）与 `LP_PAY_MOCK_ENABLED`（`lp-trade-service/src/main/resources/application.yml:75`；置 `false` 时支付接口固定返回 `50205`）；`LP_PAY_ALIPAY_ENABLED`（同文件 `:83`）只控制支付宝凭据加载，不改变支付行为，不能当渠道降级开关；且**改完必须重启对应容器**（`@ConditionalOnProperty` 在启动时求值，如 `lp-trade-service/src/main/java/com/lp/trade/payment/MockPaymentGateway.java:28`）；② 提交「回退版本」重新审核发布（1–7 天）；③ 严重问题可先将入口跳转至 H5 兜底页（小程序内嵌 `web-view`，需域名已加入业务域名） | 分钟级（改 env + 重启容器）/ 天级（发版） | 用户本地缓存旧包，无法强制刷新；没有秒级开关 |
+| **小程序** | **不能直接回滚到上一版**（微信不提供一键版本回退）：① 关闭服务端开关降级功能——注意 `mp.enabled` 与 `pay.channel.wxpay.enabled` **在当前代码中不存在**，可用的实际开关是环境变量 `LP_MINIAPP_LOGIN_ENABLED`（`lp-auth-service/src/main/resources/application.yml:54`）与 `LP_PAY_MOCK_ENABLED`（`lp-trade-service/src/main/resources/application.yml:75`；置 `false` 时支付接口固定返回 `50205`）；`LP_PAY_ALIPAY_ENABLED`（同文件 `:83`）只覆盖台阶 1（发起表单并跳转支付），台阶 2–5 未落地，开与不开都不能闭环收款，不能当渠道降级开关；且**改完必须重启对应容器**（`@ConditionalOnProperty` 在启动时求值，如 `lp-trade-service/src/main/java/com/lp/trade/payment/MockPaymentGateway.java:28`）；② 提交「回退版本」重新审核发布（1–7 天）；③ 严重问题可先将入口跳转至 H5 兜底页（小程序内嵌 `web-view`，需域名已加入业务域名） | 分钟级（改 env + 重启容器）/ 天级（发版） | 用户本地缓存旧包，无法强制刷新；没有秒级开关 |
 
-> 因此小程序风险点应尽量能在服务端降级，但当前只有登录与 mock 支付有可用开关（`LP_MINIAPP_LOGIN_ENABLED`、`LP_PAY_MOCK_ENABLED`，且改后需重启）；购买引导、播放、AI 三个入口**还没有独立开关**（`LP_FREE_PREVIEW_ENABLED` 的语义是免费试看，不是降级开关），属待补项，不得据此认为已具备秒级降级能力。
+> 因此小程序风险点应尽量能在服务端降级，但当前只有登录与 mock 支付有可用开关（`LP_MINIAPP_LOGIN_ENABLED`、`LP_PAY_MOCK_ENABLED`，且改后需重启）；支付宝通道当前只有台阶 1（发起表单并跳转），不构成可降级的真实支付通道；购买引导、播放、AI 三个入口**还没有独立开关**（`LP_FREE_PREVIEW_ENABLED` 的语义是免费试看，不是降级开关），属待补项，不得据此认为已具备秒级降级能力。
 
 ## 12.3 应急预案
 
