@@ -16,6 +16,7 @@ import static org.mockito.Mockito.when;
 
 import com.lp.course.config.LessonCleanupProperties;
 import com.lp.course.mapper.LessonContentCleanupMapper;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -51,7 +52,8 @@ class LessonContentCleanupWorkerTest {
                                 Duration.ofSeconds(30),
                                 Duration.ofMinutes(10),
                                 Duration.ofMinutes(10),
-                                Duration.ofMinutes(10)));
+                                Duration.ofMinutes(10)),
+                        new LessonCleanupMetrics(mapper, new SimpleMeterRegistry()));
         lenient().when(mapper.selectPending(any(), eq(BATCH_SIZE))).thenReturn(List.of(ROW));
         lenient().when(mapper.claim(7L)).thenReturn(1);
     }

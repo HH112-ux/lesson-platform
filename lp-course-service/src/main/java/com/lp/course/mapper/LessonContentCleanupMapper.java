@@ -239,4 +239,46 @@ public interface LessonContentCleanupMapper {
             "SELECT COUNT(*) FROM lesson_video_transcode "
                     + "WHERE source_object_key = #{objectKey} AND status IN (0, 1)")
     int countActiveTranscodes(@Param("objectKey") String objectKey);
+
+    /**
+     * Counts rows that are still waiting for a tick.
+     *
+     * <p>Feeds the {@code lp.course.cleanup.pending} gauge. Rows in {@code RUNNING} are excluded
+     * because they belong to the tick that is executing right now, not to the backlog.
+     *
+     * @return number of pending rows
+     * @author Caspian
+     * @since 0.17.0
+     */
+    @Select("SELECT COUNT(*) FROM lesson_content_cleanup WHERE status = 0")
+    int countPendingRows();
+
+    /**
+     * Counts rows that gave up and wait for a human.
+     *
+     * <p>Feeds the {@code lp.course.cleanup.failed.rows} gauge, which the alert rule compares
+     * against one row: a terminal failure is never retried, so the row count only grows.
+     *
+     * @return number of rows in the FAILED state
+     * @author Caspian
+     * @since 0.17.0
+     */
+    @Select("SELECT COUNT(*) FROM lesson_content_cleanup WHERE status = 3")
+    int countFailedRows();
+
+    /**
+     * Finds the registration time of the oldest row that has already spent an attempt.
+     *
+     * <p>Feeds the {@code lp.course.cleanup.oldest.seconds} gauge. Only rows with {@code
+     * attempt_count > 0} count, so a queue full of fresh rows that were simply never reached does
+     * not look stuck; the gauge measures retries that keep failing, not backlog age.
+     *
+     * @return oldest {@code created_at} among attempted, non-terminal rows, {@code null} if none
+     * @author Caspian
+     * @since 0.17.0
+     */
+    @Select(
+            "SELECT MIN(created_at) FROM lesson_content_cleanup "
+                    + "WHERE status IN (0, 1) AND attempt_count > 0")
+    LocalDateTime oldestAttemptedCreatedAt();
 }
