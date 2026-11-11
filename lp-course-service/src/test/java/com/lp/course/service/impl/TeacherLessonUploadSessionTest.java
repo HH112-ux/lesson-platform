@@ -4,7 +4,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -30,6 +29,7 @@ import com.lp.course.mapper.LessonUploadMapper;
 import com.lp.course.mapper.TeacherCourseMapper;
 import com.lp.course.upload.LessonPlaybackKeyResolver;
 import com.lp.course.upload.LessonTranscodeService;
+import com.lp.course.upload.LessonUploadConfirmWriter;
 import com.lp.course.upload.LessonUploadObjectReader;
 import com.lp.course.upload.LessonUploadObjectReader.DownloadedVideo;
 import com.lp.course.upload.LessonUploadUrlSigner;
@@ -74,6 +74,7 @@ class TeacherLessonUploadSessionTest {
     @Mock private LessonContentCleanupMapper contentCleanupMapper;
 
     @Mock private LessonPlaybackKeyResolver playbackKeyResolver;
+    @Mock private LessonUploadConfirmWriter confirmWriter;
 
     private TeacherCourseServiceImpl service;
 
@@ -100,7 +101,8 @@ class TeacherLessonUploadSessionTest {
                         tradeOrderClient,
                         transcodeService,
                         playbackKeyResolver,
-                        contentCleanupMapper);
+                        contentCleanupMapper,
+                        confirmWriter);
         lenient()
                 .when(playbackKeyResolver.resolve(anyString()))
                 .thenAnswer(invocation -> invocation.getArgument(0));
@@ -193,10 +195,7 @@ class TeacherLessonUploadSessionTest {
         when(uploadReader.download(OBJECT_KEY)).thenReturn(downloaded());
         when(videoProbe.probe(any()))
                 .thenReturn(new LessonVideoMetadata("isom", 90.4, "h264", 1280, 720, "aac"));
-        when(lessonUploadMapper.confirm(
-                        anyLong(), any(), any(), anyInt(), any(), anyInt(), anyInt(), anyLong(),
-                        any()))
-                .thenReturn(1);
+        when(confirmWriter.confirm(any(), any(), anyLong(), any())).thenReturn(1);
         CourseLesson lesson = lesson();
         when(teacherCourseMapper.selectLesson(9L, 3L, 77L)).thenReturn(lesson);
 
@@ -210,15 +209,10 @@ class TeacherLessonUploadSessionTest {
         assertEquals(720, view.videoHeight());
         assertEquals(1024L, view.videoSizeBytes());
         verify(videoValidator).validate(any(LessonVideoMetadata.class));
-        verify(lessonUploadMapper)
+        verify(confirmWriter)
                 .confirm(
-                        eq(501L),
-                        any(),
-                        eq(OBJECT_KEY),
-                        eq(90),
-                        eq("h264"),
-                        eq(1280),
-                        eq(720),
+                        any(LessonUpload.class),
+                        any(LessonVideoMetadata.class),
                         eq(1024L),
                         eq("sha256-value"));
         verify(uploadReader).delete(any(DownloadedVideo.class));
@@ -249,10 +243,7 @@ class TeacherLessonUploadSessionTest {
 
         assertEquals(61003, exception.getCode());
         verify(uploadReader, never()).download(any());
-        verify(lessonUploadMapper, never())
-                .confirm(
-                        anyLong(), any(), any(), anyInt(), any(), anyInt(), anyInt(), anyLong(),
-                        any());
+        verify(confirmWriter, never()).confirm(any(), any(), anyLong(), any());
     }
 
     @Test
@@ -276,10 +267,7 @@ class TeacherLessonUploadSessionTest {
         when(uploadReader.download(OBJECT_KEY)).thenReturn(downloaded());
         when(videoProbe.probe(any()))
                 .thenReturn(new LessonVideoMetadata("isom", 90.4, "h264", 1280, 720, "aac"));
-        when(lessonUploadMapper.confirm(
-                        anyLong(), any(), any(), anyInt(), any(), anyInt(), anyInt(), anyLong(),
-                        any()))
-                .thenReturn(0);
+        when(confirmWriter.confirm(any(), any(), anyLong(), any())).thenReturn(0);
 
         BizException exception = assertThrows(BizException.class, () -> confirm(501L));
 
