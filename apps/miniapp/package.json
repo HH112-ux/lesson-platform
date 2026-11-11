@@ -3,6 +3,8 @@
   "private": true,
   "version": "0.0.0",
   "scripts": {
-    "check": "node scripts/check.mjs"
+    "check": "node scripts/check.mjs",
+    "check:appid": "node scripts/check.mjs --require-appid",
+    "prepare:appid": "node scripts/prepare-appid.mjs"
   }
 }

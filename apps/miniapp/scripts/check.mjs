@@ -1,11 +1,19 @@
 // Static validator for the mini program project. It runs in CI because compiling
-// with miniprogram-ci needs a real AppID plus an upload private key, which must
-// never be committed; the checks below catch broken project files early instead.
+// with miniprogram-ci needs an upload private key, which must never be committed; the AppID
+// itself is public. The checks below catch broken project files early instead.
 import { readFileSync, existsSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import {
+  PLACEHOLDER_APPID,
+  describeAppidProblem,
+  isValidAppid,
+  printAppidHelp,
+  resolveAppid,
+} from './appid.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const requireAppid = process.argv.includes('--require-appid')
 const errors = []
 
 /**
@@ -37,7 +45,13 @@ if (projectConfig) {
     errors.push('project.config.json must set compileType to "miniprogram"')
   }
   if (!projectConfig.appid) {
-    errors.push('project.config.json must declare an appid (touristappid is allowed locally)')
+    errors.push(
+      `project.config.json must declare an appid; use the real AppID or the explicit placeholder ${PLACEHOLDER_APPID}`,
+    )
+  } else if (projectConfig.appid !== PLACEHOLDER_APPID && !isValidAppid(projectConfig.appid)) {
+    errors.push(
+      `project.config.json appid must be the explicit placeholder ${PLACEHOLDER_APPID} or a real wx AppID; touristappid is retired`,
+    )
   }
 }
 
@@ -64,6 +78,19 @@ if (errors.length > 0) {
   process.exit(1)
 }
 
-const appidMode = projectConfig && projectConfig.appid === 'touristappid' ? 'tourist (no real AppID)' : 'configured'
+const resolved = resolveAppid(root)
+const appidProblem = describeAppidProblem(resolved.appid)
+
+if (requireAppid && appidProblem) {
+  console.error('FAIL real AppID required but not usable')
+  console.error(`- ${appidProblem} (source: ${resolved.source})`)
+  printAppidHelp()
+  process.exit(1)
+}
+
+const appidMode = appidProblem ? `not configured (${resolved.source})` : `configured (${resolved.source})`
 console.log(`OK mini program static check (${pages.length} page(s), appid: ${appidMode})`)
+if (appidProblem) {
+  console.log('NOTE real-device acceptance and upload must run: pnpm --filter lp-miniapp check:appid')
+}
 console.log('NOTE miniprogram-ci compile/upload is skipped: it requires a real AppID and upload private key.')
