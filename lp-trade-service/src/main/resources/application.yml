@@ -76,6 +76,13 @@ lp:
       # No default: enabling the mock channel without a secret fails startup.
       secret: ${LP_PAY_MOCK_SECRET:}
       gateway-base-url: ${LP_PAY_MOCK_GATEWAY_BASE_URL:http://127.0.0.1:8080}
+    # Alipay openapi channel. Credentials are never copied here: the loader reads the verified
+    # credential file directly at startup, and a missing or incomplete file aborts the boot. The
+    # sandbox gateway is refused on prod/staging.
+    alipay:
+      enabled: ${LP_PAY_ALIPAY_ENABLED:false}
+      credentials-file: ${LP_PAY_ALIPAY_CREDENTIALS_FILE:}
+      gateway-url: ${LP_PAY_ALIPAY_GATEWAY_URL:https://openapi-sandbox.dl.alipaydev.com/gateway.do}
 
 # Only health, info and prometheus are exposed. The prometheus endpoint is served on the service
 # port (8103), which the gateway does not route: nginx forwards /actuator to the gateway's own
