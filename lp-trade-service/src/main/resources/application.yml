@@ -81,6 +81,9 @@ lp:
     # sandbox gateway is refused on prod/staging.
     alipay:
       enabled: ${LP_PAY_ALIPAY_ENABLED:false}
+      # Refunds have their own switch: turning it off stops refunds with 50205 before any request
+      # is signed, while payments keep working. Defaults to on so the channel behaves normally.
+      refund-enabled: ${LP_PAY_ALIPAY_REFUND_ENABLED:true}
       credentials-file: ${LP_PAY_ALIPAY_CREDENTIALS_FILE:}
       gateway-url: ${LP_PAY_ALIPAY_GATEWAY_URL:https://openapi-sandbox.dl.alipaydev.com/gateway.do}
       # Public callback URL registered at the channel. Empty keeps the channel default, which is
