@@ -62,3 +62,64 @@ groups:
             67005. Check the auth-service WARN log, which carries userId, then trade
             /internal/v1/account-deletion/cache-invalidate.
           runbook: "infra/observability/README.md"
+  - name: lp-course-cleanup
+    rules:
+      # A missing series is not a zero value: without this rule the two alerts below stay silent
+      # exactly when the queue becomes unobservable (service down, scrape target removed). The
+      # gauges are registered at startup, so ten minutes of absence means nobody is collecting.
+      # The two alert rules below use a 30m window so a restart (which resets the gauges) and a
+      # single slow tick do not page anyone.
+      - alert: LpCourseCleanupMetricsMissing
+        expr: absent(lp_course_cleanup_pending)
+        for: 10m
+        labels:
+          severity: warning
+          service: course-service
+          domain: lesson-cleanup
+        annotations:
+          summary: "Lesson cleanup metrics are not being collected"
+          description: >-
+            No sample for lp_course_cleanup_pending for ten minutes: course-service is down, the
+            scrape target is gone, or the actuator endpoint stopped exposing prometheus. The cleanup
+            alerts cannot fire while the series is missing, so this rule covers that blind spot.
+            Check the scrape targets and GET /actuator/prometheus on course-service.
+          runbook: "docs/local-dev-guide.md"
+      # Row-shaped threshold: a terminal row is never retried, so one row is already a defect that
+      # needs a human. Counting rows instead of a rate avoids hiding a single stuck object behind
+      # a quiet service.
+      - alert: LpCourseCleanupFailedRows
+        expr: lp_course_cleanup_failed_rows >= 1
+        for: 30m
+        labels:
+          severity: warning
+          service: course-service
+          domain: lesson-cleanup
+        annotations:
+          summary: "Lesson cleanup has {{ $value }} terminal failures"
+          description: >-
+            A row reached FAILED after exhausting its retries or on a permanent error. The object may
+            still exist in the bucket; last_error names the cause (for example NoSuchBucket means the
+            bucket or endpoint is misconfigured, not that the file was deleted). Inspect
+            lesson_content_cleanup where status=3, fix the cause, then reset those rows to status=0.
+          runbook: "docs/local-dev-guide.md"
+      # Duration-shaped threshold: the first one in this repository. The retry budget is about
+      # 7.5 minutes by default (30s + 1m + 2m + 4m across four retries), so an attempted row older
+      # than an hour cannot be waiting on backoff any more: either ticks stopped (service down, or
+      # the switch turned off after the value was recorded) or storage rejects every delete. A
+      # deliberately deferred row never spends an attempt, so it cannot trip this rule.
+      - alert: LpCourseCleanupOldestRetrySeconds
+        expr: lp_course_cleanup_oldest_seconds > 3600
+        for: 30m
+        labels:
+          severity: warning
+          service: course-service
+          domain: lesson-cleanup
+        annotations:
+          summary: "Lesson cleanup retry stuck for {{ $value }} seconds"
+          description: >-
+            The oldest row that already spent an attempt has been waiting more than an hour, far
+            beyond the retry budget, so retries are not progressing. Check that course-service is up
+            and lp.course.cleanup.enabled is true, then look for repeated WARN "cleanup of ... failed"
+            lines naming the storage error. Alerting stops refreshing while the switch is off, so a
+            firing alert from before the switch will not clear by itself.
+          runbook: "docs/local-dev-guide.md"
