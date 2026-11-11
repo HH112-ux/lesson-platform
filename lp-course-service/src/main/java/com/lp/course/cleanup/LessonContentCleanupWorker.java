@@ -39,6 +39,7 @@ public class LessonContentCleanupWorker {
     private final LessonContentCleanupMapper mapper;
     private final LessonCleanupObjectStore store;
     private final LessonCleanupProperties properties;
+    private final LessonCleanupMetrics metrics;
 
     /**
      * Creates the worker.
@@ -46,16 +47,19 @@ public class LessonContentCleanupWorker {
      * @param mapper cleanup registry statements
      * @param store object storage deletion
      * @param properties retry and batch settings
+     * @param metrics outcome counters incremented per handled row
      * @author Caspian
      * @since 0.17.0
      */
     public LessonContentCleanupWorker(
             LessonContentCleanupMapper mapper,
             LessonCleanupObjectStore store,
-            LessonCleanupProperties properties) {
+            LessonCleanupProperties properties,
+            LessonCleanupMetrics metrics) {
         this.mapper = mapper;
         this.store = store;
         this.properties = properties;
+        this.metrics = metrics;
     }
 
     /**
@@ -92,6 +96,7 @@ public class LessonContentCleanupWorker {
         try {
             store.delete(row.objectKey());
             mapper.markDone(row.id());
+            metrics.recordDeleted();
         } catch (LessonCleanupObjectStore.CleanupFailure failure) {
             fail(row, failure);
         }
@@ -107,6 +112,7 @@ public class LessonContentCleanupWorker {
         int attempts = row.attemptCount() + 1;
         if (failure.permanent() || attempts >= properties.maxAttempts()) {
             mapper.markFailed(row.id(), attempts, failure.getMessage());
+            metrics.recordFailed();
             log.warn("cleanup of {} failed after {} attempts", row.objectKey(), attempts);
             return;
         }
@@ -115,6 +121,7 @@ public class LessonContentCleanupWorker {
                 attempts,
                 LocalDateTime.now().plus(backoff(attempts)),
                 failure.getMessage());
+        metrics.recordRetried();
     }
 
     private Duration backoff(int attempts) {
