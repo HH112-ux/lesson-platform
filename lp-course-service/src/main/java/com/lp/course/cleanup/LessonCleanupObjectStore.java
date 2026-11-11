@@ -88,7 +88,8 @@ public class LessonCleanupObjectStore {
                 log.debug("cleanup found {} already removed", objectKey);
                 return;
             }
-            throw new CleanupFailure(false, String.valueOf(code));
+            String message = code == null ? "no error code" : code;
+            throw new CleanupFailure(false, message + " (HTTP " + httpStatus + ")");
         } catch (IllegalArgumentException e) {
             throw new CleanupFailure(true, "invalid object key");
         } catch (Exception e) {
@@ -99,8 +100,8 @@ public class LessonCleanupObjectStore {
     /**
      * Tells whether an error response means the object is already gone.
      *
-     * <p>Only called after {@link #PERMANENT_CODES} had no match, so a bucket-level failure that
-     * also answers with 404 is never reported as a vanished object.
+     * <p>Self-contained: a code that retries cannot fix is never a missing object, even when the
+     * response status is 404, so a missing or renamed bucket is not reported as a deleted key.
      *
      * @param code storage error code, may be {@code null}
      * @param httpStatus HTTP status of the response
@@ -109,6 +110,9 @@ public class LessonCleanupObjectStore {
      * @since 0.17.0
      */
     static boolean isMissing(String code, int httpStatus) {
+        if (code != null && PERMANENT_CODES.contains(code)) {
+            return false;
+        }
         return httpStatus == 404 || "NoSuchKey".equalsIgnoreCase(code);
     }
 
