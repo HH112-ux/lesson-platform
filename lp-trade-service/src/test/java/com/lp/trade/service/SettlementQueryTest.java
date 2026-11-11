@@ -2,6 +2,10 @@ package com.lp.trade.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -78,6 +82,40 @@ class SettlementQueryTest {
 
         assertEquals(SettlementService.MAX_PAGE_SIZE, page.pageSize());
         verify(settleBatchMapper).page(1, null, 2, 0, SettlementService.MAX_PAGE_SIZE);
+    }
+
+    @Test
+    void normalizesZeroPageNumToFirstPage() {
+        when(settleBatchMapper.count(1, null, null)).thenReturn(0L);
+        when(settleBatchMapper.page(1, null, null, 0, 20)).thenReturn(List.of());
+
+        SettlementPageView page = service.page(1, null, null, 0, 20);
+
+        assertEquals(1, page.pageNum());
+        verify(settleBatchMapper).page(1, null, null, 0, 20);
+    }
+
+    @Test
+    void normalizesNegativePageNumToFirstPage() {
+        when(settleBatchMapper.count(1, null, null)).thenReturn(0L);
+        when(settleBatchMapper.page(1, null, null, 0, 20)).thenReturn(List.of());
+
+        SettlementPageView page = service.page(1, null, null, -7, 20);
+
+        assertEquals(1, page.pageNum());
+        verify(settleBatchMapper).page(1, null, null, 0, 20);
+    }
+
+    @Test
+    void returnsEmptyPageWhenOffsetExceedsIntRange() {
+        when(settleBatchMapper.count(1, null, null)).thenReturn(5L);
+
+        SettlementPageView page = service.page(1, null, null, Integer.MAX_VALUE, 100);
+
+        assertTrue(page.records().isEmpty());
+        assertEquals(5, page.total());
+        assertEquals(Integer.MAX_VALUE, page.pageNum());
+        verify(settleBatchMapper, never()).page(anyInt(), any(), any(), anyInt(), anyInt());
     }
 
     @Test

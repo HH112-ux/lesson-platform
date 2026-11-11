@@ -1,12 +1,19 @@
 package com.lp.trade.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.lp.common.exception.BizException;
+import com.lp.common.exception.ErrorCode;
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -22,10 +29,12 @@ import org.springframework.test.context.ActiveProfiles;
  * Proves a settle close keeps exactly one batch row under two concurrent callers.
  *
  * <p>Both workers read the same day, find no batch and race on {@code uk_active_day}. The database
- * must let one insert win and make the other statement converge on the same row, so the two callers
- * return the same primary key and the table holds one row. A second test proves that a voided day
- * is closed again as a new row while the voided row stays as history. These are persistence-level
- * guarantees and are therefore exercised against a real schema rather than a mocked mapper.
+ * must let one insert win and reject the other, so the loser reports an incomplete bill day ({@code
+ * 62019}) and the table holds one row instead of an overwritten batch. A serially executed pair is
+ * legal too and must return the same primary key, so the race is repeated a few rounds until a
+ * collision is observed. A second test proves that a voided day is closed again as a new row while
+ * the voided row stays as history. These are persistence-level guarantees and are therefore
+ * exercised against a real schema rather than a mocked mapper.
  *
  * @author Caspian
  * @since 0.6.2
@@ -126,14 +135,29 @@ class SettlementCloseConcurrencyTest {
     }
 
     /**
-     * Two concurrent closes return the same batch id and leave one row.
+     * Two concurrent closes leave one batch, and the losing caller reports {@code 62019}.
      *
      * @throws Exception when the worker threads cannot finish
      * @author Caspian
      * @since 0.6.2
      */
     @Test
-    void concurrentCloseKeepsOneBatch() throws Exception {
+    void concurrentCloseKeepsOneBatchAndRejectsLoser() throws Exception {
+        BizException conflict = null;
+        for (int round = 1; round <= 5 && conflict == null; round++) {
+            jdbcTemplate.update("DELETE FROM payment_settle_batch");
+            conflict = raceTwoCloses(round);
+            assertEquals(
+                    1,
+                    jdbcTemplate.queryForObject(
+                            "SELECT COUNT(*) FROM payment_settle_batch", Integer.class),
+                    "round " + round + " must keep exactly one batch");
+        }
+        assertNotNull(conflict, "two concurrent closes never collided");
+        assertEquals(ErrorCode.SETTLE_BILL_INCOMPLETE.getCode(), conflict.getCode());
+    }
+
+    private BizException raceTwoCloses(int round) throws Exception {
         ExecutorService executor = Executors.newFixedThreadPool(2);
         CountDownLatch ready = new CountDownLatch(2);
         CountDownLatch start = new CountDownLatch(1);
@@ -147,15 +171,24 @@ class SettlementCloseConcurrencyTest {
         Future<Long> second = executor.submit(close);
         assertTrue(ready.await(5, TimeUnit.SECONDS));
         start.countDown();
-        Long firstId = first.get(10, TimeUnit.SECONDS);
-        Long secondId = second.get(10, TimeUnit.SECONDS);
+        List<Long> winners = new ArrayList<>();
+        BizException conflict = null;
+        for (Future<Long> future : List.of(first, second)) {
+            try {
+                winners.add(future.get(10, TimeUnit.SECONDS));
+            } catch (ExecutionException ex) {
+                assertInstanceOf(BizException.class, ex.getCause());
+                conflict = (BizException) ex.getCause();
+            }
+        }
         executor.shutdown();
-
-        assertEquals(firstId, secondId);
-        Integer rows =
-                jdbcTemplate.queryForObject(
-                        "SELECT COUNT(*) FROM payment_settle_batch", Integer.class);
-        assertEquals(1, rows);
+        if (conflict == null) {
+            assertEquals(2, winners.size(), "round " + round + " must let both callers succeed");
+            assertEquals(winners.get(0), winners.get(1), "serially closed day keeps one id");
+        } else {
+            assertEquals(1, winners.size(), "round " + round + " must have one winner");
+        }
+        return conflict;
     }
 
     /**

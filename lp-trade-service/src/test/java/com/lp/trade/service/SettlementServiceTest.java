@@ -24,6 +24,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DuplicateKeyException;
 
 /** Unit tests for {@link SettlementService}. */
 @ExtendWith(MockitoExtension.class)
@@ -59,7 +60,7 @@ class SettlementServiceTest {
 
         ArgumentCaptor<PaymentSettleBatch> captor =
                 ArgumentCaptor.forClass(PaymentSettleBatch.class);
-        verify(settleBatchMapper).upsert(captor.capture());
+        verify(settleBatchMapper).insert(captor.capture());
         PaymentSettleBatch written = captor.getValue();
         assertEquals(new BigDecimal("9.90"), written.getChannelPayAmount());
         assertEquals(new BigDecimal("3.00"), written.getChannelRefundAmount());
@@ -86,7 +87,7 @@ class SettlementServiceTest {
 
         ArgumentCaptor<PaymentSettleBatch> captor =
                 ArgumentCaptor.forClass(PaymentSettleBatch.class);
-        verify(settleBatchMapper).upsert(captor.capture());
+        verify(settleBatchMapper).insert(captor.capture());
         assertEquals(new BigDecimal("-30.01"), captor.getValue().getNetChannelAmount());
         assertEquals(new BigDecimal("-30.01"), captor.getValue().getNetLocalAmount());
     }
@@ -104,8 +105,25 @@ class SettlementServiceTest {
 
         ArgumentCaptor<PaymentSettleBatch> captor =
                 ArgumentCaptor.forClass(PaymentSettleBatch.class);
-        verify(settleBatchMapper).upsert(captor.capture());
+        verify(settleBatchMapper).insert(captor.capture());
         assertEquals(new BigDecimal("69.99"), captor.getValue().getNetChannelAmount());
+    }
+
+    @Test
+    void reportsIncompleteWhenConcurrentCloseHitsUniqueKey() {
+        when(reconcileMapper.selectByKey(1, BILL_DATE, 1))
+                .thenReturn(row(1, "10.00", "10.00", 0, "0.00"));
+        when(reconcileMapper.selectByKey(1, BILL_DATE, 2))
+                .thenReturn(row(1, "2.00", "2.00", 0, "0.00"));
+        when(reconcileMapper.countUnresolved(1, BILL_DATE)).thenReturn(0L);
+        when(settleBatchMapper.selectActiveByKey(1, BILL_DATE)).thenReturn(null);
+        when(settleBatchMapper.insert(any(PaymentSettleBatch.class)))
+                .thenThrow(new DuplicateKeyException("uk_active_day"));
+
+        BizException ex =
+                assertThrows(BizException.class, () -> service.close(1, BILL_DATE, CLOSED_BY));
+
+        assertEquals(ErrorCode.SETTLE_BILL_INCOMPLETE.getCode(), ex.getCode());
     }
 
     @Test
@@ -116,7 +134,7 @@ class SettlementServiceTest {
                 assertThrows(BizException.class, () -> service.close(1, BILL_DATE, CLOSED_BY));
 
         assertEquals(ErrorCode.SETTLE_BILL_INCOMPLETE.getCode(), error.getCode());
-        verify(settleBatchMapper, never()).upsert(any());
+        verify(settleBatchMapper, never()).insert(any());
     }
 
     @Test
@@ -129,7 +147,7 @@ class SettlementServiceTest {
                 assertThrows(BizException.class, () -> service.close(1, BILL_DATE, CLOSED_BY));
 
         assertEquals(ErrorCode.SETTLE_BILL_INCOMPLETE.getCode(), error.getCode());
-        verify(settleBatchMapper, never()).upsert(any());
+        verify(settleBatchMapper, never()).insert(any());
     }
 
     @Test
@@ -144,7 +162,7 @@ class SettlementServiceTest {
                 assertThrows(BizException.class, () -> service.close(1, BILL_DATE, CLOSED_BY));
 
         assertEquals(ErrorCode.RECONCILE_UNRESOLVED.getCode(), error.getCode());
-        verify(settleBatchMapper, never()).upsert(any());
+        verify(settleBatchMapper, never()).insert(any());
         verify(settleBatchMapper, never()).selectActiveByKey(any(), any());
     }
 
@@ -159,7 +177,7 @@ class SettlementServiceTest {
         when(settleBatchMapper.selectActiveByKey(1, BILL_DATE)).thenReturn(existing);
 
         assertSame(existing, service.close(1, BILL_DATE, CLOSED_BY));
-        verify(settleBatchMapper, never()).upsert(any());
+        verify(settleBatchMapper, never()).insert(any());
     }
 
     @Test
@@ -173,7 +191,7 @@ class SettlementServiceTest {
 
         PaymentSettleBatch saved = service.close(1, BILL_DATE, CLOSED_BY);
 
-        verify(settleBatchMapper).upsert(any());
+        verify(settleBatchMapper).insert(any());
         assertEquals(Long.valueOf(88L), saved.getId());
     }
 
