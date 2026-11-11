@@ -13,11 +13,12 @@ import org.apache.ibatis.annotations.Update;
 /**
  * Reads and writes {@code payment_settle_batch}.
  *
- * <p>The upsert relies on {@code uk_active_day}, so closing the same channel and bill day twice
- * keeps one active row and returns the same primary key; two concurrent closes also converge to
- * that one row. A voided row has a {@code null} generated key, so closing that day again inserts a
- * new batch and keeps the voided row as history. No statement here touches orders, payments,
- * refunds or funds.
+ * <p>{@code uk_active_day} lets the database settle a concurrent close: the first insert of an
+ * active day wins and the second one collides on the unique key, so the caller reports a conflict
+ * instead of rewriting the winner. A voided row keeps its history by clearing {@code
+ * active_day_key} to {@code NULL}; MySQL allows many {@code NULL} values in a unique key, so
+ * closing that day again inserts a new batch instead of reviving the voided one. No statement here
+ * touches orders, payments, refunds or funds.
  *
  * @author Caspian
  * @since 0.6.2
@@ -83,10 +84,14 @@ public interface PaymentSettleBatchMapper {
     PaymentSettleBatch selectById(@Param("id") Long id);
 
     /**
-     * Inserts one active batch, or rewrites the existing active batch of the day.
+     * Inserts one active batch of the day.
      *
-     * <p>{@code uk_active_day} only covers status 1 rows, so a voided row never blocks the insert.
-     * That is what turns a re-close after a void into a new batch row instead of reviving history.
+     * <p>{@code active_day_key} is written as {@code channel-billDate} for the active row and is
+     * cleared to {@code NULL} when the row is voided. Only non-{@code NULL} keys take part in the
+     * unique constraint, so a voided row never blocks the insert and a re-close after a void
+     * creates a new batch instead of reviving history. Two concurrent inserts of the same active
+     * day collide on the unique key; the caller turns that collision into a business error rather
+     * than an overwrite.
      *
      * @param batch batch carrying the computed figures and the closing operator
      * @return affected rows
@@ -104,23 +109,8 @@ public interface PaymentSettleBatchMapper {
                     + "#{channelPayAmount}, #{channelRefundCount}, #{channelRefundAmount}, "
                     + "#{localPayCount}, #{localPayAmount}, #{localRefundCount}, "
                     + "#{localRefundAmount}, #{netChannelAmount}, #{netLocalAmount}, "
-                    + "#{diffCount}, #{diffAmount}, 1, #{closedBy}, #{closedAt}) "
-                    + "ON DUPLICATE KEY UPDATE "
-                    + "channel_pay_count = VALUES(channel_pay_count), "
-                    + "channel_pay_amount = VALUES(channel_pay_amount), "
-                    + "channel_refund_count = VALUES(channel_refund_count), "
-                    + "channel_refund_amount = VALUES(channel_refund_amount), "
-                    + "local_pay_count = VALUES(local_pay_count), "
-                    + "local_pay_amount = VALUES(local_pay_amount), "
-                    + "local_refund_count = VALUES(local_refund_count), "
-                    + "local_refund_amount = VALUES(local_refund_amount), "
-                    + "net_channel_amount = VALUES(net_channel_amount), "
-                    + "net_local_amount = VALUES(net_local_amount), "
-                    + "diff_count = VALUES(diff_count), diff_amount = VALUES(diff_amount), "
-                    + "status = 1, closed_by = VALUES(closed_by), closed_at = VALUES(closed_at), "
-                    + "void_by = NULL, void_at = NULL, "
-                    + "active_day_key = VALUES(active_day_key)")
-    int upsert(PaymentSettleBatch batch);
+                    + "#{diffCount}, #{diffAmount}, 1, #{closedBy}, #{closedAt})")
+    int insert(PaymentSettleBatch batch);
 
     /**
      * Voids a closed batch so its bill day can be imported and closed again.

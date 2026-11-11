@@ -71,10 +71,13 @@ public class SettlementController {
             @RequestHeader(value = IdentityHeaders.USER_PERMISSIONS, required = false)
                     String permissions,
             @RequestHeader(value = IdentityHeaders.USER_ID, required = false) Long userId,
-            @RequestBody CloseSettlementRequest body,
+            @RequestBody(required = false) CloseSettlementRequest body,
             HttpServletRequest request) {
         ReconcilePermissions.require(roles, permissions, ReconcilePermissions.CLOSE);
         long closedBy = requireUserId(userId);
+        if (body == null) {
+            throw new BizException(ErrorCode.PARAM_INVALID, "request body is required");
+        }
         Integer channel = body.channel() == null ? DEFAULT_CHANNEL : body.channel();
         return Result.ok(
                 SettlementView.from(settlementService.close(channel, body.billDate(), closedBy)),
