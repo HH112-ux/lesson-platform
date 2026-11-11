@@ -36,35 +36,71 @@ require_login demo_guest "${GUEST}"
 require_login demo_teacher_lin "${TEACHER_LIN}"
 require_login demo_teacher_su "${TEACHER_SU}"
 
+# The reconcile cases used to depend on a bill that only existed on the developer
+# machine. Import one through the real admin endpoint so a clean schema is enough.
+import_reconcile_fixture() {
+  local bill_date=$1 token=$2 csv
+  csv="tradeNo,merchantOrderNo,amount,occurredAt
+DRILL-${bill_date}-1,DRILL-ORDER-1,10.00,${bill_date} 00:00:00"
+  HTTP="$(printf '%s' "${csv}" | curl -s -o "${SEC_BODY}" -w '%{http_code}' \
+    -X POST "${SEC_BASE}/api/v1/reconcile/import?channel=1&billDate=${bill_date}&billType=1" \
+    -H "Authorization: Bearer ${token}" \
+    -F 'file=@-;filename=drill-bill.csv;type=text/csv')"
+  CODE="$(json_field code)"
+  if [ "${HTTP}" != "200" ] || [ "${CODE}" != "0" ]; then
+    printf 'ERROR 对账用例数据导入失败：POST /api/v1/reconcile/import http=%s code=%s。\n' \
+      "${HTTP}" "${CODE}" >&2
+    exit 1
+  fi
+}
+
+FIXTURE_DAY="$(date -u +%F)"
+RECONCILE_ROWS="$(mysql_query "SELECT COUNT(*) FROM lp_oms.payment_reconcile")"
+if [ "${RECONCILE_ROWS}" = "0" ]; then
+  printf '准备用例数据：以 demo_admin 导入 %s 的对账账单。\n' "${FIXTURE_DAY}"
+  import_reconcile_fixture "${FIXTURE_DAY}" "${ADMIN}"
+fi
+
 RECHECK_ID="$(mysql_query "SELECT id FROM lp_oms.payment_reconcile ORDER BY id LIMIT 1")"
+require_value 'reconcile' "${RECHECK_ID}" \
+  'lp_oms.payment_reconcile 为空，且以 demo_admin 导入账单后仍取不到行'
+BILL_DAY="$(mysql_query \
+  "SELECT bill_date FROM lp_oms.payment_reconcile WHERE id = ${RECHECK_ID}")"
+require_value 'bill-day' "${BILL_DAY}" "对账行 id=${RECHECK_ID} 没有账单日"
 PENDING_ID="$(mysql_query \
   "SELECT id FROM lp_oms.payment_reconcile WHERE status = 2 ORDER BY id LIMIT 1")"
-BILL_DAY="$(mysql_query "SELECT bill_date FROM lp_oms.payment_reconcile WHERE id = ${RECHECK_ID}")"
+
 LIN="$(mysql_query "
   SELECT c.id, l.id FROM lp_cms.course c
     JOIN lp_cms.teacher_profile t ON t.id = c.owner_teacher_id
+    JOIN lp_ums.sys_user u ON u.id = t.user_id
     JOIN lp_cms.course_lesson l ON l.course_id = c.id
-  WHERE t.user_id = 21 AND l.video_url <> '' ORDER BY l.id LIMIT 1")"
+  WHERE u.username = 'demo_teacher_lin' AND l.video_url <> '' ORDER BY l.id LIMIT 1")"
+require_value 'lin-course-lesson' "${LIN}" \
+  'username=demo_teacher_lin 名下没有带视频的课时，或教师资料未绑定该账号'
+read -r LIN_COURSE LIN_LESSON <<< "${LIN}"
+require_value 'lin-lesson-id' "${LIN_LESSON}" 'username=demo_teacher_lin 的课时 id 为空'
+
 SU="$(mysql_query "
   SELECT c.id, l.id FROM lp_cms.course c
     JOIN lp_cms.teacher_profile t ON t.id = c.owner_teacher_id
+    JOIN lp_ums.sys_user u ON u.id = t.user_id
     JOIN lp_cms.course_lesson l ON l.course_id = c.id
-  WHERE t.user_id = 22 AND l.video_url <> '' ORDER BY l.id LIMIT 1")"
-BUYER_ORDER="$(mysql_query "
-  SELECT o.id FROM lp_oms.trade_order o JOIN lp_ums.sys_user u ON u.id = o.user_id
-  WHERE u.username = 'demo_buyer' ORDER BY o.id DESC LIMIT 1")"
-read -r LIN_COURSE LIN_LESSON <<< "${LIN}"
+  WHERE u.username = 'demo_teacher_su' AND l.video_url <> '' ORDER BY l.id LIMIT 1")"
+require_value 'su-course-lesson' "${SU}" \
+  'username=demo_teacher_su 名下没有带视频的课时，或教师资料未绑定该账号'
 read -r SU_COURSE SU_LESSON <<< "${SU}"
+require_value 'su-lesson-id' "${SU_LESSON}" 'username=demo_teacher_su 的课时 id 为空'
+
 LIN_CHAPTER="$(mysql_query "SELECT chapter_id FROM lp_cms.course_lesson WHERE id = ${LIN_LESSON}")"
 SU_CHAPTER="$(mysql_query "SELECT chapter_id FROM lp_cms.course_lesson WHERE id = ${SU_LESSON}")"
 OBJECT_KEY="$(mysql_query "SELECT video_url FROM lp_cms.course_lesson WHERE id = ${LIN_LESSON}")"
+BUYER_ORDER="$(mysql_query "
+  SELECT o.id FROM lp_oms.trade_order o JOIN lp_ums.sys_user u ON u.id = o.user_id
+  WHERE u.username = 'demo_buyer' ORDER BY o.id DESC LIMIT 1")"
 
-require_value 'reconcile' "${RECHECK_ID}" 'lp_oms.payment_reconcile 为空'
-require_value 'bill-day' "${BILL_DAY}" '对账行没有账单日'
-require_value 'lin-course-lesson' "${LIN}" '教师 21 名下没有带视频的课时'
-require_value 'su-course-lesson' "${SU}" '教师 22 名下没有带视频的课时'
-require_value 'buyer-order' "${BUYER_ORDER}" 'demo_buyer 没有订单'
-require_value 'object-key' "${OBJECT_KEY}" '课时没有 video_url'
+require_value 'buyer-order' "${BUYER_ORDER}" 'username=demo_buyer 没有订单'
+require_value 'object-key' "${OBJECT_KEY}" 'username=demo_teacher_lin 的课时没有 video_url'
 
 printf '环境：%s，对账行=%s，账单日=%s\n' "${SEC_BASE}" "${RECHECK_ID}" "${BILL_DAY}"
 

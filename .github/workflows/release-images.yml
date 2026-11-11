@@ -5,9 +5,18 @@ name: release-images
 # push to develop/main or merge_group: it must never become a required PR check and
 # must never change the coverage of backend-build / backend-test / frontend-check.
 #
+# Registry resolution (no extra secret is required for the default path):
+#   - REGISTRY + REGISTRY_USERNAME + REGISTRY_PASSWORD all set  -> that registry
+#     (Docker Hub, Aliyun ACR, ...) with those credentials.
+#   - all three empty -> ghcr.io, authenticated with the repository GITHUB_TOKEN
+#     (requires permissions: packages: write). The owner is lower-cased because
+#     ghcr rejects upper-case repository owners.
+#   - only some of the three set -> hard error, so a half-configured registry can
+#     never silently push to the wrong place.
+#
 # Push is enabled for release tags (v*) and for a manual dispatch with push=true.
 # A dispatch with push=false performs a build-only dry run so the Dockerfiles can be
-# verified before the registry credentials exist.
+# verified without touching any registry.
 
 on:
   push:
@@ -20,9 +29,20 @@ on:
         required: true
         type: boolean
         default: true
+      service:
+        description: 'Build only this image (e.g. lp-course-service; empty = all images)'
+        required: false
+        type: string
+        default: ''
+      platforms:
+        description: 'Target platforms: linux/amd64, linux/arm64 or linux/amd64,linux/arm64'
+        required: false
+        type: string
+        default: 'linux/amd64'
 
 permissions:
   contents: read
+  packages: write
 
 concurrency:
   group: release-images-${{ github.ref }}
@@ -37,6 +57,11 @@ jobs:
       image_repo: ${{ steps.config.outputs.image_repo }}
       image_tag: ${{ steps.config.outputs.image_tag }}
       push_enabled: ${{ steps.config.outputs.push_enabled }}
+      platforms: ${{ steps.config.outputs.platforms }}
+      has_backend: ${{ steps.matrix.outputs.has_backend }}
+      has_frontend: ${{ steps.matrix.outputs.has_frontend }}
+      backend_matrix: ${{ steps.matrix.outputs.backend_matrix }}
+      frontend_matrix: ${{ steps.matrix.outputs.frontend_matrix }}
     steps:
       - name: 校验镜像仓库配置
         id: config
@@ -46,9 +71,11 @@ jobs:
           REGISTRY: ${{ secrets.REGISTRY }}
           REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
           REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
+          REPOSITORY_OWNER: ${{ github.repository_owner }}
           REF_TYPE: ${{ github.ref_type }}
           REF_NAME: ${{ github.ref_name }}
           SHA: ${{ github.sha }}
+          INPUT_PLATFORMS: ${{ inputs.platforms }}
         run: |
           set -euo pipefail
 
@@ -58,16 +85,34 @@ jobs:
             push_enabled=true
           fi
 
-          if [ "${push_enabled}" = "true" ]; then
+          configured=0
+          if [ -n "${REGISTRY}" ]; then configured=$((configured + 1)); fi
+          if [ -n "${REGISTRY_USERNAME}" ]; then configured=$((configured + 1)); fi
+          if [ -n "${REGISTRY_PASSWORD}" ]; then configured=$((configured + 1)); fi
+
+          if [ "${configured}" -eq 3 ]; then
+            registry="${REGISTRY}"
+            echo "::notice::使用自定义镜像仓库 ${registry}。"
+          elif [ "${configured}" -eq 0 ]; then
+            owner_lc="$(printf '%s' "${REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+            registry="ghcr.io"
+            echo "::notice::未配置 REGISTRY/REGISTRY_USERNAME/REGISTRY_PASSWORD，回落到 ghcr.io/${owner_lc}，使用 GITHUB_TOKEN 认证。"
+          else
             missing=""
             [ -n "${REGISTRY}" ] || missing="${missing} secrets.REGISTRY"
             [ -n "${REGISTRY_USERNAME}" ] || missing="${missing} secrets.REGISTRY_USERNAME"
             [ -n "${REGISTRY_PASSWORD}" ] || missing="${missing} secrets.REGISTRY_PASSWORD"
-            if [ -n "${missing}" ]; then
-              echo "::error::缺少镜像仓库配置:${missing}. 请由负责人提供 registry 地址与凭据后重跑; 本 workflow 不会跳过推送。"
-              exit 1
+            echo "::error::镜像仓库凭据只配置了一部分，缺少:${missing}。三个都配齐走自定义仓库，三个都留空走 ghcr；不允许半配置。"
+            exit 1
+          fi
+
+          if [ "${push_enabled}" = "true" ]; then
+            if [ "${registry}" = "ghcr.io" ]; then
+              owner_lc="$(printf '%s' "${REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+              image_repo="ghcr.io/${owner_lc}"
+            else
+              image_repo="${registry}"
             fi
-            image_repo="${REGISTRY}"
           else
             image_repo="local"
             echo "::notice::push=false，仅构建镜像不推送；未读取 registry 凭据。"
@@ -79,45 +124,84 @@ jobs:
             image_tag="${SHA:0:12}"
           fi
 
+          # Single-arch by default: building arm64 Java images goes through QEMU and
+          # the full 8-service matrix would take far longer than an amd64-only run.
+          platforms="${INPUT_PLATFORMS:-linux/amd64}"
+          case "${platforms}" in
+            linux/amd64 | linux/arm64 | linux/amd64,linux/arm64) ;;
+            *)
+              echo "::error::不支持的 platforms='${platforms}'，只允许 linux/amd64、linux/arm64、linux/amd64,linux/arm64。"
+              exit 1
+              ;;
+          esac
+
           {
-            echo "registry=${REGISTRY}"
+            echo "registry=${registry}"
             echo "image_repo=${image_repo}"
             echo "image_tag=${image_tag}"
             echo "push_enabled=${push_enabled}"
+            echo "platforms=${platforms}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: 计算目标镜像矩阵
+        id: matrix
+        env:
+          SERVICE: ${{ inputs.service }}
+        run: |
+          set -euo pipefail
+
+          backend_rows="lp-gateway lp-gateway docker/backend.Dockerfile
+          lp-auth-service lp-auth-service docker/backend.Dockerfile
+          lp-course-service lp-course-service docker/course-service.Dockerfile
+          lp-trade-service lp-trade-service docker/backend.Dockerfile
+          lp-learn-service lp-learn-service docker/backend.Dockerfile
+          lp-ugc-service lp-ugc-service docker/backend.Dockerfile
+          lp-admin-service lp-admin-service docker/backend.Dockerfile
+          lp-ai-service lp-ai-service docker/backend.Dockerfile"
+          frontend_rows="lp-web lp-web docker/web.Dockerfile
+          lp-admin lp-admin docker/admin.Dockerfile"
+
+          if [ -n "${SERVICE}" ]; then
+            backend_rows="$(printf '%s\n' "${backend_rows}" | awk -v s="${SERVICE}" 'NF && $1 == s')"
+            frontend_rows="$(printf '%s\n' "${frontend_rows}" | awk -v s="${SERVICE}" 'NF && $1 == s')"
+            if [ -z "${backend_rows}" ] && [ -z "${frontend_rows}" ]; then
+              echo "::error::未知 service='${SERVICE}'。可选值：lp-gateway lp-auth-service lp-course-service lp-trade-service lp-learn-service lp-ugc-service lp-admin-service lp-ai-service lp-web lp-admin。"
+              exit 1
+            fi
+            echo "::notice::只构建 service='${SERVICE}'。"
+          fi
+
+          to_json() {
+            rows="$1"
+            pkg_key="$2"
+            out=""
+            while read -r image second dockerfile; do
+              [ -n "${image}" ] || continue
+              [ -n "${out}" ] && out="${out},"
+              out="${out}{\"image\":\"${image}\",\"${pkg_key}\":\"${second}\",\"dockerfile\":\"${dockerfile}\"}"
+            done <<< "${rows}"
+            printf '[%s]' "${out}"
+          }
+
+          if [ -n "${backend_rows}" ]; then has_backend=true; else has_backend=false; fi
+          if [ -n "${frontend_rows}" ]; then has_frontend=true; else has_frontend=false; fi
+
+          {
+            echo "has_backend=${has_backend}"
+            echo "has_frontend=${has_frontend}"
+            echo "backend_matrix=$(to_json "${backend_rows}" module)"
+            echo "frontend_matrix=$(to_json "${frontend_rows}" package)"
           } >> "${GITHUB_OUTPUT}"
 
   backend-image:
     name: backend-image-${{ matrix.image }}
     needs: registry-preflight
+    if: needs.registry-preflight.outputs.has_backend == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - image: lp-gateway
-            module: lp-gateway
-            dockerfile: docker/backend.Dockerfile
-          - image: lp-auth-service
-            module: lp-auth-service
-            dockerfile: docker/backend.Dockerfile
-          - image: lp-course-service
-            module: lp-course-service
-            dockerfile: docker/course-service.Dockerfile
-          - image: lp-trade-service
-            module: lp-trade-service
-            dockerfile: docker/backend.Dockerfile
-          - image: lp-learn-service
-            module: lp-learn-service
-            dockerfile: docker/backend.Dockerfile
-          - image: lp-ugc-service
-            module: lp-ugc-service
-            dockerfile: docker/backend.Dockerfile
-          - image: lp-admin-service
-            module: lp-admin-service
-            dockerfile: docker/backend.Dockerfile
-          - image: lp-ai-service
-            module: lp-ai-service
-            dockerfile: docker/backend.Dockerfile
+        include: ${{ fromJSON(needs.registry-preflight.outputs.backend_matrix) }}
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
@@ -144,38 +228,53 @@ jobs:
           fi
           echo "path=${jar_path}" >> "${GITHUB_OUTPUT}"
 
-      - name: 登录镜像仓库
-        if: needs.registry-preflight.outputs.push_enabled == 'true'
+      - name: 登录自定义镜像仓库
+        if: needs.registry-preflight.outputs.push_enabled == 'true' && needs.registry-preflight.outputs.registry != 'ghcr.io'
         uses: docker/login-action@v3
         with:
           registry: ${{ needs.registry-preflight.outputs.registry }}
           username: ${{ secrets.REGISTRY_USERNAME }}
           password: ${{ secrets.REGISTRY_PASSWORD }}
 
+      - name: 登录 GitHub 容器镜像库
+        if: needs.registry-preflight.outputs.push_enabled == 'true' && needs.registry-preflight.outputs.registry == 'ghcr.io'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 注册 QEMU（非 amd64 目标时需要）
+        if: needs.registry-preflight.outputs.platforms != 'linux/amd64'
+        uses: docker/setup-qemu-action@v3
+
       - name: 构建并推送镜像
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ${{ matrix.dockerfile }}
           build-args: |
             JAR_FILE=${{ steps.jar.outputs.path }}
+          platforms: ${{ needs.registry-preflight.outputs.platforms }}
           push: ${{ needs.registry-preflight.outputs.push_enabled }}
           tags: ${{ needs.registry-preflight.outputs.image_repo }}/${{ matrix.image }}:${{ needs.registry-preflight.outputs.image_tag }}
+
+      - name: 输出镜像摘要
+        if: needs.registry-preflight.outputs.push_enabled == 'true'
+        run: |
+          echo "image=${{ needs.registry-preflight.outputs.image_repo }}/${{ matrix.image }}:${{ needs.registry-preflight.outputs.image_tag }}"
+          echo "digest=${{ steps.build.outputs.digest }}"
 
   frontend-image:
     name: frontend-image-${{ matrix.image }}
     needs: registry-preflight
+    if: needs.registry-preflight.outputs.has_frontend == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - image: lp-web
-            package: lp-web
-            dockerfile: docker/web.Dockerfile
-          - image: lp-admin
-            package: lp-admin
-            dockerfile: docker/admin.Dockerfile
+        include: ${{ fromJSON(needs.registry-preflight.outputs.frontend_matrix) }}
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
@@ -195,18 +294,38 @@ jobs:
       - name: 构建前端产物
         run: pnpm --filter "${{ matrix.package }}" build
 
-      - name: 登录镜像仓库
-        if: needs.registry-preflight.outputs.push_enabled == 'true'
+      - name: 登录自定义镜像仓库
+        if: needs.registry-preflight.outputs.push_enabled == 'true' && needs.registry-preflight.outputs.registry != 'ghcr.io'
         uses: docker/login-action@v3
         with:
           registry: ${{ needs.registry-preflight.outputs.registry }}
           username: ${{ secrets.REGISTRY_USERNAME }}
           password: ${{ secrets.REGISTRY_PASSWORD }}
 
+      - name: 登录 GitHub 容器镜像库
+        if: needs.registry-preflight.outputs.push_enabled == 'true' && needs.registry-preflight.outputs.registry == 'ghcr.io'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 注册 QEMU（非 amd64 目标时需要）
+        if: needs.registry-preflight.outputs.platforms != 'linux/amd64'
+        uses: docker/setup-qemu-action@v3
+
       - name: 构建并推送镜像
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ${{ matrix.dockerfile }}
+          platforms: ${{ needs.registry-preflight.outputs.platforms }}
           push: ${{ needs.registry-preflight.outputs.push_enabled }}
           tags: ${{ needs.registry-preflight.outputs.image_repo }}/${{ matrix.image }}:${{ needs.registry-preflight.outputs.image_tag }}
+
+      - name: 输出镜像摘要
+        if: needs.registry-preflight.outputs.push_enabled == 'true'
+        run: |
+          echo "image=${{ needs.registry-preflight.outputs.image_repo }}/${{ matrix.image }}:${{ needs.registry-preflight.outputs.image_tag }}"
+          echo "digest=${{ steps.build.outputs.digest }}"
