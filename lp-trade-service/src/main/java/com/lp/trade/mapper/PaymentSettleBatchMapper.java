@@ -13,11 +13,12 @@ import org.apache.ibatis.annotations.Update;
 /**
  * Reads and writes {@code payment_settle_batch}.
  *
- * <p>The upsert relies on {@code uk_active_day}, so closing the same channel and bill day twice
- * keeps one active row and returns the same primary key; two concurrent closes also converge to
- * that one row. A voided row has a {@code null} generated key, so closing that day again inserts a
- * new batch and keeps the voided row as history. No statement here touches orders, payments,
- * refunds or funds.
+ * <p>{@code uk_active_day} lets the database settle a concurrent close: the first insert of an
+ * active day wins and the second one collides on the unique key, so the caller reports a conflict
+ * instead of rewriting the winner. A voided row keeps its history by clearing {@code
+ * active_day_key} to {@code NULL}; MySQL allows many {@code NULL} values in a unique key, so
+ * closing that day again inserts a new batch instead of reviving the voided one. No statement here
+ * touches orders, payments, refunds or funds.
  *
  * @author Caspian
  * @since 0.6.2
@@ -85,10 +86,12 @@ public interface PaymentSettleBatchMapper {
     /**
      * Inserts one active batch of the day.
      *
-     * <p>{@code uk_active_day} only covers status 1 rows, so a voided row never blocks the insert
-     * and a re-close after a void creates a new batch instead of reviving history. Two concurrent
-     * inserts of the same active day collide on the unique key; the caller turns that collision
-     * into a business error rather than an overwrite.
+     * <p>{@code active_day_key} is written as {@code channel-billDate} for the active row and is
+     * cleared to {@code NULL} when the row is voided. Only non-{@code NULL} keys take part in the
+     * unique constraint, so a voided row never blocks the insert and a re-close after a void
+     * creates a new batch instead of reviving history. Two concurrent inserts of the same active
+     * day collide on the unique key; the caller turns that collision into a business error rather
+     * than an overwrite.
      *
      * @param batch batch carrying the computed figures and the closing operator
      * @return affected rows
