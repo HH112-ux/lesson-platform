@@ -73,6 +73,25 @@ lp:
       retry-backoff: ${LP_COURSE_TRANSCODE_RETRY_BACKOFF:5s}
       download-timeout: ${LP_COURSE_TRANSCODE_DOWNLOAD_TIMEOUT:30m}
       upload-timeout: ${LP_COURSE_TRANSCODE_UPLOAD_TIMEOUT:30m}
+    # Deletes the objects left behind when lessons lose their video. Runs inside the course service,
+    # so the queue is only drained while this service is up; rows survive a restart.
+    cleanup:
+      # false removes the ticker bean only: rows stay in lesson_content_cleanup untouched and
+      # resume on the next start with the switch on. Gauges stop refreshing, which freezes the
+      # existing alert values instead of raising new ones.
+      enabled: ${LP_COURSE_CLEANUP_ENABLED:true}
+      # Rows claimed per tick. A bigger batch drains a backlog faster at higher DB and storage load.
+      batch-size: ${LP_COURSE_CLEANUP_BATCH_SIZE:20}
+      # Total attempts per row, including the first one; 5 means four retries.
+      max-attempts: ${LP_COURSE_CLEANUP_MAX_ATTEMPTS:5}
+      base-backoff: ${LP_COURSE_CLEANUP_BASE_BACKOFF:30s}
+      # Ceiling for the exponential backoff. With the defaults (30s, doubled, 4 retries) the
+      # longest delay is 4m and this ceiling is never reached; it only matters if max-attempts grows.
+      max-backoff: ${LP_COURSE_CLEANUP_MAX_BACKOFF:10m}
+      # Re-check delay for an object still referenced by a live lesson or an active transcode.
+      defer-delay: ${LP_COURSE_CLEANUP_DEFER_DELAY:10m}
+      # A row left RUNNING longer than this is treated as abandoned by a crashed tick.
+      stale-after: ${LP_COURSE_CLEANUP_STALE_AFTER:10m}
 
 management:
   endpoints:
