@@ -1,6 +1,7 @@
 package com.lp.trade.payment;
 
 import java.math.BigDecimal;
+import java.util.Set;
 
 /**
  * Snapshot of one trade at the payment channel, as returned by a trade query.
@@ -26,6 +27,15 @@ public record ChannelTradeState(String tradeStatus, String channelTradeNo, BigDe
 
     /** Channel status of a closed trade that was never paid. */
     public static final String TRADE_CLOSED = "TRADE_CLOSED";
+
+    /**
+     * Channel statuses that confirm the money was collected.
+     *
+     * <p>This is the only definition of these literals in the trade service. The callback path and
+     * the trade-query path must share it, so a new status never advances one path only; do not add
+     * a second set or an inline string comparison anywhere else.
+     */
+    public static final Set<String> PAID_STATUSES = Set.of(TRADE_SUCCESS, TRADE_FINISHED);
 
     /**
      * Creates the state of a trade the channel does not know.
@@ -57,7 +67,7 @@ public record ChannelTradeState(String tradeStatus, String channelTradeNo, BigDe
      * @since 0.5.0
      */
     public boolean paid() {
-        return TRADE_SUCCESS.equals(tradeStatus) || TRADE_FINISHED.equals(tradeStatus);
+        return PAID_STATUSES.contains(tradeStatus);
     }
 
     /**

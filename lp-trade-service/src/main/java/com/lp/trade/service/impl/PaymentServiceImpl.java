@@ -15,6 +15,7 @@ import com.lp.trade.entity.TradeOrder;
 import com.lp.trade.entity.TradeOrderItem;
 import com.lp.trade.mapper.PaymentMapper;
 import com.lp.trade.mapper.TradeOrderMapper;
+import com.lp.trade.payment.ChannelTradeState;
 import com.lp.trade.payment.PaymentGateway;
 import com.lp.trade.payment.SignatureVerifier;
 import com.lp.trade.service.AccountDeletionGuard;
@@ -25,7 +26,6 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 import java.util.concurrent.ThreadLocalRandom;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -54,9 +54,6 @@ public class PaymentServiceImpl implements PaymentService {
 
     private static final DateTimeFormatter PAY_NO_TIME =
             DateTimeFormatter.ofPattern("yyyyMMddHHmmssSSS");
-
-    private static final Set<String> ACCEPTED_TRADE_STATUSES =
-            Set.of("TRADE_SUCCESS", "TRADE_FINISHED");
 
     private final TradeOrderMapper tradeOrderMapper;
 
@@ -205,7 +202,7 @@ public class PaymentServiceImpl implements PaymentService {
         String tradeNo = notification.getChannelTradeNo().trim();
         String orderNo = notification.getOrderNo().trim();
         String tradeStatus = notification.getTradeStatus();
-        if (tradeStatus == null || !ACCEPTED_TRADE_STATUSES.contains(tradeStatus)) {
+        if (tradeStatus == null || !ChannelTradeState.PAID_STATUSES.contains(tradeStatus)) {
             LOG.info(
                     "ignored callback, trade status {} is not payable: channel={}, orderNo={}",
                     tradeStatus,
@@ -230,13 +227,34 @@ public class PaymentServiceImpl implements PaymentService {
         if (payment == null || payment.getChannel() != channel) {
             throw new BizException(ErrorCode.NOT_FOUND, "payment not found");
         }
+        applyConfirmedPayment(notification, order, payment);
+    }
+
+    /**
+     * Applies a channel-confirmed payment to the selected attempt.
+     *
+     * <p>The amount guard, the conditional pending-to-success update, the unique channel trade
+     * number and the ownership grant live here only, so a callback and a trade-query reconciliation
+     * can never reach different conclusions for the same payment.
+     *
+     * @param notification channel fields that confirmed the payment
+     * @param order order the attempt belongs to
+     * @param payment attempt selected by the caller
+     * @return {@code true} when the attempt is successful after the call
+     * @author Caspian
+     * @since 0.5.0
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public boolean applyConfirmedPayment(
+            PaymentNotification notification, TradeOrder order, PaymentRecord payment) {
         if (payment.getAmount().compareTo(notification.getAmount()) != 0) {
             recordAnomaly(
                     notification,
                     payment.getAmount(),
                     PaymentAnomalyRecorder.AMOUNT_MISMATCH,
                     "amount mismatch, manual review required");
-            return;
+            return false;
         }
         if (order.getStatus() == OrderStatus.PAID) {
             recordAnomaly(
@@ -244,7 +262,7 @@ public class PaymentServiceImpl implements PaymentService {
                     payment.getAmount(),
                     PaymentAnomalyRecorder.ORDER_NOT_PAYABLE,
                     "order already paid");
-            return;
+            return false;
         }
         if (order.getStatus() != OrderStatus.PENDING) {
             recordAnomaly(
@@ -252,20 +270,21 @@ public class PaymentServiceImpl implements PaymentService {
                     payment.getAmount(),
                     PaymentAnomalyRecorder.ORDER_NOT_PAYABLE,
                     "order closed or cancelled, manual refund required");
-            return;
+            return false;
         }
 
+        String tradeNo = notification.getChannelTradeNo().trim();
         LocalDateTime paidAt = LocalDateTime.now();
         int updated;
         try {
             updated = paymentMapper.markSuccess(payment.getId(), tradeNo, paidAt);
         } catch (DuplicateKeyException exception) {
             // uk_channel_trade already holds this trade number: a concurrent retry won the race.
-            return;
+            return false;
         }
         if (updated == 0) {
             handleNonPendingCallback(order, payment, tradeNo, paidAt);
-            return;
+            return false;
         }
         int orderUpdated = tradeOrderMapper.markPaid(order.getId(), paidAt);
         if (orderUpdated == 0) {
@@ -277,6 +296,7 @@ public class PaymentServiceImpl implements PaymentService {
         }
         entitlementService.grant(
                 order.getUserId(), item.getCourseId(), order.getId(), order.getOrderNo());
+        return true;
     }
 
     /** Records a callback that cannot be applied; acknowledging it still applies no deviation. */

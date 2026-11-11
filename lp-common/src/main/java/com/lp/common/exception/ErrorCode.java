@@ -166,6 +166,13 @@ public enum ErrorCode {
      */
     SETTLE_BILL_INCOMPLETE(62019, "settle requires both payment and refund bills"),
 
+    /**
+     * The channel could not confirm that the trade is closed, so the order stays pending and the
+     * timeout scan retries it on the next tick. Raised per order only; it never aborts the rest of
+     * the batch.
+     */
+    PAYMENT_CHANNEL_CLOSE_FAILED(62020, "payment channel close could not be confirmed"),
+
     /** Learning domain failure. */
     LEARN_BIZ_ERROR(63001, "learning operation failed"),
 
