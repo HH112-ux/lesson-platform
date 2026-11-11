@@ -25,6 +25,7 @@ import com.lp.course.entity.LessonUpload;
 import com.lp.course.mapper.CourseReviewAuditMapper;
 import com.lp.course.mapper.LessonUploadMapper;
 import com.lp.course.mapper.TeacherCourseMapper;
+import com.lp.course.upload.LessonTranscodeService;
 import com.lp.course.upload.LessonUploadObjectReader;
 import com.lp.course.upload.LessonUploadObjectReader.DownloadedVideo;
 import com.lp.course.upload.LessonUploadUrlSigner;
@@ -65,6 +66,7 @@ class TeacherLessonUploadSessionTest {
     @Mock private LessonVideoValidator videoValidator;
 
     @Mock private TradeOrderClient tradeOrderClient;
+    @Mock private LessonTranscodeService transcodeService;
 
     private TeacherCourseServiceImpl service;
 
@@ -88,7 +90,8 @@ class TeacherLessonUploadSessionTest {
                                 ""),
                         videoProbe,
                         videoValidator,
-                        tradeOrderClient);
+                        tradeOrderClient,
+                        transcodeService);
     }
 
     @Test
@@ -207,6 +210,7 @@ class TeacherLessonUploadSessionTest {
                         eq(1024L),
                         eq("sha256-value"));
         verify(uploadReader).delete(any(DownloadedVideo.class));
+        verify(transcodeService).enqueue(77L, 501L, OBJECT_KEY, 1024L);
     }
 
     @Test
