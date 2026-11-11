@@ -16,11 +16,12 @@ import org.springframework.stereotype.Component;
 /**
  * Resumes lesson video transcode tasks left behind by a previous process.
  *
- * <p>Runs once when the application is ready. A row left RUNNING consumed the attempt it was on, so
- * it is requeued only while attempts remain; otherwise it becomes FAILED with an explicit reason
- * and never stays stuck in RUNNING. Rows still PENDING are resubmitted in case the previous process
- * crashed between inserting the row and handing it to the executor. A failure on one task is logged
- * and never stops the scan.
+ * <p>Runs once when the application is ready. Rows still PENDING are resubmitted in case the
+ * previous process crashed between inserting the row and handing it to the executor. A row left
+ * RUNNING consumed the attempt it was on, so it is requeued only while attempts remain; otherwise
+ * it becomes FAILED with an explicit reason and never stays stuck in RUNNING. PENDING is scanned
+ * before any requeue so a row moved back to PENDING is submitted exactly once. A failure on one
+ * task is logged and never stops the scan.
  *
  * @author Caspian
  * @since 0.11.0
@@ -72,8 +73,8 @@ public class LessonTranscodeRecovery {
             LOG.info("lesson video transcode recovery skipped: disabled");
             return;
         }
-        recoverRunning();
         resubmitPending();
+        recoverRunning();
     }
 
     private void recoverRunning() {

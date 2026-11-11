@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -21,6 +22,7 @@ import java.time.Duration;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
 import org.springframework.core.task.TaskRejectedException;
 
 /**
@@ -74,6 +76,20 @@ class LessonTranscodeRecoveryTest {
                 .markFailed(eq(FIRST), eq(LessonTranscodeRecovery.EXHAUSTED_REASON), any());
         verify(mapper, never()).requeueAfterRestart(anyLong(), anyInt());
         verify(worker, never()).run(anyLong());
+    }
+
+    @Test
+    void pendingScanRunsBeforeRequeueToAvoidDoubleSubmit() {
+        when(mapper.selectRunningIds()).thenReturn(List.of(FIRST));
+        when(mapper.selectById(FIRST)).thenReturn(task(LessonTranscodeStatus.RUNNING, 1));
+        when(mapper.requeueAfterRestart(FIRST, 1)).thenReturn(1);
+
+        recovery.recover();
+
+        InOrder order = inOrder(mapper);
+        order.verify(mapper).selectPendingIds();
+        order.verify(mapper).requeueAfterRestart(FIRST, 1);
+        verify(worker, times(1)).run(FIRST);
     }
 
     @Test
