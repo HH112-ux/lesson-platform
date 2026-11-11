@@ -22,6 +22,7 @@ import {
   type TeacherCoursePayload,
 } from '../api/teacher'
 import { ApiError } from '../api/client'
+import { navigate } from '../router'
 import { describeError } from '../utils/errors'
 import { formatFen } from '../utils/format'
 
@@ -57,6 +58,11 @@ const form = reactive({
 
 function isEditable(course: TeacherCourse): boolean {
   return EDITABLE_STATUS.includes(course.status)
+}
+
+/** Opens the lesson screen with this course preselected. */
+function openLessons(course: TeacherCourse): void {
+  navigate(`/lesson-videos?courseId=${course.courseId}`)
 }
 
 /** Returns the amount in yuan, {@code null} when empty and {@code NaN} when malformed. */
@@ -479,6 +485,13 @@ onMounted(() => {
             <td>{{ course.originalPrice === null ? '--' : formatFen(course.originalPrice) }}</td>
             <td>
               <div class="row-actions">
+                <button
+                  class="lp-btn"
+                  type="button"
+                  @click="openLessons(course)"
+                >
+                  课时
+                </button>
                 <template v-if="course.status === 1">
                   <button
                     class="lp-btn"
