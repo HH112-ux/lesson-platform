@@ -343,6 +343,31 @@ flowchart TB
 | 域名白名单 | `request`/`downloadFile`/`uploadFile` 至少配置 `api.<domain>` 与 CDN 域名；必须是备案过的 HTTPS |
 | 发布审核流程 | 开发者工具上传 → 提交体验版 → 内部验收 → 提交审核（微信审核 1–7 天）→ 审核通过后**手动**发布；不依赖热更新（首版不用 `wx.getUpdateManager` 灰度能力） |
 
+### 3.4.1 托管平台能力边界（2026-11-11 实测，能力结论长期有效）
+
+本仓库在 Trae 部署插件（`trae-remote-official:deployment`）上的**能力边界**，已按接口返回、插件文档与最小实测核实，**后续不再重复调研**；但**预览地址的稳定性不在此结论范围内**，见本节末尾「使用前提」：
+
+| 项 | 结论 | 依据 |
+|---|---|---|
+| 可用部署类型 | 只有 `static-web`（发布 `public/` 静态文件）与 `function-web`（单个 Node.js 20 服务进程） | CLI 契约的 `deploy_type` 枚举只有 `0=unknown（拒绝）/1=static-web/2=function-web`，无镜像、容器、端口映射、卷挂载等字段 |
+| 服务端运行时 | 仅 `nodejs20`，不支持 JVM 与其他语言运行时 | FunctionWeb 文档要求 `runtime_key` 恒为 `nodejs20`，并明确拒绝「其他语言运行时、多个独立部署服务、未知启动入口、部署时数据库迁移」 |
+| 静态站的资源规格 | 无 `resource` 段，0 核 / 0 GB / 实例 0 是静态托管的真实语义，不是配置缺失 | `sites get` 返回的 `site_config` 对静态站不含 `resource`，只有 `route` |
+| 函数站的资源规格 | 1 vCPU / 2 GiB，弹性实例上限 10 | 实测 `site_config.resource = {cpu_millicores: 1000, memory_bytes: 2147483648, max_instances: 10}`；空闲缩容到 0 属正常 |
+| 服务端可用性实测 | 可用：零依赖 Node 20 探针部署成功，`GET /health` 返回 200 | 探针终态 success，响应体 `{"status":"ok","runtime":"v20.20.0"}`；验证后已删除探针站点 |
+| 七个 Java 服务、MySQL、MinIO | 不能部署到该平台 | 无容器/JVM 运行时；平台明确不支持多服务与部署时迁移；无托管数据库与对象存储 |
+| 静态站的接口能力 | 无反向代理、无环境变量注入，同源 `/api/v1/*` 必然 404 | StaticWeb 执行配置必须为 `{}`；页面实测 `/api/v1/courses`、`/api/v1/categories` 均 404，控制台无 JS 报错 |
+
+**产品定位**：`apps/web`（public）与 `apps/admin`（private，未登录访问返回 307 跳转登录）在该平台上只作为**静态预览，不是可用产品**——页面能渲染，登录、课程、下单、支付、播放全部因接口不可达而不可用。不得用 mock 数据让预览「看起来能跑」。
+
+**正式形态**：仍为自有主机 + `infra/docker-compose.yml` 起后端与依赖，`docker/nginx.conf` 托管前端并把 `/api/` 反向代理到 `gateway:8080`（同源，无跨域）。不引入 `VITE_API_BASE_URL` 与 CORS，也不使用 cloudflared/ngrok 之类隧道暴露本机作为演示入口。
+
+**使用前提：预览地址会变，且可能被平台清理**（与上面的能力结论分开看，不要当作稳定承诺）
+
+- 每次新建站点都会分配新的 `*.traesite.cn` 子域，重新部署不保证沿用旧地址；旧地址一旦站点被删即 404。
+- 实测出现过站点在创建后数十分钟内全部消失（`sites list` 变空、域名 404），删除方无法确认，平台侧也没有可用的事后取证手段。因此**不得把预览地址写进对外材料、验收单或客户交付物**，也不得把它当正式入口；它只是临时查看构建产物用。
+- 地址失效时的处理：`sites list` 为空即判定站点已被删，重新创建并部署即可，不必排查。地址每次都会变，以当次部署返回为准。
+- 能力边界变化时的复核方法：查插件 CLI 契约的 `deploy_type` 枚举是否新增了容器/镜像类型；对已有站点执行 `sites get`，看静态站的 `site_config` 是否开始出现 `resource` 段。两条任一变化，才需要重跑本节结论。
+
 ## 3.5 目录与工程约定
 
 - 后端 Maven 多模块聚合，父工程统一 `dependencyManagement`；各服务 Maven 模块名为 `lp-{域}-service`，服务名（`spring.application.name`、网关路由 id）为 `{域}-service`（**已存在** M0 骨架，仅健康检查，无业务逻辑）。
