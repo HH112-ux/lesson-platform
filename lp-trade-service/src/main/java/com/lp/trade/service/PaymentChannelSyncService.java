@@ -177,9 +177,12 @@ public class PaymentChannelSyncService {
         String tradeNo = latest == null ? null : latest.getChannelTradeNo();
         if (tradeNo == null || tradeNo.isBlank()) {
             LOG.error(
-                    "channel reports no payment but the order is paid and no trade number exists: "
-                            + "orderNo={}",
-                    order.getOrderNo());
+                    "channel reports no payment but the order is paid and no trade number exists:"
+                            + " orderNo={}, orderStatus={}, paymentId={}, channel={}",
+                    order.getOrderNo(),
+                    current.getStatus(),
+                    payment.getId(),
+                    payment.getChannel());
             return false;
         }
         anomalyRecorder.record(

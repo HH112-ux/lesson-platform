@@ -11,10 +11,13 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import com.lp.common.exception.BizException;
+import com.lp.common.exception.ErrorCode;
 import com.lp.trade.entity.TradeOrder;
 import com.lp.trade.mapper.CouponMapper;
 import com.lp.trade.mapper.PaymentMapper;
 import com.lp.trade.mapper.TradeOrderMapper;
+import com.lp.trade.service.PaymentChannelSyncService;
 import java.time.LocalDateTime;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
@@ -43,6 +46,8 @@ class OrderTimeoutJobTest {
 
     @Mock private TransactionTemplate transactionTemplate;
 
+    @Mock private PaymentChannelSyncService paymentChannelSync;
+
     private OrderTimeoutJob job;
 
     /**
@@ -55,7 +60,11 @@ class OrderTimeoutJobTest {
     void setUp() {
         job =
                 new OrderTimeoutJob(
-                        tradeOrderMapper, paymentMapper, couponMapper, transactionTemplate);
+                        tradeOrderMapper,
+                        paymentMapper,
+                        couponMapper,
+                        transactionTemplate,
+                        paymentChannelSync);
         when(transactionTemplate.execute(any()))
                 .thenAnswer(
                         invocation -> {
@@ -75,6 +84,7 @@ class OrderTimeoutJobTest {
         TradeOrder order = new TradeOrder();
         order.setId(7L);
         when(tradeOrderMapper.selectExpiredPending(any(), eq(200))).thenReturn(List.of(order));
+        when(paymentChannelSync.prepareClose(order)).thenReturn(true);
         when(tradeOrderMapper.markTimedOut(eq(7L), any())).thenReturn(1);
 
         job.scan();
@@ -129,6 +139,8 @@ class OrderTimeoutJobTest {
         second.setId(2L);
         when(tradeOrderMapper.selectExpiredPending(any(), eq(200)))
                 .thenReturn(List.of(first, second));
+        when(paymentChannelSync.prepareClose(first)).thenReturn(true);
+        when(paymentChannelSync.prepareClose(second)).thenReturn(true);
         when(tradeOrderMapper.markTimedOut(eq(1L), any()))
                 .thenThrow(new IllegalStateException("lock wait timeout"));
         when(tradeOrderMapper.markTimedOut(eq(2L), any())).thenReturn(1);
@@ -138,5 +150,34 @@ class OrderTimeoutJobTest {
         verify(tradeOrderMapper).markTimedOut(eq(2L), any());
         verify(paymentMapper).closePendingByOrderId(2L);
         verify(paymentMapper, never()).closePendingByOrderId(1L);
+    }
+
+    /**
+     * A channel close the platform cannot confirm is isolated to that one order.
+     *
+     * <p>The failing order stays pending for the next scan, and the rest of the batch still closes;
+     * one unconfirmed channel answer never aborts the tick.
+     *
+     * @author Caspian
+     * @since 0.5.0
+     */
+    @Test
+    void keepsClosingBatchWhenOneChannelCloseFails() {
+        TradeOrder failing = new TradeOrder();
+        failing.setId(1L);
+        TradeOrder healthy = new TradeOrder();
+        healthy.setId(2L);
+        when(tradeOrderMapper.selectExpiredPending(any(), eq(200)))
+                .thenReturn(List.of(failing, healthy));
+        when(paymentChannelSync.prepareClose(failing))
+                .thenThrow(new BizException(ErrorCode.PAYMENT_CHANNEL_CLOSE_FAILED));
+        when(paymentChannelSync.prepareClose(healthy)).thenReturn(true);
+        when(tradeOrderMapper.markTimedOut(eq(2L), any())).thenReturn(1);
+
+        job.scan();
+
+        verify(tradeOrderMapper, never()).markTimedOut(eq(1L), any());
+        verify(tradeOrderMapper).markTimedOut(eq(2L), any());
+        verify(paymentMapper).closePendingByOrderId(2L);
     }
 }
