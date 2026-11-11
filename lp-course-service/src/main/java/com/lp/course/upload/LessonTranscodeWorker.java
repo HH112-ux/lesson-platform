@@ -18,11 +18,11 @@ import org.springframework.stereotype.Component;
  * Runs one lesson video transcode task with bounded retries.
  *
  * <p>Every attempt first moves the row to RUNNING through a conditional update, so a task that
- * became READY or FAILED is never restarted. The interrupted attempt counts as an attempt when a
- * previous process left the row RUNNING; recovery requeues such rows, and this worker resumes from
- * the recorded attempt number. Failed attempts increment {@code lp.course.transcode.failed} and are
- * logged with the {@code ffmpeg} stderr tail; a task that exhausts its attempts becomes FAILED with
- * the last reason persisted.
+ * became READY or FAILED is never restarted. An interrupted run leaves the row RUNNING on purpose:
+ * shutdown does not consume the remaining attempts, and the startup recovery scan requeues the row,
+ * after which this worker resumes from the recorded attempt number. Failed attempts increment
+ * {@code lp.course.transcode.failed} and are logged with the {@code ffmpeg} stderr tail; a task
+ * that exhausts its attempts becomes FAILED with the last reason persisted.
  *
  * @author Caspian
  * @since 0.11.0
@@ -99,6 +99,7 @@ public class LessonTranscodeWorker {
         Path source = null;
         String lastReason = null;
         int lastAttempt = firstAttempt - 1;
+        boolean interrupted = false;
         try {
             for (int attempt = firstAttempt; attempt <= properties.maxAttempts(); attempt++) {
                 lastAttempt = attempt;
@@ -138,14 +139,24 @@ public class LessonTranscodeWorker {
                             taskId,
                             attempt,
                             lastReason);
-                    if (Thread.currentThread().isInterrupted()
-                            || attempt >= properties.maxAttempts()
-                            || !backoff()) {
+                    boolean stop =
+                            Thread.currentThread().isInterrupted()
+                                    || attempt >= properties.maxAttempts()
+                                    || !backoff();
+                    interrupted = Thread.currentThread().isInterrupted();
+                    if (stop) {
                         break;
                     }
                 } finally {
                     deleteQuietly(output);
                 }
+            }
+            if (interrupted) {
+                LOG.info(
+                        "lesson video transcode interrupted, left RUNNING for restart recovery:"
+                                + " taskId={}",
+                        taskId);
+                return;
             }
             mapper.markFailed(
                     taskId,

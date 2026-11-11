@@ -125,6 +125,26 @@ class LessonTranscodeWorkerTest {
         verify(objectStore, never()).download(anyString());
     }
 
+    @Test
+    void interruptedAttemptIsLeftForRestartRecovery() {
+        when(mapper.selectById(TASK_ID)).thenReturn(task(LessonTranscodeStatus.PENDING, 0));
+        when(mapper.markRunning(anyLong(), anyInt(), any())).thenReturn(1);
+        when(objectStore.download(SOURCE_KEY))
+                .thenAnswer(
+                        invocation -> {
+                            Thread.currentThread().interrupt();
+                            throw new IllegalStateException("transcode interrupted");
+                        });
+        try {
+            worker.run(TASK_ID);
+
+            verify(mapper, times(1)).markRunning(eq(TASK_ID), anyInt(), any());
+            verify(mapper, never()).markFailed(anyLong(), anyString(), any());
+        } finally {
+            Thread.interrupted();
+        }
+    }
+
     private static LessonVideoTranscode task(int status, int attemptCount) {
         LessonVideoTranscode task = new LessonVideoTranscode();
         task.setId(TASK_ID);
