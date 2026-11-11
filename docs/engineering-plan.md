@@ -776,9 +776,10 @@ erDiagram
 | status | TINYINT | NOT NULL DEFAULT 1 | 1 已日结/2 已作废 |
 | closed_by / closed_at | BIGINT UNSIGNED / DATETIME(3) | NOT NULL | 日结操作人与时间 |
 | void_by / void_at | BIGINT UNSIGNED / DATETIME(3) | NULL | 作废操作人与时间 |
+| active_day_key | VARCHAR(64) | NULL | 有效批次键 `channel-bill_date`，作废置 NULL，只服务唯一约束，不对外返回 |
 | 公共字段 | — | — | — |
 
-唯一 `uk_channel_date(channel, bill_date)`（同一渠道账单日只允许一条批次，重复日结为覆盖更新）；索引 `idx_status_date(status, bill_date)`。日结只封账与汇总净额，不含手续费、分账、教师结算与任何资金动作。
+唯一 `uk_active_day(active_day_key)`（`active_day_key` 为 `channel-bill_date`，仅有效批次写入，作废置 NULL，因此同一渠道账单日只允许一条有效批次，作废历史可多条并存）；作废后重新日结插入新批次，不复活旧行；索引 `idx_status_date(status, bill_date)`。日结只封账与汇总净额，不含手续费、分账、教师结算与任何资金动作。
 
 ### 4.3.4 学习（`lp_lms`）
 
@@ -949,11 +950,11 @@ erDiagram
 
 ### 4.3.7 审计（`lp_cms`，L1-7）
 
-**admin_audit_log 统一操作审计（追加写）**：`id, operator_id, operator_role TINYINT, action_type TINYINT, object_type TINYINT, object_id, from_status TINYINT, to_status TINYINT, remark VARCHAR(300), trace_id VARCHAR(64), dedupe_key VARCHAR(128), created_at`；唯一 `uk_dedupe(dedupe_key)`、`idx_object_created(object_type, object_id, created_at)`、`idx_operator_created(operator_id, created_at)`。当前只覆盖课程审核、退款审核、教师审核六种动作；字段含义、索引与建表校验见迁移 `course/V7__admin_audit_log.sql`，事务边界在 5.9.1（PR-B 课程/教师、PR-C 退款）。
+**admin_audit_log 统一操作审计（追加写）**：`id, operator_id, operator_role TINYINT, action_type TINYINT, object_type TINYINT, object_id, from_status TINYINT, to_status TINYINT, remark VARCHAR(300), trace_id VARCHAR(64), dedupe_key VARCHAR(128), created_at`；唯一 `uk_dedupe(dedupe_key)`、`idx_object_created(object_type, object_id, created_at)`、`idx_operator_created(operator_id, created_at)`。当前只覆盖课程审核、退款审核、教师审核与结算作废七种动作（结算作废由 trade-service 经 `lp_oms.audit_outbox` 同事务投递，作废原因写入 `remark`）；字段含义、索引与建表校验见迁移 `course/V7__admin_audit_log.sql`，事务边界在 5.9.1（PR-B 课程/教师、PR-C 退款与结算作废）。
 
 **位置调整说明**：原方案把审计放在 `lp_ums`（`audit_log`）。实际落地改为放在 `lp_cms`、由 course-service 持有，原因是三类动作的状态分别在 `lp_cms`（课程、教师）与 `lp_oms`（退款），而 `admin-service` 无数据源；放在 `lp_ums` 会让课程与教师审核必须跨服务写审计，"状态已改、审计未写"无法用单库事务排除。`lp_ums.audit_log` 保留给后续账号、角色、AI 模型配置等非本次范围的管理操作，尚未建表。
 
-**退款侧的投递箱（`lp_oms.audit_outbox`）**：`id, dedupe_key, operator_id, operator_role, action_type, object_type, object_id, from_status, to_status, remark, trace_id, occurred_at, status TINYINT(0 待投递/1 已投递/2 已放弃), retry_count, next_retry_at, delivered_at, last_error, created_at, updated_at`；唯一 `uk_dedupe(dedupe_key)`、`idx_status_next(status, next_retry_at)`。用于补齐退款审核无法跨库同事务的缺口，规则见 5.9.1（PR-C）。
+**审计投递箱（`lp_oms.audit_outbox`）**：`id, dedupe_key, operator_id, operator_role, action_type, object_type, object_id, from_status, to_status, remark, trace_id, occurred_at, status TINYINT(0 待投递/1 已投递/2 已放弃), retry_count, next_retry_at, delivered_at, last_error, created_at, updated_at`；唯一 `uk_dedupe(dedupe_key)`、`idx_status_next(status, next_retry_at)`。用于补齐退款审核与结算作废无法跨库同事务的缺口，规则见 5.9.1（PR-C）。
 
 **与 `course_review_audit` 的关系**：保留且继续双写，不迁移历史数据，也不删表。`course_review_audit` 继续服务单课程审核历史查询（含审核人、备注、时间），`admin_audit_log` 提供跨域统一视图；旧行没有 `operator_role` 与 `trace_id`，因此不回填、不合并，`course_review_audit` 自本版起视为只读历史表。
 
@@ -1155,11 +1156,11 @@ spec:
 | POST | `/api/v1/reconcile/{reconcileId}/recheck` | 重跑对账（运营/管理员；权限码 `admin:reconcile:recheck`） | `{}` | `{status,diffCount,diffAmount}`；重算结果先落库再返回 | 40101,40301,40401,50204 |
 | POST | `/api/v1/reconcile/{reconcileId}/handle` | 人工标记差异已处理（运营/管理员；权限码 `admin:reconcile:handle`；操作人取网关注入的 `X-User-Id`） | `{}` | `{status:3,handledBy,handledAt}` | 40001,40101,40301,40401,40901 |
 | POST | `/api/v1/reconcile/settlements` | 日结一个账单日（仅管理员；权限码 `admin:reconcile:close`；操作人取 `X-User-Id`） | `{channel(默认 1),billDate}` | `{id,channel,billDate,channelPayCount,channelPayAmountFen,...,netChannelAmountFen,netLocalAmountFen,diffCount,diffAmountFen,status,closedBy,closedAt,voidBy,voidAt}`，金额以分返回 | 40001,40101,40301,50204,62019 |
-| POST | `/api/v1/reconcile/settlements/{batchId}/void` | 作废日结批次并解锁账单日（仅管理员；权限码 `admin:reconcile:close`） | — | 同上，`status=2` 并带 `voidBy`/`voidAt` | 40101,40301,40401,40901 |
+| POST | `/api/v1/reconcile/settlements/{batchId}/void` | 作废日结批次并解锁账单日（仅管理员；权限码 `admin:reconcile:close`；原因必填并写统一审计） | `{reason}`，去除首尾空白后 1–300 字 | 同上，`status=2` 并带 `voidBy`/`voidAt`；批次行保留，重新日结生成新批次 | 40001,40101,40301,40401,40901 |
 | GET | `/api/v1/reconcile/settlements/{batchId}` | 日结批次详情（运营/管理员；权限码 `admin:reconcile:view`） | — | 单个批次，金额以分返回 | 40101,40301,40401 |
 | GET | `/api/v1/reconcile/settlements` | 日结批次分页（运营/管理员；权限码 `admin:reconcile:view`） | query:`channel(默认 1),billDate,status,pageNum,pageSize` | 分页 `{records:[批次],total,pageNum,pageSize}`，按账单日倒序 | 40001,40101,40301 |
 
-> **对账口径（SPEC-TRADE-014）**：账单来源**仅 CSV 上传**，UTF-8，表头 `tradeNo,merchantOrderNo,amount,occurredAt`，金额为元、两位小数、恒为正，账单日按 Asia/Shanghai 切分。**支付宝账单接口尚未接入**（需商户号与账单权限），自动拉取登记为待办，不得在文档或页面宣称已直连渠道。导入按 `uk_channel_date_type` 幂等覆盖，重复导入不产生重复差异。匹配规则：支付按 `payment_record.channel_trade_no` + 金额，退款按 `refund_request.channel_refund_no` + 金额；渠道多收为正差。差异只落 `payment_reconcile.diff_detail` 并告警，处置手段只有人工标记已处理，**不做任何自动冲正或资金操作**。日结按 2026-11-10 冻结口径实现（SPEC-TRADE-014 Q-2）：支付与退款账单都已导入方可日结（缺任一 `62019`），存在 `status=2` 差异返回 `50204` 且不写批次；日结成功后写入 `payment_settle_batch` 并锁定账单日，重复日结返回同一批次，日结后导入与重跑返回 `40901`；作废仅 `ADMIN`（`admin:reconcile:close`），作废后解锁。日结只封账与汇总净额，不含手续费、分账、教师结算与任何资金动作，**导出本期不做**。
+> **对账口径（SPEC-TRADE-014）**：账单来源**仅 CSV 上传**，UTF-8，表头 `tradeNo,merchantOrderNo,amount,occurredAt`，金额为元、两位小数、恒为正，账单日按 Asia/Shanghai 切分。**支付宝账单接口尚未接入**（需商户号与账单权限），自动拉取登记为待办，不得在文档或页面宣称已直连渠道。导入按 `uk_channel_date_type` 幂等覆盖，重复导入不产生重复差异。匹配规则：支付按 `payment_record.channel_trade_no` + 金额，退款按 `refund_request.channel_refund_no` + 金额；渠道多收为正差。差异只落 `payment_reconcile.diff_detail` 并告警，处置手段只有人工标记已处理，**不做任何自动冲正或资金操作**。日结按 2026-11-10 冻结口径实现（SPEC-TRADE-014 Q-2）：支付与退款账单都已导入方可日结（缺任一 `62019`），存在 `status=2` 差异返回 `50204` 且不写批次；日结成功后写入 `payment_settle_batch` 并锁定账单日，重复日结返回同一批次，日结后导入与重跑返回 `40901`；作废仅 `ADMIN`（`admin:reconcile:close`），原因必填（1–300 字）并写统一审计（动作 6 / 对象 3），作废后解锁，重新日结插入新批次，原作废批次保留可查。日结只封账与汇总净额，不含手续费、分账、教师结算与任何资金动作，**导出本期不做**。
 
 > **金额单位**：本表与 5.9、5.10 的交易、支付、退款金额字段（`totalAmount`、`discountAmount`、`payAmount`、`amount` 等）对外一律以**分**表示；库内 `DECIMAL(10,2)` 存元，换算在服务边界完成（SPEC-TRADE-013）。
 
@@ -1284,7 +1285,7 @@ spec:
 
 ### 5.9.1 统一操作审计（L1-7）
 
-**范围**：只覆盖课程审核（通过/驳回）、退款审核（通过/驳回）、教师审核（通过/驳回）六种动作，不做"全管理操作审计"。动作类型 `0 课程通过 / 1 课程驳回 / 2 退款通过 / 3 退款驳回 / 4 教师通过 / 5 教师驳回`，对象类型 `0 课程 / 1 退款 / 2 教师`，操作人角色 `0 运营 / 1 管理员`，均由代码常量类映射（`AuditAction`、`AuditObject`、`OperatorRole`），禁止字符串魔法值。
+**范围**：只覆盖课程审核（通过/驳回）、退款审核（通过/驳回）、教师审核（通过/驳回）、结算作废七种动作，不做"全管理操作审计"。动作类型 `0 课程通过 / 1 课程驳回 / 2 退款通过 / 3 退款驳回 / 4 教师通过 / 5 教师驳回 / 6 结算作废`，对象类型 `0 课程 / 1 退款 / 2 教师 / 3 结算批次`，操作人角色 `0 运营 / 1 管理员`，均由代码常量类映射（`AuditAction`、`AuditObject`、`OperatorRole`），禁止字符串魔法值。
 
 **存储**：`lp_cms.admin_audit_log`（迁移 `course/V7`），索引满足两种检索——`idx_object_created(object_type, object_id, created_at)` 支撑按对象查，`idx_operator_created(operator_id, created_at)` 支撑按操作人+时间查。
 
@@ -1295,10 +1296,11 @@ spec:
 | 课程审核 | `lp_cms.course` | 状态更新与审计同库同事务 | 同一数据源，审计失败即整体回滚，不会出现"改了状态没审计" |
 | 教师审核 | `lp_cms.teacher_profile` | 同上 | 同上 |
 | 退款审核 | `lp_oms.refund_request` | 审核事务内写 `audit_outbox` 投递意图，再由 trade-service 中继投递到 `lp_cms.admin_audit_log` | 状态与审计表跨库，无法同事务；若先改状态再 HTTP 写审计，失败即丢审计。改为在同一事务内写意图，"状态改了必有意图"；投递为至少一次，`dedupe_key` 唯一键吸收重复；超过重试上限置 `status=2 已放弃` 并打 ERROR 与指标，留人工对账 |
+| 结算作废 | `lp_oms.payment_settle_batch` | 作废事务内写 `audit_outbox` 投递意图，复用退款中继 | 批次状态与审计表跨库；作废会解封账务日，属高风险动作，同样要求"状态改了必有意图"，去重键取 `settle-void:{batchId}`，重试与放弃规则同上 |
 
 课程审核与教师审核的审计写入在 `@Transactional` 方法内完成：先写业务状态，再写 `admin_audit_log`，任一步抛异常由同一事务回滚，因此不存在"状态已改、审计缺失"的中间态。
 
-**退款投递语义**：中继按 `status=0` 且 `next_retry_at <= now` 取批（默认 50 条），失败按 5s 起指数退避、上限 300s；course-service 侧 `INSERT ... ON DUPLICATE KEY UPDATE dedupe_key = dedupe_key` 保证重复投递不产生第二行。**积压发现方式**：`SELECT status, COUNT(*) FROM audit_outbox GROUP BY status`，待投递持续增长或 `status=2` 出现即告警；中继同时累加投递成功/失败/放弃三类指标，`status=2` 需人工补写审计。
+**投递语义（退款审核与结算作废共用）**：中继按 `status=0` 且 `next_retry_at <= now` 取批（默认 50 条），失败按 5s 起指数退避、上限 300s；course-service 侧 `INSERT ... ON DUPLICATE KEY UPDATE dedupe_key = dedupe_key` 保证重复投递不产生第二行。**积压发现方式**：`SELECT status, COUNT(*) FROM audit_outbox GROUP BY status`，待投递持续增长或 `status=2` 出现即告警；中继同时累加投递成功/失败/放弃三类指标，`status=2` 需人工补写审计。
 
 **查询接口**：`GET /api/v1/admin/audit-logs`，`admin-service` 无数据源，经 `X-Internal-Token` 调 course-service `GET /internal/v1/audit-logs`；两种模式互斥——传 `objectType`+`objectId` 按对象查，否则必须传 `operatorId`+`dateFrom`+`dateTo`（`from < to`，左闭右开），分页固定 `pageNum/pageSize`（默认 1/20，上限 100）。权限码 `admin:audit:list`，默认只授予 `ADMIN`，运营需管理员单独授权。
 
@@ -1306,7 +1308,7 @@ spec:
 
 ### 5.9.1 统一操作审计（L1-7）
 
-**范围**：只覆盖课程审核（通过/驳回）、退款审核（通过/驳回）、教师审核（通过/驳回）六种动作，不做"全管理操作审计"。动作类型 `0 课程通过 / 1 课程驳回 / 2 退款通过 / 3 退款驳回 / 4 教师通过 / 5 教师驳回`，对象类型 `0 课程 / 1 退款 / 2 教师`，操作人角色 `0 运营 / 1 管理员`，均由代码常量类映射（`AuditAction`、`AuditObject`、`OperatorRole`），禁止字符串魔法值。
+**范围**：只覆盖课程审核（通过/驳回）、退款审核（通过/驳回）、教师审核（通过/驳回）、结算作废七种动作，不做"全管理操作审计"。动作类型 `0 课程通过 / 1 课程驳回 / 2 退款通过 / 3 退款驳回 / 4 教师通过 / 5 教师驳回 / 6 结算作废`，对象类型 `0 课程 / 1 退款 / 2 教师 / 3 结算批次`，操作人角色 `0 运营 / 1 管理员`，均由代码常量类映射（`AuditAction`、`AuditObject`、`OperatorRole`），禁止字符串魔法值。
 
 **存储**：`lp_cms.admin_audit_log`（迁移 `course/V7`），索引满足两种检索——`idx_object_created(object_type, object_id, created_at)` 支撑按对象查，`idx_operator_created(operator_id, created_at)` 支撑按操作人+时间查。
 
@@ -1317,10 +1319,11 @@ spec:
 | 课程审核 | `lp_cms.course` | 状态更新与审计同库同事务 | 同一数据源，审计失败即整体回滚，不会出现"改了状态没审计" |
 | 教师审核 | `lp_cms.teacher_profile` | 同上 | 同上 |
 | 退款审核 | `lp_oms.refund_request` | 审核事务内写 `audit_outbox` 投递意图，再由 trade-service 中继投递到 `lp_cms.admin_audit_log` | 状态与审计表跨库，无法同事务；若先改状态再 HTTP 写审计，失败即丢审计。改为在同一事务内写意图，"状态改了必有意图"；投递为至少一次，`dedupe_key` 唯一键吸收重复；超过重试上限置 `status=2 已放弃` 并打 ERROR 与指标，留人工对账 |
+| 结算作废 | `lp_oms.payment_settle_batch` | 作废事务内写 `audit_outbox` 投递意图，复用退款中继 | 批次状态与审计表跨库；作废会解封账务日，属高风险动作，同样要求"状态改了必有意图"，去重键取 `settle-void:{batchId}`，重试与放弃规则同上 |
 
 课程审核与教师审核的审计写入在 `@Transactional` 方法内完成：先写业务状态，再写 `admin_audit_log`，任一步抛异常由同一事务回滚，因此不存在"状态已改、审计缺失"的中间态。
 
-**退款投递语义**：中继按 `status=0` 且 `next_retry_at <= now` 取批（默认 50 条），失败按 5s 起指数退避、上限 300s；course-service 侧 `INSERT ... ON DUPLICATE KEY UPDATE dedupe_key = dedupe_key` 保证重复投递不产生第二行。**积压发现方式**：`SELECT status, COUNT(*) FROM audit_outbox GROUP BY status`，待投递持续增长或 `status=2` 出现即告警；中继同时累加投递成功/失败/放弃三类指标，`status=2` 需人工补写审计。
+**投递语义（退款审核与结算作废共用）**：中继按 `status=0` 且 `next_retry_at <= now` 取批（默认 50 条），失败按 5s 起指数退避、上限 300s；course-service 侧 `INSERT ... ON DUPLICATE KEY UPDATE dedupe_key = dedupe_key` 保证重复投递不产生第二行。**积压发现方式**：`SELECT status, COUNT(*) FROM audit_outbox GROUP BY status`，待投递持续增长或 `status=2` 出现即告警；中继同时累加投递成功/失败/放弃三类指标，`status=2` 需人工补写审计。
 
 **与 `course_review_audit` 的关系**：保留、继续双写、历史数据不迁移。课程审核同时写 `course_review_audit`（单课程历史查询）与 `admin_audit_log`（跨域统一视图）；旧行没有 `operator_role` 与 `trace_id`，不回填、不合并，`course_review_audit` 视为只读历史表。
 

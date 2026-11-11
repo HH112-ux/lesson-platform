@@ -13,6 +13,7 @@ import com.lp.common.exception.BizException;
 import com.lp.common.exception.ErrorCode;
 import com.lp.trade.entity.PaymentReconcile;
 import com.lp.trade.entity.PaymentSettleBatch;
+import com.lp.trade.mapper.AuditOutboxMapper;
 import com.lp.trade.mapper.PaymentReconcileMapper;
 import com.lp.trade.mapper.PaymentSettleBatchMapper;
 import java.math.BigDecimal;
@@ -36,11 +37,13 @@ class SettlementServiceTest {
 
     @Mock private PaymentSettleBatchMapper settleBatchMapper;
 
+    @Mock private AuditOutboxMapper auditOutboxMapper;
+
     private SettlementService service;
 
     @BeforeEach
     void setUp() {
-        service = new SettlementService(reconcileMapper, settleBatchMapper);
+        service = new SettlementService(reconcileMapper, settleBatchMapper, auditOutboxMapper);
     }
 
     @Test
@@ -50,7 +53,7 @@ class SettlementServiceTest {
         when(reconcileMapper.selectByKey(1, BILL_DATE, 2))
                 .thenReturn(row(1, "3.00", "2.00", 0, "0.00"));
         when(reconcileMapper.countUnresolved(1, BILL_DATE)).thenReturn(0L);
-        when(settleBatchMapper.selectByKey(1, BILL_DATE)).thenReturn(null, closed(77L));
+        when(settleBatchMapper.selectActiveByKey(1, BILL_DATE)).thenReturn(null, closed(77L));
 
         PaymentSettleBatch saved = service.close(1, BILL_DATE, CLOSED_BY);
 
@@ -77,7 +80,7 @@ class SettlementServiceTest {
         when(reconcileMapper.selectByKey(1, BILL_DATE, 2))
                 .thenReturn(row(1, "30.01", "30.01", 0, "0.00"));
         when(reconcileMapper.countUnresolved(1, BILL_DATE)).thenReturn(0L);
-        when(settleBatchMapper.selectByKey(1, BILL_DATE)).thenReturn(null, closed(1L));
+        when(settleBatchMapper.selectActiveByKey(1, BILL_DATE)).thenReturn(null, closed(1L));
 
         service.close(1, BILL_DATE, CLOSED_BY);
 
@@ -95,7 +98,7 @@ class SettlementServiceTest {
         when(reconcileMapper.selectByKey(1, BILL_DATE, 2))
                 .thenReturn(row(1, "30.01", "30.01", 0, "0.00"));
         when(reconcileMapper.countUnresolved(1, BILL_DATE)).thenReturn(0L);
-        when(settleBatchMapper.selectByKey(1, BILL_DATE)).thenReturn(null, closed(1L));
+        when(settleBatchMapper.selectActiveByKey(1, BILL_DATE)).thenReturn(null, closed(1L));
 
         service.close(1, BILL_DATE, CLOSED_BY);
 
@@ -142,7 +145,7 @@ class SettlementServiceTest {
 
         assertEquals(ErrorCode.RECONCILE_UNRESOLVED.getCode(), error.getCode());
         verify(settleBatchMapper, never()).upsert(any());
-        verify(settleBatchMapper, never()).selectByKey(any(), any());
+        verify(settleBatchMapper, never()).selectActiveByKey(any(), any());
     }
 
     @Test
@@ -153,26 +156,25 @@ class SettlementServiceTest {
         when(reconcileMapper.selectByKey(1, BILL_DATE, 2))
                 .thenReturn(row(1, "0.00", "0.00", 0, "0.00"));
         when(reconcileMapper.countUnresolved(1, BILL_DATE)).thenReturn(0L);
-        when(settleBatchMapper.selectByKey(1, BILL_DATE)).thenReturn(existing);
+        when(settleBatchMapper.selectActiveByKey(1, BILL_DATE)).thenReturn(existing);
 
         assertSame(existing, service.close(1, BILL_DATE, CLOSED_BY));
         verify(settleBatchMapper, never()).upsert(any());
     }
 
     @Test
-    void reclosesVoidedDay() {
-        PaymentSettleBatch voided = closed(77L);
-        voided.setStatus(2);
+    void closingAVoidedDayInsertsANewBatchInsteadOfRevivingHistory() {
         when(reconcileMapper.selectByKey(1, BILL_DATE, 1))
                 .thenReturn(row(1, "9.90", "9.90", 0, "0.00"));
         when(reconcileMapper.selectByKey(1, BILL_DATE, 2))
                 .thenReturn(row(1, "0.00", "0.00", 0, "0.00"));
         when(reconcileMapper.countUnresolved(1, BILL_DATE)).thenReturn(0L);
-        when(settleBatchMapper.selectByKey(1, BILL_DATE)).thenReturn(voided, closed(77L));
+        when(settleBatchMapper.selectActiveByKey(1, BILL_DATE)).thenReturn(null, closed(88L));
 
-        service.close(1, BILL_DATE, CLOSED_BY);
+        PaymentSettleBatch saved = service.close(1, BILL_DATE, CLOSED_BY);
 
         verify(settleBatchMapper).upsert(any());
+        assertEquals(Long.valueOf(88L), saved.getId());
     }
 
     @Test

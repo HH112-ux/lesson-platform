@@ -46,6 +46,8 @@ class SettlementControllerTest {
 
     private static final String CLOSE_BODY = "{\"channel\":1,\"billDate\":\"2026-11-09\"}";
 
+    private static final String VOID_BODY = "{\"reason\":\"duplicate bill import\"}";
+
     @Mock private SettlementService settlementService;
 
     private MockMvc mockMvc;
@@ -136,16 +138,43 @@ class SettlementControllerTest {
                         post("/api/v1/reconcile/settlements/77/void")
                                 .header(IdentityHeaders.USER_ROLES, "OPS")
                                 .header(IdentityHeaders.USER_PERMISSIONS, ReconcilePermissions.VIEW)
-                                .header(IdentityHeaders.USER_ID, "9002"))
+                                .header(IdentityHeaders.USER_ID, "9002")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(VOID_BODY))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(40301));
 
-        verify(settlementService, never()).voidSettleBatch(anyLong(), anyLong());
+        verify(settlementService, never()).voidSettleBatch(anyLong(), anyLong(), any(), any());
     }
 
     @Test
-    void adminWithCloseCodeVoidsTheBatch() throws Exception {
-        when(settlementService.voidSettleBatch(77L, 9001L)).thenReturn(batch(77L));
+    void opsCarryingTheCloseCodeStillCannotVoid() throws Exception {
+        mockMvc.perform(
+                        post("/api/v1/reconcile/settlements/77/void")
+                                .header(IdentityHeaders.USER_ROLES, "OPS")
+                                .header(
+                                        IdentityHeaders.USER_PERMISSIONS,
+                                        ReconcilePermissions.CLOSE)
+                                .header(IdentityHeaders.USER_ID, "9002")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(VOID_BODY))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(40301));
+
+        verify(settlementService, never()).voidSettleBatch(anyLong(), anyLong(), any(), any());
+    }
+
+    @Test
+    void missingBodyStillReturnsTheBusinessParameterError() throws Exception {
+        when(settlementService.voidSettleBatch(
+                        org.mockito.ArgumentMatchers.eq(77L),
+                        org.mockito.ArgumentMatchers.eq(9001L),
+                        org.mockito.ArgumentMatchers.isNull(),
+                        any()))
+                .thenThrow(
+                        new com.lp.common.exception.BizException(
+                                com.lp.common.exception.ErrorCode.PARAM_INVALID,
+                                "void reason is required"));
 
         mockMvc.perform(
                         post("/api/v1/reconcile/settlements/77/void")
@@ -155,9 +184,36 @@ class SettlementControllerTest {
                                         ReconcilePermissions.CLOSE)
                                 .header(IdentityHeaders.USER_ID, "9001"))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(40001));
+    }
+
+    @Test
+    void adminWithCloseCodeVoidsTheBatch() throws Exception {
+        when(settlementService.voidSettleBatch(
+                        org.mockito.ArgumentMatchers.eq(77L),
+                        org.mockito.ArgumentMatchers.eq(9001L),
+                        org.mockito.ArgumentMatchers.eq("duplicate bill import"),
+                        any()))
+                .thenReturn(batch(77L));
+
+        mockMvc.perform(
+                        post("/api/v1/reconcile/settlements/77/void")
+                                .header(IdentityHeaders.USER_ROLES, "ADMIN")
+                                .header(
+                                        IdentityHeaders.USER_PERMISSIONS,
+                                        ReconcilePermissions.CLOSE)
+                                .header(IdentityHeaders.USER_ID, "9001")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(VOID_BODY))
+                .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(0));
 
-        verify(settlementService).voidSettleBatch(77L, 9001L);
+        verify(settlementService)
+                .voidSettleBatch(
+                        org.mockito.ArgumentMatchers.eq(77L),
+                        org.mockito.ArgumentMatchers.eq(9001L),
+                        org.mockito.ArgumentMatchers.eq("duplicate bill import"),
+                        any());
     }
 
     @Test

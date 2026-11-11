@@ -54,6 +54,32 @@ public final class ReconcilePermissions {
         }
     }
 
+    /**
+     * Rejects callers that are not administrators or that lack the required permission.
+     *
+     * <p>Voiding a settle batch unlocks a bill day, so it is restricted to {@code ADMIN} even when
+     * an {@code OPS} account carries the same permission code from a misconfigured role.
+     *
+     * @param roles comma separated roles injected by the gateway, may be {@code null}
+     * @param permissions comma separated permission codes injected by the gateway, may be {@code
+     *     null}
+     * @param required permission code the endpoint declares
+     * @throws BizException with {@code 40301} when the caller is not an administrator or lacks the
+     *     permission
+     * @author Caspian
+     * @since 0.6.2
+     */
+    public static void requireAdmin(String roles, String permissions, String required) {
+        boolean admin =
+                roles != null
+                        && Arrays.stream(roles.split(","))
+                                .map(String::trim)
+                                .anyMatch("ADMIN"::equals);
+        if (!admin || !parse(permissions).contains(required)) {
+            throw new BizException(ErrorCode.FORBIDDEN, "administrator permission required");
+        }
+    }
+
     private static Set<String> parse(String permissions) {
         if (permissions == null || permissions.isBlank()) {
             return Set.of();
