@@ -5,6 +5,8 @@
   "scripts": {
     "check": "node scripts/check.mjs",
     "check:appid": "node scripts/check.mjs --require-appid",
-    "prepare:appid": "node scripts/prepare-appid.mjs"
+    "check:upload": "node scripts/check.mjs --require-public-api",
+    "prepare:appid": "node scripts/prepare-appid.mjs",
+    "prepare:env": "node scripts/prepare-env.mjs"
   }
 }
