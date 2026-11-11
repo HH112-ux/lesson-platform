@@ -473,6 +473,37 @@ LP_JWT_DIR="/path/to/main-checkout/infra/jwt" bash scripts/auth-replica-race-dri
 - 每轮用新的用户名与申请行；中断过的轮次会留下 `status=0` 的残留行，脚本在插入前按用户名与昵称前缀清掉。
 - 悬空 `status=0` 行会让下一轮多扫到别人的行、把 `executed` 计数推高；看到计数对不上先查这类残留。
 
+### 4.12 课时视频转码（本地）
+
+上传确认成功后，course-service 会把一条转码任务写进 `lp_cms.lesson_video_transcode`，由进程内的有界线程池异步执行：下载源对象 → 跑 `ffmpeg` → 把产物写回同一桶的 `transcoded/` 前缀 → 任务置 `READY`。转码只是播放优化，**不影响 confirm 返回，也不影响教师提交审核**；未 `READY` 时播放地址一律回落到原文件。
+
+前提是在 `infra/docker-compose.yml` 里启动的 course-service 镜像：该镜像已从 `mwader/static-ffmpeg` 多阶段拷入 `/usr/local/bin/ffmpeg` 与 `/usr/local/bin/ffprobe`，容器内无需另装。若在本机直接跑 Java 进程（不经容器），需要宿主机 `PATH` 里有 `ffmpeg`，或用 `LP_COURSE_TRANSCODE_FFMPEG_PATH` 指向二进制绝对路径。
+
+```bash
+# 1) 建表（本地 schema 由 flyway CLI 管理，不在应用启动时迁移）
+bash scripts/flyway.sh migrate course
+
+# 2) 走一遍上传确认（smoke 的第 4 步即可触发）
+bash scripts/smoke.sh
+
+# 3) 看任务状态：0 PENDING / 1 RUNNING / 2 READY / 3 FAILED
+docker exec lp-mysql mysql -uroot -p"${LP_MYSQL_ROOT_PASSWORD:-lp_root_dev}" -e \
+  "SELECT lesson_id, status, attempt_count, output_object_key, failure_reason
+     FROM lp_cms.lesson_video_transcode ORDER BY id DESC LIMIT 5"
+
+# 4) 看日志与失败计数
+docker logs lp-course-service 2>&1 | grep -i transcode
+curl -s localhost:8102/actuator/prometheus | grep lp_course_transcode
+```
+
+配置项都在 `lp.course.transcode.*`（环境变量 `LP_COURSE_TRANSCODE_*`）：`enabled`（默认 `true`）、`concurrency`（默认 2）、`queue-capacity`（默认 64）、`ffmpeg-path`（默认 `ffmpeg`）、`timeout`（默认 `2h`）、`max-attempts`（默认 3）、`retry-backoff`（默认 5s）、`download-timeout` / `upload-timeout`（默认 30m）。
+
+**没有 ffmpeg 时的行为是「失败」，不是静默跳过**：confirm 照常成功（任务已经入库），worker 开始执行后在启动进程这一步抛 `Cannot run program "ffmpeg" ... error=2, No such file or directory`，按 `max-attempts` 重试 3 次，每次 `lp.course.transcode.failed` 加一，最终任务置 `status=3`，`failure_reason` 里保留这条报错（截断到 255 字符），播放回落原文件。
+
+- 定位顺序：先看 `failure_reason`，再 `docker logs lp-course-service | grep "transcode attempt failed"`（每次失败一条 WARN，最终一条 ERROR `lesson video transcode failed`）。
+- 已经 FAILED 的任务不会自动重跑；装好 ffmpeg 后重新 confirm 同一课时会命中既有任务并跳过（同一 `source_object_key` 幂等），需要先删掉该行或换一次上传会话。
+- 队列满（并发与队列都占满）时 confirm 不受影响，任务直接置 FAILED、原因 `transcode queue is full`；服务重启时停在 `RUNNING` 的任务会在启动扫描里重新排队，超过尝试上限则置 FAILED 并记 `interrupted by restart, attempts exhausted`。
+
 ## 5. Web 前端
 
 ```bash
