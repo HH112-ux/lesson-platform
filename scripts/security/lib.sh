@@ -43,7 +43,7 @@ PY
 }
 
 mysql_query() {
-  local password
+  local password output
   password="$(docker inspect "${SEC_MYSQL_CONTAINER}" \
     --format '{{range .Config.Env}}{{println .}}{{end}}' \
     | sed -n 's/^MYSQL_ROOT_PASSWORD=//p')"
@@ -52,7 +52,14 @@ mysql_query() {
       "${SEC_MYSQL_CONTAINER}" >&2
     exit 1
   fi
-  docker exec -e MYSQL_PWD="${password}" "${SEC_MYSQL_CONTAINER}" mysql -uroot -N -B -e "$1"
+  # Fail loudly instead of returning empty output: a broken statement used to surface
+  # later as a confusing "1064 near ''" when the empty id was spliced into the next query.
+  if ! output="$(docker exec -e MYSQL_PWD="${password}" "${SEC_MYSQL_CONTAINER}" \
+    mysql -uroot -N -B -e "$1")"; then
+    printf 'ERROR SQL 执行失败（容器不可用、语法错误或拼接的 id 为空）：%s\n' "$1" >&2
+    exit 1
+  fi
+  printf '%s\n' "${output}"
 }
 
 login() {
