@@ -39,6 +39,40 @@
       <version>${project.version}</version>
     </dependency>
 
+    <!-- Alipay openapi SDK. Only the public key mode is used (page pay, trade query, refund,
+         refund query, trade close, callback verification). The transitive jars below are either
+         already provided by Spring Boot or reachable only from SDK paths this service never
+         calls, and each of them carries findings above the accepted supply chain baseline:
+         commons-logging (superseded by spring-jcl), fastjson/bouncycastle/dom4j (KMS, SM and
+         service schema code) and okhttp (only installed by setCustomizedHttpClient(null)). -->
+    <dependency>
+      <groupId>com.alipay.sdk</groupId>
+      <artifactId>alipay-sdk-java</artifactId>
+      <version>4.40.1067.ALL</version>
+      <exclusions>
+        <exclusion>
+          <groupId>commons-logging</groupId>
+          <artifactId>commons-logging</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>com.alibaba</groupId>
+          <artifactId>fastjson</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>org.bouncycastle</groupId>
+          <artifactId>bcprov-jdk15on</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>dom4j</groupId>
+          <artifactId>dom4j</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>com.squareup.okhttp3</groupId>
+          <artifactId>okhttp</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+
     <!-- Persistence: the trade domain owns the lp_oms schema. -->
     <dependency>
       <groupId>org.springframework.boot</groupId>
