@@ -5,12 +5,15 @@ import com.alipay.api.AlipayClient;
 import com.alipay.api.AlipayConfig;
 import com.alipay.api.DefaultAlipayClient;
 import com.alipay.api.domain.AlipayTradeCloseModel;
+import com.alipay.api.domain.AlipayTradeFastpayRefundQueryModel;
 import com.alipay.api.domain.AlipayTradePagePayModel;
 import com.alipay.api.domain.AlipayTradeQueryModel;
 import com.alipay.api.request.AlipayTradeCloseRequest;
+import com.alipay.api.request.AlipayTradeFastpayRefundQueryRequest;
 import com.alipay.api.request.AlipayTradePagePayRequest;
 import com.alipay.api.request.AlipayTradeQueryRequest;
 import com.alipay.api.response.AlipayTradeCloseResponse;
+import com.alipay.api.response.AlipayTradeFastpayRefundQueryResponse;
 import com.alipay.api.response.AlipayTradeQueryResponse;
 import com.lp.common.exception.BizException;
 import com.lp.common.exception.ErrorCode;
@@ -22,6 +25,8 @@ import com.lp.trade.entity.PaymentRecord;
 import com.lp.trade.entity.TradeOrder;
 import com.lp.trade.entity.TradeOrderItem;
 import com.lp.trade.mapper.TradeOrderMapper;
+import com.lp.trade.payment.ChannelOutcomeUnknownException;
+import com.lp.trade.payment.ChannelRefundState;
 import com.lp.trade.payment.ChannelTradeState;
 import com.lp.trade.payment.PaymentGateway;
 import java.math.BigDecimal;
@@ -198,6 +203,59 @@ public class AlipayPaymentGateway implements PaymentGateway {
     }
 
     /**
+     * Reads the refund state for one out request number.
+     *
+     * <p>The call is read-only. A refund the channel does not report is returned as {@link
+     * ChannelRefundState#notFound()}, which the caller must not treat as proof that no refund
+     * happened. A transport failure or an unreadable amount raises {@link
+     * ChannelOutcomeUnknownException} so no caller can mistake it for a definite answer.
+     *
+     * @param payment successful payment being refunded
+     * @param refundNo out request number previously sent as the channel idempotency key
+     * @return channel refund state, never {@code null}
+     * @throws BizException when the channel rejects the query
+     * @throws ChannelOutcomeUnknownException when the response cannot be read
+     * @author Caspian
+     * @since 0.6.0
+     */
+    @Override
+    public ChannelRefundState refundQuery(PaymentRecord payment, String refundNo) {
+        TradeOrder order = requireOrder(payment);
+        AlipayTradeFastpayRefundQueryModel model = new AlipayTradeFastpayRefundQueryModel();
+        model.setOutTradeNo(order.getOrderNo());
+        if (StringUtils.hasText(payment.getChannelTradeNo())) {
+            model.setTradeNo(payment.getChannelTradeNo());
+        }
+        model.setOutRequestNo(refundNo);
+        AlipayTradeFastpayRefundQueryRequest request = new AlipayTradeFastpayRefundQueryRequest();
+        request.setBizModel(model);
+        AlipayTradeFastpayRefundQueryResponse response;
+        try {
+            response = client.execute(request);
+        } catch (AlipayApiException exception) {
+            throw new ChannelOutcomeUnknownException(
+                    "alipay refund query outcome is unknown", exception);
+        }
+        if (response == null) {
+            throw new ChannelOutcomeUnknownException("alipay returned no refund query response");
+        }
+        if (!response.isSuccess()) {
+            if (TRADE_NOT_EXIST.equals(response.getSubCode())) {
+                LOG.info(
+                        "alipay refund does not exist, orderNo={}, refundNo={}",
+                        order.getOrderNo(),
+                        refundNo);
+                return ChannelRefundState.notFound();
+            }
+            throw new BizException(
+                    ErrorCode.CHANNEL_UPSTREAM_ERROR,
+                    "alipay refund query rejected: " + response.getSubCode());
+        }
+        return new ChannelRefundState(
+                response.getRefundStatus(), parseRefundAmount(response.getRefundAmount()));
+    }
+
+    /**
      * Queries the channel for the current state of the trade behind one payment attempt.
      *
      * <p>A trade the channel does not know is a normal answer, not an error: it means the buyer
@@ -312,6 +370,18 @@ public class AlipayPaymentGateway implements PaymentGateway {
 
     private String amount(BigDecimal amount) {
         return amount.setScale(2, RoundingMode.HALF_UP).toPlainString();
+    }
+
+    private BigDecimal parseRefundAmount(String value) {
+        if (!StringUtils.hasText(value)) {
+            return null;
+        }
+        try {
+            return new BigDecimal(value);
+        } catch (NumberFormatException exception) {
+            throw new ChannelOutcomeUnknownException(
+                    "alipay refund query returned an invalid amount", exception);
+        }
     }
 
     private String timeoutExpress(TradeOrder order) {

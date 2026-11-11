@@ -86,4 +86,20 @@ public class UnconfiguredPaymentGateway implements PaymentGateway {
         throw new BizException(
                 ErrorCode.PAYMENT_NOT_CONFIGURED, "payment credentials are not configured");
     }
+
+    /**
+     * Refuses to query a refund because no channel credentials are configured.
+     *
+     * @param payment successful payment
+     * @param refundNo local refund number
+     * @return never returns
+     * @throws BizException always, with {@code 50205}
+     * @author Caspian
+     * @since 0.6.0
+     */
+    @Override
+    public ChannelRefundState refundQuery(PaymentRecord payment, String refundNo) {
+        throw new BizException(
+                ErrorCode.PAYMENT_NOT_CONFIGURED, "payment credentials are not configured");
+    }
 }

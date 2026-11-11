@@ -127,4 +127,18 @@ public class MockPaymentGateway implements PaymentGateway {
     public boolean close(PaymentRecord payment) {
         return true;
     }
+
+    /**
+     * Reports every mock refund as successful, mirroring the synchronous mock refund.
+     *
+     * @param payment successful payment
+     * @param refundNo local refund number
+     * @return successful state for the full payment amount
+     * @author Caspian
+     * @since 0.6.0
+     */
+    @Override
+    public ChannelRefundState refundQuery(PaymentRecord payment, String refundNo) {
+        return new ChannelRefundState(ChannelRefundState.REFUND_SUCCESS, payment.getAmount());
+    }
 }
