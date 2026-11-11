@@ -68,6 +68,17 @@ public interface LessonVideoTranscodeMapper {
     LessonVideoTranscode selectBySourceObjectKey(@Param("sourceObjectKey") String sourceObjectKey);
 
     /**
+     * Reads one task by id.
+     *
+     * @param id task primary key
+     * @return matching task, {@code null} when it does not exist
+     * @author Caspian
+     * @since 0.11.0
+     */
+    @Select("SELECT " + COLUMNS + " FROM lesson_video_transcode WHERE id = #{id}")
+    LessonVideoTranscode selectById(@Param("id") long id);
+
+    /**
      * Marks a pending or running task as running and records the attempt number.
      *
      * <p>READY and FAILED rows are left untouched, so neither a duplicate worker nor a late submit
