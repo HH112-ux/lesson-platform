@@ -7,6 +7,7 @@ import { loadProfile } from '../api/auth'
 import { describePurchaseError, readTicket, type RedeemResult } from '../utils/purchase'
 import { describeError } from '../utils/errors'
 import { formatCents } from '../utils/format'
+import { describePaymentFormRejection, submitPaymentForm } from '../utils/payment'
 import { signIn } from '../utils/session'
 
 type Phase = 'loading' | 'error' | 'ready' | 'done'
@@ -141,12 +142,11 @@ async function buy(): Promise<void> {
       return
     }
     const payment = await payOrder(order.orderNo, paymentKey)
-    const payUrl = payment.payParams?.payUrl
-    if (payUrl) {
-      window.location.assign(payUrl)
+    const rejection = submitPaymentForm(payment)
+    if (rejection === null) {
       return
     }
-    notice.value = `订单 ${order.orderNo} 已创建，请在支付宝中完成支付`
+    notice.value = `订单 ${order.orderNo} 已创建，${describePaymentFormRejection(rejection)}`
   } catch (error) {
     if (error instanceof ApiError && error.code === 61002) {
       alreadyOwned.value = true

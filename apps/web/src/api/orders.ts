@@ -168,7 +168,7 @@ export function createOrder(
  *
  * @param orderNo order to pay
  * @param idempotencyKey key generated once per payment intent and reused on retries
- * @returns the channel payload, usually carrying a {@code payUrl}
+ * @returns the channel payload; the Alipay channel carries a self submitting form, not a URL
  * @author Caspian
  * @since 0.2.0
  */
