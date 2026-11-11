@@ -1,0 +1,6 @@
+# Local WeChat DevTools override, optionally written by scripts/prepare-appid.mjs.
+# Use it to test with a different AppID without editing the tracked config.
+project.private.config.json
+
+# miniprogram-ci upload private key, downloaded from the WeChat MP console.
+private.*.key
