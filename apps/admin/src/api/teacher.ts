@@ -24,6 +24,12 @@ export interface TeacherLesson {
   sort: number
   /** 1 visible, 0 hidden. */
   status: number
+  /**
+   * Transcode state of the uploaded video: {@code PENDING}, {@code RUNNING}, {@code READY} or
+   * {@code FAILED}. The backend does not return it yet, so the screen shows an unknown placeholder
+   * until the field lands.
+   */
+  transcodeStatus?: string
 }
 
 /** One chapter with its lessons, aligned with {@code TeacherChapterView}. */
@@ -71,6 +77,23 @@ export interface TeacherCoursePayload {
   /** Set true to remove the crossed out price; omit {@code originalPrice} when set. */
   clearOriginalPrice?: boolean
   level?: number
+}
+
+/** Form payload of the teacher chapter endpoints, aligned with {@code TeacherChapterRequest}. */
+export interface TeacherChapterPayload {
+  title?: string
+  sort?: number
+}
+
+/**
+ * Form payload of the teacher lesson endpoints, aligned with {@code TeacherLessonRequest}.
+ *
+ * <p>Video facts belong to the upload confirmation endpoint; requests carrying {@code videoUrl} or
+ * {@code durationSec} are rejected with {@code 40001}, so this payload never includes them.</p>
+ */
+export interface TeacherLessonPayload {
+  title?: string
+  sort?: number
 }
 
 /** Category entry of the public catalog, reused by the teacher course form. */
@@ -224,6 +247,77 @@ export function withdrawTeacherCourse(courseId: number): Promise<TeacherCourse> 
  */
 export function listTeacherChapters(courseId: number): Promise<TeacherChapter[]> {
   return apiRequest<TeacherChapter[]>(`/api/v1/teacher/courses/${courseId}/chapters`)
+}
+
+/**
+ * Creates a chapter in a draft or offline course.
+ *
+ * @param courseId course identifier
+ * @param payload chapter title and sort, both validated by the backend
+ * @returns the created chapter with an empty lesson list
+ * @author Caspian
+ * @since 0.14.0
+ */
+export function createTeacherChapter(
+  courseId: number,
+  payload: TeacherChapterPayload,
+): Promise<TeacherChapter> {
+  return apiRequest<TeacherChapter>(`/api/v1/teacher/courses/${courseId}/chapters`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+/**
+ * Creates a lesson under a chapter of a draft or offline course.
+ *
+ * <p>The lesson starts without a video; uploaded facts are written by the confirmation call.</p>
+ *
+ * @param courseId course identifier
+ * @param chapterId owning chapter identifier
+ * @param payload lesson title and sort
+ * @returns the created lesson, no video yet
+ * @author Caspian
+ * @since 0.14.0
+ */
+export function createTeacherLesson(
+  courseId: number,
+  chapterId: number,
+  payload: TeacherLessonPayload,
+): Promise<TeacherLesson> {
+  return apiRequest<TeacherLesson>(
+    `/api/v1/teacher/courses/${courseId}/chapters/${chapterId}/lessons`,
+    {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    },
+  )
+}
+
+/**
+ * Edits the title or sort of a lesson; omitted fields keep their current value.
+ *
+ * @param courseId course identifier
+ * @param chapterId owning chapter identifier
+ * @param lessonId lesson identifier
+ * @param payload lesson title and sort
+ * @returns the lesson after the update
+ * @author Caspian
+ * @since 0.14.0
+ */
+export function updateTeacherLesson(
+  courseId: number,
+  chapterId: number,
+  lessonId: number,
+  payload: TeacherLessonPayload,
+): Promise<TeacherLesson> {
+  return apiRequest<TeacherLesson>(
+    `/api/v1/teacher/courses/${courseId}/chapters/${chapterId}/lessons/${lessonId}`,
+    {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    },
+  )
 }
 
 /**

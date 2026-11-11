@@ -8,13 +8,16 @@
  * @author Caspian
  * @since 0.9.0
  */
-import { nextTick, onMounted, ref, shallowRef } from 'vue'
+import { nextTick, onMounted, reactive, ref, shallowRef } from 'vue'
 import {
   confirmLessonUpload,
   createLessonUploadSession,
+  createTeacherChapter,
+  createTeacherLesson,
   getLessonPlayUrl,
   listTeacherChapters,
   listTeacherCourses,
+  updateTeacherLesson,
   type TeacherChapter,
   type TeacherCourse,
   type TeacherLesson,
@@ -57,6 +60,36 @@ const preview = shallowRef<{
 const previewVideo = ref<HTMLVideoElement | null>(null)
 const previewReloading = ref(false)
 
+/** Transcode slot; the backend field is not live yet, so the column renders an unknown value. */
+const TRANSCODE_TEXT: Record<string, string> = {
+  PENDING: '转码中',
+  RUNNING: '转码中',
+  READY: '已就绪',
+  FAILED: '转码失败',
+}
+
+const chapterFormOpen = ref(false)
+const lessonFormOpen = ref(false)
+const saving = ref(false)
+const chapterForm = reactive({ title: '' })
+const lessonForm = reactive({
+  chapterId: 0,
+  chapterTitle: '',
+  lessonId: null as number | null,
+  title: '',
+  sort: 0,
+  durationSec: 0,
+})
+
+/** Renders the transcode state when it arrives; unknown until the field is returned. */
+function transcodeText(lesson: TeacherLesson): string {
+  const state = lesson.transcodeStatus
+  if (!state) {
+    return '--'
+  }
+  return TRANSCODE_TEXT[state] ?? state
+}
+
 async function loadCourses(): Promise<void> {
   loading.value = true
   errorText.value = ''
@@ -91,7 +124,115 @@ async function loadChapters(): Promise<void> {
 function selectCourse(): void {
   notice.value = ''
   failure.value = ''
+  chapterFormOpen.value = false
+  lessonFormOpen.value = false
   void loadChapters()
+}
+
+function openChapterForm(): void {
+  chapterForm.title = ''
+  notice.value = ''
+  failure.value = ''
+  lessonFormOpen.value = false
+  chapterFormOpen.value = true
+}
+
+/** Creates a chapter; the backend defaults visibility and sort, and later chapters follow in order. */
+async function saveChapter(): Promise<void> {
+  const id = courseId.value
+  const title = chapterForm.title.trim()
+  if (id === null || !title) {
+    failure.value = '章节标题不能为空'
+    return
+  }
+  saving.value = true
+  failure.value = ''
+  notice.value = ''
+  try {
+    await createTeacherChapter(id, { title })
+    chapterFormOpen.value = false
+    notice.value = `章节「${title}」已创建，接着添加课时`
+    await loadChapters()
+  } catch (error) {
+    failure.value = describeContentError(error, '章节创建失败')
+  } finally {
+    saving.value = false
+  }
+}
+
+function openLessonForm(chapter: TeacherChapter): void {
+  lessonForm.chapterId = chapter.chapterId
+  lessonForm.chapterTitle = chapter.title
+  lessonForm.lessonId = null
+  lessonForm.title = ''
+  lessonForm.sort = chapter.lessons.length
+  lessonForm.durationSec = 0
+  notice.value = ''
+  failure.value = ''
+  chapterFormOpen.value = false
+  lessonFormOpen.value = true
+}
+
+function openLessonEdit(chapter: TeacherChapter, lesson: TeacherLesson): void {
+  lessonForm.chapterId = chapter.chapterId
+  lessonForm.chapterTitle = chapter.title
+  lessonForm.lessonId = lesson.lessonId
+  lessonForm.title = lesson.title
+  lessonForm.sort = lesson.sort
+  lessonForm.durationSec = lesson.durationSec
+  notice.value = ''
+  failure.value = ''
+  chapterFormOpen.value = false
+  lessonFormOpen.value = true
+}
+
+/** Creates or edits a lesson; duration stays owned by the upload confirmation call. */
+async function saveLesson(): Promise<void> {
+  const id = courseId.value
+  const title = lessonForm.title.trim()
+  const sort = Number(lessonForm.sort)
+  if (id === null || !title) {
+    failure.value = '课时标题不能为空'
+    return
+  }
+  if (!Number.isInteger(sort) || sort < 0) {
+    failure.value = '排序需为非负整数'
+    return
+  }
+  saving.value = true
+  failure.value = ''
+  notice.value = ''
+  try {
+    if (lessonForm.lessonId === null) {
+      await createTeacherLesson(id, lessonForm.chapterId, { title, sort })
+      notice.value = `课时「${title}」已创建，上传并确认视频后即可提交审核`
+    } else {
+      await updateTeacherLesson(id, lessonForm.chapterId, lessonForm.lessonId, { title, sort })
+      notice.value = `课时「${title}」已更新`
+    }
+    lessonFormOpen.value = false
+    await loadChapters()
+  } catch (error) {
+    failure.value = describeContentError(error, '课时保存失败')
+  } finally {
+    saving.value = false
+  }
+}
+
+/** Maps chapter and lesson failures to the rule that blocked the save. */
+function describeContentError(error: unknown, fallback: string): string {
+  if (error instanceof ApiError) {
+    if (error.code === 40001) {
+      return '填写内容不合法：标题不超过 120 字，排序需为非负整数'
+    }
+    if (error.code === 40901) {
+      return '课程当前状态不可修改：仅草稿或已下架课程可维护章节与课时'
+    }
+    if (error.code === 40301) {
+      return '只有课程所属教师本人可以维护章节与课时'
+    }
+  }
+  return describeError(error, fallback)
 }
 
 function pickVideo(chapterId: number, lesson: TeacherLesson): void {
@@ -350,7 +491,15 @@ function putObject(held: TeacherUploadSession, picked: File): Promise<void> {
   })
 }
 
-onMounted(loadCourses)
+onMounted(async () => {
+  await loadCourses()
+  const raw = new URLSearchParams(window.location.search).get('courseId')
+  const requested = raw === null ? Number.NaN : Number(raw)
+  if (Number.isInteger(requested) && courses.value.some((course) => course.courseId === requested)) {
+    courseId.value = requested
+    await loadChapters()
+  }
+})
 </script>
 
 <template>
@@ -382,6 +531,13 @@ onMounted(loadCourses)
         >
           刷新
         </button>
+        <button
+          class="lp-btn lp-btn--primary"
+          :disabled="busy || saving || courseId === null || chapterFormOpen"
+          @click="openChapterForm"
+        >
+          新增章节
+        </button>
       </div>
     </header>
 
@@ -410,6 +566,90 @@ onMounted(loadCourses)
       />
     </div>
 
+    <form
+      v-if="chapterFormOpen"
+      class="lp-card form-card"
+      @submit.prevent="saveChapter"
+    >
+      <h2>新增章节</h2>
+      <label class="lp-field">
+        <span class="lp-label">章节标题</span>
+        <input
+          v-model="chapterForm.title"
+          class="lp-input"
+          maxlength="120"
+          placeholder="例如：第一章 基础入门"
+        >
+      </label>
+      <div class="actions">
+        <button
+          class="lp-btn lp-btn--primary"
+          type="submit"
+          :disabled="saving"
+        >
+          {{ saving ? '保存中…' : '保存章节' }}
+        </button>
+        <button
+          class="lp-btn"
+          type="button"
+          :disabled="saving"
+          @click="chapterFormOpen = false"
+        >
+          取消
+        </button>
+      </div>
+    </form>
+
+    <form
+      v-if="lessonFormOpen"
+      class="lp-card form-card"
+      @submit.prevent="saveLesson"
+    >
+      <h2>{{ lessonForm.lessonId === null ? '新增课时' : '编辑课时' }}（{{ lessonForm.chapterTitle }}）</h2>
+      <label class="lp-field">
+        <span class="lp-label">课时标题</span>
+        <input
+          v-model="lessonForm.title"
+          class="lp-input"
+          maxlength="120"
+          placeholder="例如：1.1 环境准备"
+        >
+      </label>
+      <label class="lp-field">
+        <span class="lp-label">排序（非负整数，越小越靠前）</span>
+        <input
+          v-model.number="lessonForm.sort"
+          class="lp-input"
+          type="number"
+          min="0"
+          step="1"
+        >
+      </label>
+      <p
+        v-if="lessonForm.lessonId !== null"
+        class="lp-muted form-note"
+      >
+        时长：{{ lessonForm.durationSec > 0 ? `${lessonForm.durationSec} 秒（由视频确认写入）` : '暂无视频，上传确认后自动写入' }}
+      </p>
+      <div class="actions">
+        <button
+          class="lp-btn lp-btn--primary"
+          type="submit"
+          :disabled="saving"
+        >
+          {{ saving ? '保存中…' : '保存课时' }}
+        </button>
+        <button
+          class="lp-btn"
+          type="button"
+          :disabled="saving"
+          @click="lessonFormOpen = false"
+        >
+          取消
+        </button>
+      </div>
+    </form>
+
     <div class="lp-card table-card">
       <p
         v-if="loading"
@@ -427,7 +667,7 @@ onMounted(loadCourses)
         v-else-if="chapters.length === 0"
         class="lp-empty"
       >
-        请选择课程查看课时
+        {{ courseId === null ? '请选择课程查看课时' : '该课程还没有章节，先新增章节再添加课时' }}
       </p>
       <div
         v-for="chapter in chapters"
@@ -435,7 +675,16 @@ onMounted(loadCourses)
         :key="chapter.chapterId"
         class="chapter"
       >
-        <h2>{{ chapter.sort }}. {{ chapter.title }}</h2>
+        <div class="chapter-head">
+          <h2>{{ chapter.sort }}. {{ chapter.title }}</h2>
+          <button
+            class="lp-btn"
+            :disabled="busy || saving || lessonFormOpen"
+            @click="openLessonForm(chapter)"
+          >
+            {{ chapter.lessons.length === 0 ? '新增第一个课时' : '新增课时' }}
+          </button>
+        </div>
         <table class="lp-table">
           <thead>
             <tr>
@@ -444,6 +693,7 @@ onMounted(loadCourses)
               <th>编码</th>
               <th>分辨率</th>
               <th>大小</th>
+              <th>转码</th>
               <th>状态</th>
               <th>操作</th>
             </tr>
@@ -460,8 +710,16 @@ onMounted(loadCourses)
                 {{ lesson.videoWidth > 0 ? `${lesson.videoWidth}×${lesson.videoHeight}` : '--' }}
               </td>
               <td>{{ lesson.videoSizeBytes > 0 ? formatBytes(lesson.videoSizeBytes) : '--' }}</td>
+              <td>{{ transcodeText(lesson) }}</td>
               <td>{{ lesson.hasVideo ? '已上传' : '未上传' }}</td>
-              <td>
+              <td class="row-actions">
+                <button
+                  class="lp-btn"
+                  :disabled="busy"
+                  @click="openLessonEdit(chapter, lesson)"
+                >
+                  编辑
+                </button>
                 <button
                   v-if="lesson.hasVideo"
                   class="lp-btn"
@@ -477,6 +735,14 @@ onMounted(loadCourses)
                 >
                   {{ lesson.hasVideo ? '替换视频' : '上传视频' }}
                 </button>
+              </td>
+            </tr>
+            <tr v-if="chapter.lessons.length === 0">
+              <td
+                colspan="8"
+                class="lp-muted"
+              >
+                本章还没有课时，先新增课时再上传视频
               </td>
             </tr>
           </tbody>
@@ -526,6 +792,13 @@ h1 { margin: 0; font-size: 20px; }
 .search .lp-input { width: 280px; }
 .table-card { padding: 0 16px 16px; overflow: hidden; }
 .chapter h2 { margin: 16px 0 8px; font-size: 15px; }
+.chapter-head { display: flex; align-items: center; gap: 12px; }
+.form-card { margin-bottom: 16px; }
+.form-card h2 { margin: 0 0 12px; font-size: 16px; }
+.form-card .lp-field { max-width: 520px; }
+.form-note { margin: 0 0 12px; }
+.actions { display: flex; gap: 8px; }
+.row-actions { display: flex; gap: 8px; }
 .progress-card { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
 .progress-card progress { flex: 1; }
 .preview-mask { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.55); z-index: 20; }
