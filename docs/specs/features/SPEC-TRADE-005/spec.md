@@ -48,7 +48,9 @@
 - AC-3：通知到达时 `trade_order.status` 已为 1 已支付，接口返回 `success` 且不重复更新 `paid_at`、不重复写入 outbox。
 - AC-4：通知到达时 `trade_order.status` 为 3 已关闭，服务端保存支付成功事实与渠道交易号，订单状态保持 3，并写入待退款补偿标记，接口返回 `success`。
 - AC-5：通知中的 `out_trade_no` 在 `trade_order` 中不存在时，接口返回 `failure`，不创建订单或支付记录，写入告警。
-- AC-6：支付宝异步通知中的 `app_id` 必须等于本平台配置的商户应用 ID；不一致时接口返回 `failure`，不写入支付成功记录、不改变订单状态、不写 `entitlement_outbox`。**阻塞：真实渠道接入时实现**（当前为 Mock 渠道，尚无真实 `app_id` 可比对）。
+- AC-6：支付宝异步通知中的 `app_id` 必须等于本平台配置的商户应用 ID；不一致时接口返回 `failure`，不写入支付成功记录、不改变订单状态、不写 `entitlement_outbox`。
+
+> 说明：渠道验签已落地（`e2e800b`），Mock 渠道仍保留用于联调。
 
 ## 6. 边界与异常
 
