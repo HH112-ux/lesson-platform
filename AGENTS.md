@@ -277,7 +277,7 @@ chore(deps): upgrade wechatpay-java to 0.2.12
 | 回滚合并提交 | `git revert -m 1 <hash>` |
 | 本地未推送、保留改动 | `git reset --soft HEAD~1` |
 | 线上后端/Web | 镜像回滚（保留最近 10 个 tag）+ 配置回滚；数据库按 expand-contract 处理 |
-| 线上小程序 | **不能一键回退**：优先服务端开关降级（`pay.channel.wxpay.enabled`、`mp.enabled`）；必须回退版本时重新提交审核（1–7 天），tag 记录新版本号 |
+| 线上小程序 | **不能一键回退**：优先服务端开关降级（实际可用的是环境变量 `LP_MINIAPP_LOGIN_ENABLED`、`LP_PAY_MOCK_ENABLED`，改后需重启对应容器；`pay.channel.wxpay.enabled`、`mp.enabled` 在代码中不存在）；必须回退版本时重新提交审核（1–7 天），tag 记录新版本号 |
 
 - 代码回滚 ≠ 数据库回滚：涉及 Flyway 时必须说明 schema 兼容性与数据修复方式，禁止 `DROP TABLE/COLUMN` 式破坏性迁移。
 - 小程序相关的任何风险点，必须先在服务端留可关闭的开关，PR 中写明开关名与降级表现。
