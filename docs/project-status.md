@@ -130,6 +130,7 @@
 | 网关 | 7 条服务路由、身份头剥离与注入、JWT 三态校验，默认 `hard`；`/api/v1/**` 按用户或真实客户端 IP 做每实例内存限流（默认 300 次/分钟/实例，集群容量 = 阈值 × 副本数），超限返回 429 + `Retry-After` + 统一信封；CORS 走显式来源白名单，预检在鉴权前处理，非 dev 未配置来源时启动失败；`/internal/**` 与 `/actuator/**` 不经路由 | `lp-gateway/src/main/resources/application.yml`、`application-dev.yml`、`filter/HeaderSanitizeFilter.java`、`filter/JwtAuthFilter.java`、`filter/GatewayRateLimitFilter.java`、`config/CorsConfig.java` | 2026-11-10 |
 | 课程浏览 | 已上架课程分页、分类、关键词（`LIKE` 标题/副标题）、详情、目录；下架课程对非持有者按 404 处理 | `lp-course-service/.../controller/CoursePublicController.java`、`mapper/CourseMapper.java` | 2026-11-09 |
 | 教师课程 API | 建课、改课、提交审核、章节课时增删改、状态计数；按 `owner_teacher_id` 做归属校验；建课与改课在服务层校验教师入驻审核状态，未通过返回 `61006` 且不写课程 | `controller/TeacherCourseController.java`、`service/impl/TeacherCourseServiceImpl.java` | 2026-11-09 |
+| 课时内容清理 | 删除课时或章节时在同一事务内把 `video_url` 登记进 `lp_cms.lesson_content_cleanup`（V11），由 course-service 内 ticker 每 30s 异步删除——原 §5「MinIO 孤儿对象清理」建议已落地，归属本节。每批 20 行、最多 5 次尝试（30s→1m→2m→4m，约 7.5 分钟转终态），单行失败隔离。ticker 按单实例调参，多副本不会重复删同一对象，扩容前需分布式锁；指标与告警见 `docs/local-dev-guide.md` 4.13。 | `db/migration/course/V11__lesson_content_cleanup.sql`、`cleanup/LessonContentCleanupWorker.java`、`LessonCleanupScheduler.java`、`LessonCleanupMetrics.java`、`mapper/LessonContentCleanupMapper.java`、`application.yml:76-94` | 2026-11-11 |
 | 课程审核 | 待审队列、通过并定价上架、驳回、审核审计查询；审核动作同时写入统一审计表（含操作人角色、前后状态、traceId），与状态更新同事务 | `lp-admin-service/.../controller/AdminCourseController.java`、`db/migration/course/V4__course_review_audit.sql`、`db/migration/course/V7__admin_audit_log.sql` | 2026-11-10 |
 | 教师入驻审核 | 审核字段与存量回填、按状态筛选的审核队列、通过/驳回（驳回原因必填）、审核留痕（操作人、时间、前后状态）、教师查询与重新提交；权限码 `admin:teacher:audit`；审核动作同时写入统一审计表并与状态更新同事务。**驳回原因超过 300 字被静默截断（见 4.2）** | `db/migration/course/V6__teacher_audit.sql`、`service/impl/TeacherAuditServiceImpl.java`、`lp-admin-service/.../controller/AdminTeacherController.java` | 2026-11-10 |
 | 统一操作审计 | 三类审核动作（课程/退款/教师）写入 `lp_cms.admin_audit_log`；课程与教师审核同事务写入，退款审核经 `lp_oms.audit_outbox` 至少一次投递、`dedupe_key` 去重；查询接口 `GET /api/v1/admin/audit-logs` 支持按对象与按操作人+时间，权限码 `admin:audit:list`；`course_review_audit` 保留双写、历史数据不迁移 | `db/migration/course/V7__admin_audit_log.sql`、`db/migration/trade/V10__audit_outbox.sql`、`lp-course-service/.../service/AdminAuditService.java`、`lp-trade-service/.../audit/AuditOutboxRelay.java`、`lp-admin-service/.../controller/AdminAuditController.java` | 2026-11-10 |
@@ -198,10 +199,14 @@
 
 | 功能 | 文档出处 | 现状 | 卡点 | 最后核对日期 |
 |---|---|---|---|---|
-| 真实支付宝支付 | engineering-plan 1.2、5.5、13.2 M2；15.2 D2 | 已有支付宝官方 SDK 依赖与凭据加载（`e8ae01d`：`lp-trade-service/pom.xml:49-50`、`lp.pay.alipay.enabled` ← `LP_PAY_ALIPAY_ENABLED`），但**仍无 `PaymentGateway` 实现**：开关只决定是否装配凭据加载器（`AlipayPayConfig.java:23`），支付接口仍由 `UnconfiguredPaymentGateway` 固定返回 `50205`，不能收款 | 缺商户号、应用私钥、公钥证书、回调域名，以及真正调用 SDK 的支付适配器 | 2026-11-11 |
+| 真实支付宝支付 | engineering-plan 1.2、5.5、13.2 M2；15.2 D2 | 台阶 1 已落地（能发起表单并跳转支付；开关关闭回落 `50205`），台阶 2–5 未落地，不能闭环收款 | 缺商户号、应用私钥、公钥证书、回调域名；台阶 2–5 未实现 | 2026-11-11 |
 | 支付宝对账 | engineering-plan 1.2、13.2 M3、15.1 R11；SPEC-TRADE-014 | 已实现 CSV 账单导入（支付/退款）、`uk_channel_date_type` 幂等覆盖、差异明细与告警、日查询、重跑与人工标记（`/api/v1/reconcile/**`），以及日结、作废、详情、列表接口（`/api/v1/reconcile/settlements/**`，`payment_settle_batch`）；**无自动拉账任务，运营后台无日结页面** | 自动拉账依赖商户号与账单权限；**未完成对账能力不得开启真实收款** | 2026-11-10 |
 | 支付宝回调 `app_id` 校验 | SPEC-TRADE-005 AC-6；engineering-plan 5.5、8.3 | 回调只验签与校验金额，未比对 `app_id`；当前为 Mock 渠道 | 阻塞：真实渠道接入时实现 | 2026-11-09 |
 | 小程序支付（JSAPI）与 `payer_openid` 落库 | product-lifecycle F07；engineering-plan 5.5、15.2 D2；SPEC-TRADE-012 | 无小程序支付实现；`payment_record.payer_openid` 当前无写入方，只有账号注销的匿名化会读取并覆写该列 | 缺 AppID、商户号与 APIv3 密钥；注销演练中该列只能由 SQL fixture 预置，属非接口写入，随小程序支付链路补齐 | 2026-11-10 |
+
+> **真实支付宝支付的依据**：台阶 1 发起支付已落地（`e99cddd` 后端、`8cef57d` 前端）——`LP_PAY_ALIPAY_ENABLED=true` 时装配 `AlipayPaymentGateway`（`lp-trade-service/src/main/java/com/lp/trade/payment/alipay/AlipayPaymentGateway.java:48-49`）并生成自提交表单（同文件 `:112-143`），Web 端解析该表单并提交跳转（`apps/web/src/utils/payment.ts:72-108`），关闭时回落 `UnconfiguredPaymentGateway` 固定返回 `50205`。台阶 2–5 未落地：回调仍由 `UnconfiguredSignatureVerifier` 固定返回 `50205`（`lp-trade-service/src/main/java/com/lp/trade/payment/UnconfiguredSignatureVerifier.java:39-47`），`refund()` 固定抛渠道错误（`AlipayPaymentGateway.java:159-163`）。
+>
+> **台阶与开发片号的对应**（片号只出现在 PR 与提交信息里，正文一律用台阶）：台阶 1 发起支付 = P1 凭据加载 + P2 网页支付表单 + P2b Web 端提交与回跳；台阶 2 回调验签 = P3；台阶 3 入账 = P4；台阶 4 查单/关单/状态 = P5；台阶 5 退款 = P6+P7。
 
 ## 4.2 其他未做功能
 
@@ -210,6 +215,7 @@
 | 日结与结算的运营后台页面与导出 | SPEC-TRADE-014 AC-3 与 Q-2；engineering-plan 5.2、5.5 | 接口已实现：日结、作废、详情、列表（`/api/v1/reconcile/settlements/**`），批次落 `payment_settle_batch`，日结后锁定账单日；口径已于 2026-11-10 冻结（只封账与净额汇总，不含手续费/分账/教师结算） | 运营后台无日结页面，本期只有接口；批次导出不做 | 2026-11-10 |
 | 对账账单对象存储归档 | SPEC-TRADE-014 Q-3；engineering-plan 10.4 | 已定：维持库内 `payment_reconcile.raw_bill`，不迁 MinIO。账单是文本、单日行数量级小，对象存储归档属可选优化；**如单日账单体积上量再评估对象存储归档** | 无（按需评估，不阻塞上线） | 2026-11-10 |
 | 已售课程的单个课时下架（停用课时） | SPEC-COURSE-008 AC-2；product-lifecycle 6.4 | 2026-11-11 起已售课程的课时禁止删除，未售课程可软删；单个课时「停用」未实现，本期只有拒绝 | 待定：需要课时级停用状态与学员侧下架提示口径；在冻结口径前不做，删除请求继续由 `61009` 兜底 | 2026-11-11 |
+| 课时清理队列的引用索引（W-4） | V11 清理队列；`docs/local-dev-guide.md` 4.13 | 未建：worker 删除前要确认对象不再被 `course_lesson.video_url`（在用课时）与 `lesson_upload.object_key`（未确认上传会话）引用，两列均无索引，按对象键检查走全表扫；当前量级可接受，转码表已有 `uk_source_object`，不在缺口内 | 触发条件：单表 50 万行或单 tick 耗时 > 50ms；落地为 `V12__lesson_cleanup_reference_index.sql`（`course_lesson.idx_video_url`、`lesson_upload.idx_object_key`），新增索引属 expand 变更，回滚 `DROP INDEX` | 2026-11-11 |
 | 评论、两级回复、收藏、举报与内容审核 | product-lifecycle F11/F12、4.3；engineering-plan 13.2 M3 | `lp-ugc-service` 仅有启动类与 `package-info`，`lp_ugc` 仅有 V1 基线 | 未排期；依赖 UGC 表设计与审核链路 | 2026-11-09 |
 | AI 课程画像、审核、文案、学伴、BYO 模型配置 | product-lifecycle F15–F18；engineering-plan 第 7 章、13.2 M4 | `lp-ai-service` 仅有启动类与 `package-info`，`lp_ai` 仅有 V1 基线 | 未排期；缺客户模型 key 与配置界面 | 2026-11-09 |
 | 购物车页面 | product-lifecycle F07、4.3 | 后端 `/api/v1/cart` 可用，Web 无购物车页面 | 未排期 | 2026-11-09 |
@@ -261,7 +267,6 @@
 | 备份脚本接入定时与异地留存 | 演练脚本已验证备份可恢复，但仍是手动执行，dump 落本机 `logs/`，无异地副本与保留策略 | 中 | 2026-11-10 |
 | 自建镜像漏洞扫描 | 依赖与基础镜像扫描已进 CI 基线（`supply-chain-ci.yml`），自建镜像要等 E2E 建栈后才能扫 | 小 | 2026-11-10 |
 | 管理操作统一审计 | 已覆盖课程、退款、教师三类审核并支持按对象与按操作人查询；用户、订单、角色等管理操作仍无统一留痕 | 中 | 2026-11-10 |
-| MinIO 孤儿对象清理 | 课程/课时删除后对象仍占用存储，长期累积成本 | 小 | 2026-11-09 |
 | 日志聚合与告警通道 | 只有本地容器日志与指标端点，无集中检索与通知 | 中 | 2026-11-09 |
 | 匿名试看 | 文档面向游客承诺免费试看，当前播放签名接口要求登录 | 小 | 2026-11-09 |
 
