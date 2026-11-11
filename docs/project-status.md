@@ -245,6 +245,7 @@
 | staging/prod 部署 | engineering-plan 3.3、3.4、13.2 M5 | 无镜像构建、K8s 清单或部署 workflow | 缺服务器、域名、备案与凭据 | 2026-11-09 |
 | 业务服务不校验身份，只信任网关注入头 | engineering-plan 8.3、11.1；SPEC-PLAT-001、SPEC-PLAT-005 | **显式架构前提，不是疏漏**：8 个业务服务的 `/api/v1/**` 自身不做身份鉴权，全部依赖网关在 JWT 校验后注入 `X-User-Id` / `X-User-Roles` / `X-User-Permissions`；2026-11-11 本地演练直连 `127.0.0.1:8103` 伪造这组头得到 `200 code=0`，`scripts/security/authz-drill.sh` 将该断言保留为 FAIL，不改写为通过 | **部署前置（必须可验证，不接受「靠内网隔离」这种无法判定的说法）**：生产网络策略只允许网关访问各业务服务端口；部署后从非网关 Pod（或集群外节点）直连任一业务服务端口，必须超时或被拒绝，命令与输出记入发布单。本地 compose 已只把这些端口绑在回环地址。网络策略缺失时该架构前提不成立 | 2026-11-11 |
 | 服务间身份鉴权（内部 token 或 mTLS） | 上一条缺口；engineering-plan 第 8 章 | 未实现，本片不写代码，只登记方案：A. 网关转发时附加短时内部签名（含 audience 与来源），业务服务校验；B. 服务网格 mTLS + 网络策略；C. 只做网络策略、不加应用层鉴权 | 待决策。选型前置：确认部署形态是否提供 K8s 网络策略、是否存在服务间直调链路；决策后单开一片实现，并在鉴权契约变更前完成评审 | 2026-11-11 |
+| 安全演练的验收数字不可在干净环境复现 | `#247`、`.github/workflows/security-ci.yml`；`docs/local-dev-guide.md` 7.1 | `#247` 记录的 `pass=22 fail=1` 是在有历史数据的开发机上跑出的：该库已有 `lp_oms.payment_reconcile` 行，且 `demo_teacher_lin` / `demo_teacher_su` 的 id 恰为 21/22。干净 schema 加 `demo-seed.sql` 下，演练在第一条断言之前就退出（`payment_reconcile` 为空，4 条 `ERROR 1064 ... near ''`），没有输出 `SUMMARY`；当时 workflow 的 `continue-on-error` 又让该步骤显示为绿。修复见 PR #254：导入账单夹具、按 username 联查教师、缺数据显式失败、无 `SUMMARY` 行时步骤判红 | 验收只认干净 runner 上 `security-ci` 的 `SUMMARY`；本机历史数据下的通过数不得作为证据 | 2026-11-11 |
 
 ---
 
