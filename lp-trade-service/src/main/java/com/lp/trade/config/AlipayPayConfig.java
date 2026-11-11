@@ -3,7 +3,8 @@ package com.lp.trade.config;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lp.trade.payment.alipay.AlipayCredentialLoader;
 import com.lp.trade.payment.alipay.AlipayCredentials;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
@@ -18,7 +19,8 @@ import org.springframework.core.env.Environment;
  * @since 0.4.0
  */
 @Configuration
-@ConditionalOnExpression("${lp.pay.alipay.enabled:false} == true")
+@EnableConfigurationProperties(AlipayPayProperties.class)
+@ConditionalOnProperty(prefix = "lp.pay.alipay", name = "enabled", havingValue = "true")
 public class AlipayPayConfig {
 
     /**

@@ -17,8 +17,9 @@ import org.springframework.util.StringUtils;
  * Reads the Alipay credentials from the verified credential file at startup.
  *
  * <p>The file is read directly from its configured absolute path; values are never copied into
- * {@code application.yml}, environment variables, logs or error messages. Any missing or malformed
- * field aborts startup instead of degrading into an unsigned channel.
+ * {@code application.yml}, environment variables, logs or error messages. Any missing field aborts
+ * startup instead of degrading into an unsigned channel. Key material is parsed and validated when
+ * the signing adapter is wired in the next slice.
  *
  * @author Caspian
  * @since 0.4.0

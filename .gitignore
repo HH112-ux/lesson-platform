@@ -48,4 +48,4 @@ test-uploads/
 # 端到端脚本使用的固定样本，必须入库，其余视频仍忽略
 !scripts/fixtures/*.mp4
 *.mov
-/.alipay-sandbox.json
+/.alipay-*.json
