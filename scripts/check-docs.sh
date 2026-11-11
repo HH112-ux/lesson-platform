@@ -8,6 +8,15 @@ cd "$ROOT"
 fail=0
 fail_msg() { printf 'FAIL %s\n' "$1"; fail=1; }
 
+# Markdown files covered by the link and HTML checks: the two root docs plus everything under
+# docs/, with no depth cap, so newly added spec folders are checked automatically. Vendored
+# and build directories are pruned instead of relying on a fixed -maxdepth.
+list_markdown() {
+  find AGENTS.md README.md docs \
+    \( -type d \( -name .git -o -name node_modules -o -name dist -o -name target \) -prune \) \
+    -o \( -type f -name '*.md' -print \)
+}
+
 # 1. 文件名必须为英文短语 kebab-case.md（允许模板文件带前导下划线；首字符必须为字母，禁止数字前缀；正则本身排除大写与中文）
 while IFS= read -r f; do
   base="$(basename "$f")"
@@ -30,7 +39,7 @@ while IFS= read -r f; do
       fail_msg "链接目标不存在：$f -> $target"
     fi
   done < <(grep -oE '\]\([^)]+\)' "$f" | sort -u)
-done < <(find . -maxdepth 3 -type f -name '*.md' -not -path './.git/*' | sort)
+done < <(list_markdown | sort)
 
 # 3. 禁止 HTML 标签
 while IFS= read -r f; do
@@ -39,7 +48,7 @@ while IFS= read -r f; do
     fail_msg "发现 HTML 标签：$f"
     printf '%s\n' "$hits"
   fi
-done < <(find . -maxdepth 3 -type f -name '*.md' -not -path './.git/*' | sort)
+done < <(list_markdown | sort)
 
 # 4. 旧命名残留
 check_residual() {
