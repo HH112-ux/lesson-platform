@@ -1,8 +1,11 @@
 package com.lp.trade.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.lp.trade.payment.SignatureVerifier;
 import com.lp.trade.payment.alipay.AlipayCredentialLoader;
 import com.lp.trade.payment.alipay.AlipayCredentials;
+import com.lp.trade.payment.alipay.AlipaySignatureVerifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -38,5 +41,19 @@ public class AlipayPayConfig {
     public AlipayCredentials alipayCredentials(
             AlipayPayProperties properties, Environment environment, ObjectMapper objectMapper) {
         return new AlipayCredentialLoader(properties, environment, objectMapper).load();
+    }
+
+    /**
+     * Registers the RSA2 verifier instead of the failing placeholder when the channel is enabled.
+     *
+     * @param credentials application id and Alipay public key of this channel
+     * @param sellerId merchant seller id every callback must echo
+     * @return verifier of Alipay notifications
+     * @throws IllegalStateException when the seller id is blank
+     */
+    @Bean
+    public SignatureVerifier alipaySignatureVerifier(
+            AlipayCredentials credentials, @Value("${lp.pay.alipay.seller-id:}") String sellerId) {
+        return new AlipaySignatureVerifier(credentials, sellerId);
     }
 }

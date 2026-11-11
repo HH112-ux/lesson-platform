@@ -23,6 +23,11 @@ import org.springframework.stereotype.Service;
         name = "enabled",
         havingValue = "false",
         matchIfMissing = true)
+@ConditionalOnProperty(
+        prefix = "lp.pay.alipay",
+        name = "enabled",
+        havingValue = "false",
+        matchIfMissing = true)
 public class UnconfiguredSignatureVerifier implements SignatureVerifier {
 
     /**
