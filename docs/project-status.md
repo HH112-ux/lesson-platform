@@ -198,7 +198,7 @@
 
 | 功能 | 文档出处 | 现状 | 卡点 | 最后核对日期 |
 |---|---|---|---|---|
-| 真实支付宝支付 | engineering-plan 1.2、5.5、13.2 M2；15.2 D2 | 只有 `MockPaymentGateway` 与未配置即报 50205 的占位实现，无支付宝 SDK 适配器 | 缺商户号、应用私钥、公钥证书、回调域名 | 2026-11-09 |
+| 真实支付宝支付 | engineering-plan 1.2、5.5、13.2 M2；15.2 D2 | 已有支付宝官方 SDK 依赖与凭据加载（`e8ae01d`：`lp-trade-service/pom.xml:49-50`、`lp.pay.alipay.enabled` ← `LP_PAY_ALIPAY_ENABLED`），但**仍无 `PaymentGateway` 实现**：开关只决定是否装配凭据加载器（`AlipayPayConfig.java:23`），支付接口仍由 `UnconfiguredPaymentGateway` 固定返回 `50205`，不能收款 | 缺商户号、应用私钥、公钥证书、回调域名，以及真正调用 SDK 的支付适配器 | 2026-11-11 |
 | 支付宝对账 | engineering-plan 1.2、13.2 M3、15.1 R11；SPEC-TRADE-014 | 已实现 CSV 账单导入（支付/退款）、`uk_channel_date_type` 幂等覆盖、差异明细与告警、日查询、重跑与人工标记（`/api/v1/reconcile/**`），以及日结、作废、详情、列表接口（`/api/v1/reconcile/settlements/**`，`payment_settle_batch`）；**无自动拉账任务，运营后台无日结页面** | 自动拉账依赖商户号与账单权限；**未完成对账能力不得开启真实收款** | 2026-11-10 |
 | 支付宝回调 `app_id` 校验 | SPEC-TRADE-005 AC-6；engineering-plan 5.5、8.3 | 回调只验签与校验金额，未比对 `app_id`；当前为 Mock 渠道 | 阻塞：真实渠道接入时实现 | 2026-11-09 |
 | 小程序支付（JSAPI）与 `payer_openid` 落库 | product-lifecycle F07；engineering-plan 5.5、15.2 D2；SPEC-TRADE-012 | 无小程序支付实现；`payment_record.payer_openid` 当前无写入方，只有账号注销的匿名化会读取并覆写该列 | 缺 AppID、商户号与 APIv3 密钥；注销演练中该列只能由 SQL fixture 预置，属非接口写入，随小程序支付链路补齐 | 2026-11-10 |
