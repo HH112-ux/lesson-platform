@@ -31,6 +31,7 @@ class LessonContentCleanupWorkerTest {
 
     private static final String KEY = "courses/9/lessons/old.mp4";
     private static final LessonCleanupRow ROW = new LessonCleanupRow(7L, KEY, 0);
+    private static final int BATCH_SIZE = 7;
 
     @Mock private LessonContentCleanupMapper mapper;
     @Mock private LessonCleanupObjectStore store;
@@ -45,13 +46,13 @@ class LessonContentCleanupWorkerTest {
                         store,
                         new LessonCleanupProperties(
                                 true,
-                                20,
+                                BATCH_SIZE,
                                 5,
                                 Duration.ofSeconds(30),
                                 Duration.ofMinutes(10),
                                 Duration.ofMinutes(10),
                                 Duration.ofMinutes(10)));
-        lenient().when(mapper.selectPending(any(), eq(20))).thenReturn(List.of(ROW));
+        lenient().when(mapper.selectPending(any(), eq(BATCH_SIZE))).thenReturn(List.of(ROW));
         lenient().when(mapper.claim(7L)).thenReturn(1);
     }
 
@@ -124,7 +125,7 @@ class LessonContentCleanupWorkerTest {
 
     @Test
     void failsWhenAttemptsAreExhausted() {
-        when(mapper.selectPending(any(), eq(20)))
+        when(mapper.selectPending(any(), eq(BATCH_SIZE)))
                 .thenReturn(List.of(new LessonCleanupRow(7L, KEY, 4)));
         doThrow(new LessonCleanupObjectStore.CleanupFailure(false, "timeout"))
                 .when(store)
@@ -152,6 +153,21 @@ class LessonContentCleanupWorkerTest {
         ArgumentCaptor<LocalDateTime> threshold = ArgumentCaptor.forClass(LocalDateTime.class);
         verify(mapper).reclaimStale(threshold.capture());
         assertTrue(threshold.getValue().isBefore(LocalDateTime.now().minusMinutes(9)));
+    }
+
+    @Test
+    void keepsProcessingTheBatchWhenOneRowThrows() {
+        String other = "courses/9/lessons/new.mp4";
+        when(mapper.selectPending(any(), eq(BATCH_SIZE)))
+                .thenReturn(List.of(ROW, new LessonCleanupRow(8L, other, 0)));
+        when(mapper.claim(8L)).thenReturn(1);
+        when(mapper.countLessonReferences(KEY)).thenThrow(new IllegalStateException("boom"));
+
+        assertEquals(2, worker.tick());
+
+        verify(store).delete(other);
+        verify(mapper).markDone(8L);
+        verify(mapper, never()).markDone(7L);
     }
 
     @Test
