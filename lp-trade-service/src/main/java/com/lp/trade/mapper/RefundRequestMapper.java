@@ -3,6 +3,7 @@ package com.lp.trade.mapper;
 import com.lp.trade.domain.RefundReconcileFinding;
 import com.lp.trade.entity.AdminRefundRow;
 import com.lp.trade.entity.RefundRequest;
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
@@ -158,25 +159,57 @@ public interface RefundRequestMapper {
             @Param("reviewedAt") LocalDateTime reviewedAt);
 
     /**
-     * Marks one approved refund as successful and stores the settlement evidence.
+     * Marks one settled-by-channel refund as successful and stores the settlement evidence.
+     *
+     * <p>Every predicate is repeated here, not only checked by the caller: the row must still be
+     * approved or unknown, the last read-back must have confirmed the channel refund, and the
+     * amount must match in yuan. A duplicated or racing call therefore moves no rows instead of
+     * settling twice.
      *
      * @param id refund primary key
-     * @param channelRefundNo channel refund number
-     * @param settledBy settlement source label, {@code review:<userId>} or {@code job}
+     * @param channelRefundNo channel refund key, {@code null} keeps the stored value
+     * @param amount refund amount in yuan, must equal the stored amount
+     * @param settledBy settlement source label
      * @param refundedAt refund and settlement time
-     * @return affected rows, {@code 0} when the refund is not approved
+     * @return affected rows, {@code 0} when any gate rejects the update
      * @author Caspian
      * @since 0.1.0
      */
     @Update(
-            "UPDATE refund_request SET status = 2, channel_refund_no = #{channelRefundNo}, "
+            "UPDATE refund_request SET status = 2, "
+                    + "channel_refund_no = COALESCE(#{channelRefundNo}, channel_refund_no), "
                     + "settled_by = #{settledBy}, settled_at = #{refundedAt}, "
-                    + "refunded_at = #{refundedAt} WHERE id = #{id} AND status = 1")
+                    + "refunded_at = #{refundedAt} WHERE id = #{id} AND status IN (1, 5) "
+                    + "AND reconcile_finding = "
+                    + RefundReconcileFinding.CHANNEL_DONE
+                    + " AND amount = #{amount}")
     int markSuccess(
             @Param("id") long id,
             @Param("channelRefundNo") String channelRefundNo,
+            @Param("amount") BigDecimal amount,
             @Param("settledBy") String settledBy,
             @Param("refundedAt") LocalDateTime refundedAt);
+
+    /**
+     * Records that the review path itself confirmed the channel refund.
+     *
+     * <p>The synchronous channel success is the strongest evidence available, so it is stored as
+     * the same {@code CHANNEL_DONE} finding the reconciliation job produces. The settlement gate
+     * then has one uniform predicate for both paths, and a crash between this write and the
+     * settlement leaves a row the job and its alerts can see.
+     *
+     * @param id refund primary key
+     * @param confirmedAt confirmation time
+     * @return affected rows, {@code 0} when the refund already settled
+     * @author Caspian
+     * @since 0.8.0
+     */
+    @Update(
+            "UPDATE refund_request SET reconcile_finding = "
+                    + RefundReconcileFinding.CHANNEL_DONE
+                    + ", reconcile_checked_at = #{confirmedAt} "
+                    + "WHERE id = #{id} AND status IN (1, 5) AND deleted = 0")
+    int markChannelDone(@Param("id") long id, @Param("confirmedAt") LocalDateTime confirmedAt);
 
     /**
      * Marks one approved refund as failed after an explicit channel rejection.

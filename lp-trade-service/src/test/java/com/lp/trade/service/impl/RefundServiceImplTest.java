@@ -22,6 +22,7 @@ import com.lp.common.exception.ErrorCode;
 import com.lp.trade.client.LearnProgressClient;
 import com.lp.trade.domain.OrderStatus;
 import com.lp.trade.domain.PaymentStatus;
+import com.lp.trade.domain.RefundReconcileFinding;
 import com.lp.trade.domain.RefundStatus;
 import com.lp.trade.dto.ApplyRefundRequest;
 import com.lp.trade.dto.CourseProgressSummary;
@@ -37,6 +38,7 @@ import com.lp.trade.mapper.PaymentMapper;
 import com.lp.trade.mapper.RefundRequestMapper;
 import com.lp.trade.mapper.TradeOrderMapper;
 import com.lp.trade.payment.PaymentGateway;
+import com.lp.trade.service.RefundSettlementService;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayDeque;
@@ -109,25 +111,37 @@ class RefundServiceImplTest {
 
     @Mock private AuditOutboxMapper auditOutboxMapper;
 
+    private RefundSettlementService settlementService;
+
     private RefundServiceImpl refundService;
 
     /**
-     * Builds the service under test.
+     * Builds the service under test with the real settlement gate, so the review path exercises the
+     * same transaction boundary and conditional update the job will use.
      *
      * @author Caspian
      * @since 0.1.0
      */
     @BeforeEach
     void setUp() {
+        TransactionTemplate transactionTemplate =
+                new TransactionTemplate(new SynchronousTransactionManager());
+        settlementService =
+                new RefundSettlementService(
+                        tradeOrderMapper,
+                        paymentMapper,
+                        refundRequestMapper,
+                        entitlementService,
+                        transactionTemplate);
         refundService =
                 new RefundServiceImpl(
                         tradeOrderMapper,
                         paymentMapper,
                         refundRequestMapper,
                         paymentGateway,
-                        entitlementService,
+                        settlementService,
                         learnProgressClient,
-                        new TransactionTemplate(new SynchronousTransactionManager()),
+                        transactionTemplate,
                         auditOutboxMapper);
     }
 
@@ -268,8 +282,10 @@ class RefundServiceImplTest {
     @Test
     void approvingRefundsAndRevokesEntitlement() {
         RefundRequest pending = pendingRefund();
+        RefundRequest approved = refund(RefundStatus.APPROVED);
         RefundRequest refunded = refundedRefund();
-        when(refundRequestMapper.selectById(REFUND_ID)).thenReturn(pending, pending, refunded);
+        when(refundRequestMapper.selectById(REFUND_ID))
+                .thenReturn(pending, approved, approved, refunded);
         when(tradeOrderMapper.selectById(ORDER_ID)).thenReturn(paidOrder(LocalDateTime.now()));
         when(paymentMapper.selectLatestByOrderId(ORDER_ID)).thenReturn(payment());
         when(tradeOrderMapper.selectFirstItem(ORDER_ID)).thenReturn(item());
@@ -278,7 +294,11 @@ class RefundServiceImplTest {
         when(paymentGateway.refund(any(PaymentRecord.class), eq(REFUND_NO), eq(PAY_AMOUNT)))
                 .thenReturn(CHANNEL_REFUND_NO);
         when(refundRequestMapper.markSuccess(
-                        eq(REFUND_ID), eq(CHANNEL_REFUND_NO), eq("review:" + REVIEWER_ID), any()))
+                        eq(REFUND_ID),
+                        eq(CHANNEL_REFUND_NO),
+                        eq(PAY_AMOUNT),
+                        eq("review:" + REVIEWER_ID),
+                        any()))
                 .thenReturn(1);
         when(tradeOrderMapper.markRefunded(eq(ORDER_ID), any())).thenReturn(1);
         when(paymentMapper.markRefunded(3L)).thenReturn(1);
@@ -323,15 +343,23 @@ class RefundServiceImplTest {
         state.put("order", OrderStatus.PAID);
         state.put("payment", PaymentStatus.SUCCESS);
         SnapshotTransactionManager transactionManager = new SnapshotTransactionManager(state);
+        TransactionTemplate transactionTemplate = new TransactionTemplate(transactionManager);
+        RefundSettlementService settlementService =
+                new RefundSettlementService(
+                        tradeOrderMapper,
+                        paymentMapper,
+                        refundRequestMapper,
+                        entitlementService,
+                        transactionTemplate);
         RefundServiceImpl service =
                 new RefundServiceImpl(
                         tradeOrderMapper,
                         paymentMapper,
                         refundRequestMapper,
                         paymentGateway,
-                        entitlementService,
+                        settlementService,
                         learnProgressClient,
-                        new TransactionTemplate(transactionManager),
+                        transactionTemplate,
                         auditOutboxMapper);
         when(refundRequestMapper.selectById(REFUND_ID))
                 .thenAnswer(invocation -> refund((Integer) state.get("refund")));
@@ -353,7 +381,11 @@ class RefundServiceImplTest {
         when(paymentGateway.refund(any(PaymentRecord.class), eq(REFUND_NO), eq(PAY_AMOUNT)))
                 .thenReturn(CHANNEL_REFUND_NO);
         when(refundRequestMapper.markSuccess(
-                        eq(REFUND_ID), eq(CHANNEL_REFUND_NO), eq("review:" + REVIEWER_ID), any()))
+                        eq(REFUND_ID),
+                        eq(CHANNEL_REFUND_NO),
+                        eq(PAY_AMOUNT),
+                        eq("review:" + REVIEWER_ID),
+                        any()))
                 .thenAnswer(
                         invocation -> {
                             state.put("refund", RefundStatus.REFUNDED);
@@ -404,7 +436,7 @@ class RefundServiceImplTest {
                             if (read == 1) {
                                 return pendingRefund();
                             }
-                            return read == 2 ? refund(RefundStatus.APPROVED) : refundedRefund();
+                            return read <= 3 ? refund(RefundStatus.APPROVED) : refundedRefund();
                         });
         when(tradeOrderMapper.selectById(ORDER_ID))
                 .thenReturn(paidOrder(LocalDateTime.now().minusDays(1)));
@@ -414,7 +446,11 @@ class RefundServiceImplTest {
         when(paymentGateway.refund(any(PaymentRecord.class), eq(REFUND_NO), eq(PAY_AMOUNT)))
                 .thenReturn(CHANNEL_REFUND_NO);
         when(refundRequestMapper.markSuccess(
-                        eq(REFUND_ID), eq(CHANNEL_REFUND_NO), eq("review:" + REVIEWER_ID), any()))
+                        eq(REFUND_ID),
+                        eq(CHANNEL_REFUND_NO),
+                        eq(PAY_AMOUNT),
+                        eq("review:" + REVIEWER_ID),
+                        any()))
                 .thenReturn(1);
         when(tradeOrderMapper.markRefunded(eq(ORDER_ID), any())).thenReturn(1);
         when(paymentMapper.selectLatestByOrderId(ORDER_ID)).thenReturn(payment());
@@ -625,7 +661,11 @@ class RefundServiceImplTest {
                             return CHANNEL_REFUND_NO;
                         });
         when(refundRequestMapper.markSuccess(
-                        eq(REFUND_ID), eq(CHANNEL_REFUND_NO), eq("review:" + REVIEWER_ID), any()))
+                        eq(REFUND_ID),
+                        eq(CHANNEL_REFUND_NO),
+                        eq(PAY_AMOUNT),
+                        eq("review:" + REVIEWER_ID),
+                        any()))
                 .thenAnswer(
                         invocation -> {
                             storedStatus.set(RefundStatus.REFUNDED);
@@ -837,6 +877,7 @@ class RefundServiceImplTest {
         refund.setChannel(1);
         refund.setReason("changed my mind");
         refund.setStatus(status);
+        refund.setReconcileFinding(RefundReconcileFinding.CHANNEL_DONE);
         return refund;
     }
 
