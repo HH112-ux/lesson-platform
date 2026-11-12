@@ -306,9 +306,13 @@ public interface RefundRequestMapper {
     long countReconcilePending();
 
     /**
-     * Counts refunds the channel reports as refunded while the local status is still unsettled.
+     * Counts refunds the channel confirmed while the local status is still unsettled.
      *
-     * @return refunds needing a human follow-up until automatic convergence exists
+     * <p>The finding is written by the reconciliation read-back and by the review path, so the
+     * count also includes a review whose settlement is still in flight. The alert text must say
+     * "confirmed but not settled locally", not that the scan discovered it.
+     *
+     * @return refunds awaiting settlement with a confirmed channel outcome
      * @author Caspian
      * @since 0.7.0
      */

@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -23,6 +24,7 @@ import com.lp.trade.mapper.PaymentMapper;
 import com.lp.trade.mapper.RefundRequestMapper;
 import com.lp.trade.payment.ChannelRefundState;
 import com.lp.trade.payment.PaymentGateway;
+import com.lp.trade.service.RefundSettlementService;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -46,6 +48,8 @@ class RefundReconcileJobTest {
 
     private final RefundReconcileMetrics metrics = mock(RefundReconcileMetrics.class);
 
+    private final RefundSettlementService settlementService = mock(RefundSettlementService.class);
+
     @Test
     void reportsChannelSuccessWithoutChangingRefundState() {
         RefundRequest refund = refund(RefundStatus.APPROVED, null);
@@ -68,6 +72,45 @@ class RefundReconcileJobTest {
                         eq(1L), eq(RefundReconcileFinding.CHANNEL_DONE), any(LocalDateTime.class));
         verify(metrics).recordScanned();
         verify(metrics).refresh();
+        verifyNoInteractions(settlementService);
+    }
+
+    @Test
+    void convergesConfirmedRefundWhenTheSwitchIsOn() {
+        RefundRequest refund = refund(RefundStatus.APPROVED, null);
+        stubChannelSuccess(refund);
+        when(settlementService.settle(1L, 9900L, null, "job")).thenReturn(1);
+
+        assertDoesNotThrow(() -> job(true, true).scan());
+
+        verify(settlementService).settle(1L, 9900L, null, "job");
+        verify(metrics).recordConverged();
+    }
+
+    @Test
+    void leavesConfirmedRefundAloneWhenTheSwitchIsOff() {
+        RefundRequest refund = refund(RefundStatus.UNKNOWN, null);
+        stubChannelSuccess(refund);
+
+        assertDoesNotThrow(() -> job(true, false).scan());
+
+        verifyNoInteractions(settlementService);
+        verify(metrics, never()).recordConverged();
+    }
+
+    @Test
+    void keepsScanningWhenConvergenceFails() {
+        RefundRequest refund = refund(RefundStatus.APPROVED, null);
+        stubChannelSuccess(refund);
+        when(settlementService.settle(anyLong(), anyLong(), any(), any()))
+                .thenThrow(new IllegalStateException("database unavailable"));
+
+        assertDoesNotThrow(() -> job(true, true).scan());
+
+        verify(refundRequestMapper)
+                .markReconcileChecked(
+                        eq(1L), eq(RefundReconcileFinding.CHANNEL_DONE), any(LocalDateTime.class));
+        verify(metrics, never()).recordConverged();
     }
 
     @Test
@@ -221,8 +264,19 @@ class RefundReconcileJobTest {
     }
 
     private RefundReconcileJob job(boolean enabled) {
+        return job(enabled, false);
+    }
+
+    private RefundReconcileJob job(boolean enabled, boolean convergeEnabled) {
         return new RefundReconcileJob(
-                refundRequestMapper, paymentMapper, paymentGateway, metrics, enabled, 10);
+                refundRequestMapper,
+                paymentMapper,
+                paymentGateway,
+                metrics,
+                settlementService,
+                enabled,
+                convergeEnabled,
+                10);
     }
 
     private RefundRequest refund(int status, Integer finding) {
