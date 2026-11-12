@@ -99,6 +99,18 @@ class RefundReconcileJobTest {
     }
 
     @Test
+    void countsSkippedConvergenceWhenTheGateRejects() {
+        RefundRequest refund = refund(RefundStatus.APPROVED, null);
+        stubChannelSuccess(refund);
+        when(settlementService.settle(1L, 9900L, null, "job")).thenReturn(0);
+
+        assertDoesNotThrow(() -> job(true, true).scan());
+
+        verify(metrics).recordSkipped();
+        verify(metrics, never()).recordConverged();
+    }
+
+    @Test
     void keepsScanningWhenConvergenceFails() {
         RefundRequest refund = refund(RefundStatus.APPROVED, null);
         stubChannelSuccess(refund);
@@ -111,6 +123,7 @@ class RefundReconcileJobTest {
                 .markReconcileChecked(
                         eq(1L), eq(RefundReconcileFinding.CHANNEL_DONE), any(LocalDateTime.class));
         verify(metrics, never()).recordConverged();
+        verify(metrics, never()).recordSkipped();
     }
 
     @Test

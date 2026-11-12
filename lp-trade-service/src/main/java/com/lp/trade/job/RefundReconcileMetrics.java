@@ -28,7 +28,9 @@ import org.springframework.stereotype.Component;
  *
  * <p>The {@code scanned} counter proves the scheduler is actually ticking, which the gauges alone
  * cannot show when no refund is pending. The {@code converged} counter proves the scan settled a
- * confirmed refund automatically; it stays zero while the convergence switch is off.
+ * confirmed refund automatically; it stays zero while the convergence switch is off. The {@code
+ * skipped} counter records confirmed refunds the gate rejected, which means the row moved or is
+ * inconsistent and must not pass silently.
  *
  * @author Caspian
  * @since 0.7.0
@@ -51,6 +53,9 @@ public class RefundReconcileMetrics {
     /** Counter name: confirmed refunds settled automatically by the scan. */
     static final String CONVERGED_METRIC = "lp.trade.refund.reconcile.converged";
 
+    /** Counter name: confirmed refunds the settlement gate rejected. */
+    static final String SKIPPED_METRIC = "lp.trade.refund.reconcile.skipped";
+
     private static final Logger LOG = LoggerFactory.getLogger(RefundReconcileMetrics.class);
 
     private final RefundRequestMapper refundRequestMapper;
@@ -64,6 +69,8 @@ public class RefundReconcileMetrics {
     private final Counter scanned;
 
     private final Counter converged;
+
+    private final Counter skipped;
 
     /**
      * Registers the meters and performs a first refresh.
@@ -94,6 +101,12 @@ public class RefundReconcileMetrics {
         this.converged =
                 Counter.builder(CONVERGED_METRIC)
                         .description("Confirmed refunds settled automatically by the refund scan")
+                        .register(meterRegistry);
+        this.skipped =
+                Counter.builder(SKIPPED_METRIC)
+                        .description(
+                                "Confirmed refunds the settlement gate rejected because the row "
+                                        + "moved or the amount differed")
                         .register(meterRegistry);
         refresh();
     }
@@ -133,6 +146,19 @@ public class RefundReconcileMetrics {
      */
     void recordConverged() {
         converged.increment();
+    }
+
+    /**
+     * Counts one confirmed refund the settlement gate rejected.
+     *
+     * <p>A rejection means the row moved or the amount no longer matches between the read-back and
+     * the update. It is not an ordinary no-op and must stay visible in the metrics.
+     *
+     * @author Caspian
+     * @since 0.8.0
+     */
+    void recordSkipped() {
+        skipped.increment();
     }
 
     private static long ageInSeconds(LocalDateTime oldest) {

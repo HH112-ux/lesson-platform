@@ -249,7 +249,8 @@ public class RefundReconcileJob {
      * Settles one channel-confirmed refund through the shared gate when convergence is enabled.
      *
      * <p>The gate re-checks the row, so a row that moved since the read-back is left alone. A
-     * rejected call returns {@code 0} and is normal, not an error.
+     * rejected call returns {@code 0}: that means the row moved or is inconsistent, so it is
+     * counted as skipped and logged at warn instead of passing silently.
      *
      * @param refund refund the channel confirmed
      * @author Caspian
@@ -269,7 +270,13 @@ public class RefundReconcileJob {
                         "refund converged automatically: refund={}, orderId={}",
                         refund.getRefundNo(),
                         refund.getOrderId());
+                return;
             }
+            metrics.recordSkipped();
+            LOG.warn(
+                    "refund convergence skipped, row moved or amount differs: refund={}, orderId={}",
+                    refund.getRefundNo(),
+                    refund.getOrderId());
         } catch (RuntimeException exception) {
             LOG.error(
                     "refund convergence failed: refund={}, reason={}",

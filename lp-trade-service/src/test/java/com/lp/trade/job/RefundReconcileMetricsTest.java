@@ -72,6 +72,13 @@ class RefundReconcileMetricsTest {
         assertEquals(1.0, registry.get(RefundReconcileMetrics.CONVERGED_METRIC).counter().count());
     }
 
+    @Test
+    void countsSkippedConvergences() {
+        metrics.recordSkipped();
+
+        assertEquals(1.0, registry.get(RefundReconcileMetrics.SKIPPED_METRIC).counter().count());
+    }
+
     private double gauge(String name) {
         return registry.get(name).gauge().value();
     }
