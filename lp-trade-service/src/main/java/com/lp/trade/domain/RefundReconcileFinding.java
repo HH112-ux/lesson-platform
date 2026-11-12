@@ -5,9 +5,10 @@ package com.lp.trade.domain;
  *
  * <p>The database keeps a {@code TINYINT} code, never the label, so the column stays small and the
  * vocabulary is enforced by this class. Logs use {@link #nameOf(Integer)} to print readable text.
- * {@link #CHANNEL_DONE} is the deterministic gap that requires a human follow-up: the channel
- * confirms the refund while the local row did not advance, so it must never be turned into {@code
- * FAILED} automatically.
+ * {@link #CHANNEL_DONE} means "the channel confirmed the refund and the local row has not
+ * advanced", whoever produced the finding: the reconciliation read-back and the review path both
+ * store it, and automatic convergence settles it. It must never be turned into {@code FAILED}
+ * automatically.
  *
  * @author Caspian
  * @since 0.7.0
@@ -17,7 +18,10 @@ public final class RefundReconcileFinding {
     /** No read-back has produced a finding yet. */
     public static final int NONE = 0;
 
-    /** The channel confirms the refund for exactly the requested amount. */
+    /**
+     * The channel confirmed the refund for exactly the requested amount while the local row is
+     * still approved or unknown, regardless of who wrote the finding.
+     */
     public static final int CHANNEL_DONE = 1;
 
     /** The channel has no refund record under the local request number. */

@@ -88,6 +88,11 @@ lp:
       # the same refunds twice. Disable it when scaling out until a leader election exists.
       refund-reconcile:
         enabled: ${LP_PAY_ALIPAY_REFUND_RECONCILE_ENABLED:true}
+      # Automatic convergence of channel-confirmed refunds. Off by default: settling money without
+      # a human has to be enabled deliberately after the read-only scan was observed in staging
+      # without long-lived false positives. While off, the channel.done alert is the only net.
+      refund-converge:
+        enabled: ${LP_PAY_ALIPAY_REFUND_CONVERGE_ENABLED:false}
       credentials-file: ${LP_PAY_ALIPAY_CREDENTIALS_FILE:}
       gateway-url: ${LP_PAY_ALIPAY_GATEWAY_URL:https://openapi-sandbox.dl.alipaydev.com/gateway.do}
       # Public callback URL registered at the channel. Empty keeps the channel default, which is

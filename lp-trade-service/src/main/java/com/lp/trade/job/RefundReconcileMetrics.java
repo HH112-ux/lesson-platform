@@ -21,8 +21,16 @@ import org.springframework.stereotype.Component;
  * channel.done} is the alerting signal: nobody can see a log, but a gauge that stays above zero
  * pages a human.
  *
+ * <p>{@code channel.done} means "the channel confirmed the refund and the local row has not
+ * advanced", whoever produced the finding. The review path writes the same finding right after a
+ * synchronous channel success, so a brief non-zero value can be a review in flight; the alert text
+ * must not claim the scan discovered it.
+ *
  * <p>The {@code scanned} counter proves the scheduler is actually ticking, which the gauges alone
- * cannot show when no refund is pending.
+ * cannot show when no refund is pending. The {@code converged} counter proves the scan settled a
+ * confirmed refund automatically; it stays zero while the convergence switch is off. The {@code
+ * skipped} counter records confirmed refunds the gate rejected, which means the row moved or is
+ * inconsistent and must not pass silently.
  *
  * @author Caspian
  * @since 0.7.0
@@ -42,6 +50,12 @@ public class RefundReconcileMetrics {
     /** Counter name: channel read-backs attempted by the scan. */
     static final String SCANNED_METRIC = "lp.trade.refund.reconcile.scanned";
 
+    /** Counter name: confirmed refunds settled automatically by the scan. */
+    static final String CONVERGED_METRIC = "lp.trade.refund.reconcile.converged";
+
+    /** Counter name: confirmed refunds the settlement gate rejected. */
+    static final String SKIPPED_METRIC = "lp.trade.refund.reconcile.skipped";
+
     private static final Logger LOG = LoggerFactory.getLogger(RefundReconcileMetrics.class);
 
     private final RefundRequestMapper refundRequestMapper;
@@ -53,6 +67,10 @@ public class RefundReconcileMetrics {
     private final AtomicLong oldestSeconds = new AtomicLong();
 
     private final Counter scanned;
+
+    private final Counter converged;
+
+    private final Counter skipped;
 
     /**
      * Registers the meters and performs a first refresh.
@@ -69,7 +87,9 @@ public class RefundReconcileMetrics {
                 .description("Refunds whose channel outcome is still unsettled")
                 .register(meterRegistry);
         Gauge.builder(CHANNEL_DONE_METRIC, channelDone, AtomicLong::doubleValue)
-                .description("Refunds the channel reports as done while the local row did not move")
+                .description(
+                        "Refunds confirmed by the channel but not advanced locally, including "
+                                + "review settlements still in flight")
                 .register(meterRegistry);
         Gauge.builder(OLDEST_METRIC, oldestSeconds, AtomicLong::doubleValue)
                 .description("Age of the oldest unsettled refund")
@@ -77,6 +97,16 @@ public class RefundReconcileMetrics {
         this.scanned =
                 Counter.builder(SCANNED_METRIC)
                         .description("Channel read-backs attempted by the refund scan")
+                        .register(meterRegistry);
+        this.converged =
+                Counter.builder(CONVERGED_METRIC)
+                        .description("Confirmed refunds settled automatically by the refund scan")
+                        .register(meterRegistry);
+        this.skipped =
+                Counter.builder(SKIPPED_METRIC)
+                        .description(
+                                "Confirmed refunds the settlement gate rejected because the row "
+                                        + "moved or the amount differed")
                         .register(meterRegistry);
         refresh();
     }
@@ -106,6 +136,29 @@ public class RefundReconcileMetrics {
      */
     void recordScanned() {
         scanned.increment();
+    }
+
+    /**
+     * Counts one confirmed refund settled automatically by the scan.
+     *
+     * @author Caspian
+     * @since 0.8.0
+     */
+    void recordConverged() {
+        converged.increment();
+    }
+
+    /**
+     * Counts one confirmed refund the settlement gate rejected.
+     *
+     * <p>A rejection means the row moved or the amount no longer matches between the read-back and
+     * the update. It is not an ordinary no-op and must stay visible in the metrics.
+     *
+     * @author Caspian
+     * @since 0.8.0
+     */
+    void recordSkipped() {
+        skipped.increment();
     }
 
     private static long ageInSeconds(LocalDateTime oldest) {
