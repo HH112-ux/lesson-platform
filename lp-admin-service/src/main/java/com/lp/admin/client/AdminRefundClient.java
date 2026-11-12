@@ -1,5 +1,6 @@
 package com.lp.admin.client;
 
+import com.lp.admin.dto.AdminChannelRefundStatusView;
 import com.lp.admin.dto.AdminRefundPageView;
 import com.lp.admin.dto.AdminRefundView;
 
@@ -41,4 +42,14 @@ public interface AdminRefundClient {
             String rejectReason,
             long reviewerId,
             int operatorRole);
+
+    /**
+     * Reads one refund back from the channel, without changing it.
+     *
+     * @param refundId refund primary key
+     * @return channel snapshot plus the local reconciliation bookkeeping
+     * @author Caspian
+     * @since 0.9.0
+     */
+    AdminChannelRefundStatusView channelStatus(long refundId);
 }

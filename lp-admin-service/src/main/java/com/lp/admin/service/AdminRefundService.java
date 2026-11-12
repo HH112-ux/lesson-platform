@@ -1,6 +1,7 @@
 package com.lp.admin.service;
 
 import com.lp.admin.client.AdminRefundClient;
+import com.lp.admin.dto.AdminChannelRefundStatusView;
 import com.lp.admin.dto.AdminRefundPageView;
 import com.lp.admin.dto.AdminRefundView;
 import com.lp.common.exception.BizException;
@@ -73,5 +74,19 @@ public class AdminRefundService {
             throw new BizException(ErrorCode.PARAM_INVALID, "rejectReason is required");
         }
         return adminRefundClient.review(refundId, approved, rejectReason, reviewerId, operatorRole);
+    }
+
+    /**
+     * Reads one refund back from the channel for the console detail panel.
+     *
+     * <p>Read-only: the console calls it to explain a stuck refund and never to change it.
+     *
+     * @param refundId refund primary key
+     * @return channel snapshot plus the local reconciliation bookkeeping
+     * @author Caspian
+     * @since 0.9.0
+     */
+    public AdminChannelRefundStatusView channelStatus(long refundId) {
+        return adminRefundClient.channelStatus(refundId);
     }
 }

@@ -1,5 +1,6 @@
 package com.lp.admin.client;
 
+import com.lp.admin.dto.AdminChannelRefundStatusView;
 import com.lp.admin.dto.AdminRefundPageView;
 import com.lp.admin.dto.AdminRefundView;
 import com.lp.common.exception.BizException;
@@ -31,6 +32,9 @@ public class HttpAdminRefundClient implements AdminRefundClient {
 
     private static final ParameterizedTypeReference<Result<AdminRefundView>> VIEW_TYPE =
             new ParameterizedTypeReference<>() {};
+
+    private static final ParameterizedTypeReference<Result<AdminChannelRefundStatusView>>
+            CHANNEL_TYPE = new ParameterizedTypeReference<>() {};
 
     private final RestClient restClient;
 
@@ -125,6 +129,30 @@ public class HttpAdminRefundClient implements AdminRefundClient {
                             .body(new ReviewBody(approved, rejectReason, reviewerId, operatorRole))
                             .retrieve()
                             .body(VIEW_TYPE);
+            return requireData(result);
+        } catch (RestClientException exception) {
+            throw new BizException(ErrorCode.CHANNEL_UPSTREAM_ERROR);
+        }
+    }
+
+    /**
+     * Reads one refund back from the channel without changing it.
+     *
+     * @param refundId refund primary key
+     * @return channel snapshot plus the local reconciliation bookkeeping
+     * @throws BizException when the upstream call fails
+     * @author Caspian
+     * @since 0.9.0
+     */
+    @Override
+    public AdminChannelRefundStatusView channelStatus(long refundId) {
+        try {
+            Result<AdminChannelRefundStatusView> result =
+                    restClient
+                            .get()
+                            .uri("/internal/v1/refunds/{refundId}/channel", refundId)
+                            .retrieve()
+                            .body(CHANNEL_TYPE);
             return requireData(result);
         } catch (RestClientException exception) {
             throw new BizException(ErrorCode.CHANNEL_UPSTREAM_ERROR);
