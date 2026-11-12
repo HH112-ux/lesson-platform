@@ -35,7 +35,9 @@ public interface RefundRequestMapper {
                     + "channel_refund_no AS channelRefundNo, "
                     + "reconcile_attempts AS reconcileAttempts, "
                     + "reconcile_checked_at AS reconcileCheckedAt, "
-                    + "reconcile_finding AS reconcileFinding, fail_reason AS failReason, "
+                    + "reconcile_finding AS reconcileFinding, "
+                    + "settled_by AS settledBy, settled_at AS settledAt, "
+                    + "fail_reason AS failReason, "
                     + "refunded_at AS refundedAt";
 
     /**
@@ -156,21 +158,24 @@ public interface RefundRequestMapper {
             @Param("reviewedAt") LocalDateTime reviewedAt);
 
     /**
-     * Marks one approved refund as successful and stores the channel reference.
+     * Marks one approved refund as successful and stores the settlement evidence.
      *
      * @param id refund primary key
      * @param channelRefundNo channel refund number
-     * @param refundedAt refund time
+     * @param settledBy settlement source label, {@code review:<userId>} or {@code job}
+     * @param refundedAt refund and settlement time
      * @return affected rows, {@code 0} when the refund is not approved
      * @author Caspian
      * @since 0.1.0
      */
     @Update(
             "UPDATE refund_request SET status = 2, channel_refund_no = #{channelRefundNo}, "
+                    + "settled_by = #{settledBy}, settled_at = #{refundedAt}, "
                     + "refunded_at = #{refundedAt} WHERE id = #{id} AND status = 1")
     int markSuccess(
             @Param("id") long id,
             @Param("channelRefundNo") String channelRefundNo,
+            @Param("settledBy") String settledBy,
             @Param("refundedAt") LocalDateTime refundedAt);
 
     /**

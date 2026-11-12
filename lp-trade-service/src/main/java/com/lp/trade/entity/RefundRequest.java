@@ -47,6 +47,10 @@ public class RefundRequest {
 
     private Integer reconcileFinding;
 
+    private String settledBy;
+
+    private LocalDateTime settledAt;
+
     private String failReason;
 
     private LocalDateTime refundedAt;
@@ -402,6 +406,51 @@ public class RefundRequest {
      */
     public void setReconcileFinding(Integer reconcileFinding) {
         this.reconcileFinding = reconcileFinding;
+    }
+
+    /**
+     * Returns who settled the refund.
+     *
+     * @return {@code review:<userId>} for a reviewer, {@code job} for reconciliation, {@code null}
+     *     while unsettled
+     * @author Caspian
+     * @since 0.8.0
+     */
+    public String getSettledBy() {
+        return settledBy;
+    }
+
+    /**
+     * Sets who settled the refund.
+     *
+     * @param settledBy settlement source label
+     * @author Caspian
+     * @since 0.8.0
+     */
+    public void setSettledBy(String settledBy) {
+        this.settledBy = settledBy;
+    }
+
+    /**
+     * Returns when the refund was settled.
+     *
+     * @return settlement time, equal to {@code refundedAt}, {@code null} while unsettled
+     * @author Caspian
+     * @since 0.8.0
+     */
+    public LocalDateTime getSettledAt() {
+        return settledAt;
+    }
+
+    /**
+     * Sets when the refund was settled.
+     *
+     * @param settledAt settlement time
+     * @author Caspian
+     * @since 0.8.0
+     */
+    public void setSettledAt(LocalDateTime settledAt) {
+        this.settledAt = settledAt;
     }
 
     /**
