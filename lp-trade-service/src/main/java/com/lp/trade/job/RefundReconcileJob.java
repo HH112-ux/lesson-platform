@@ -34,7 +34,7 @@ import org.springframework.stereotype.Component;
  * settled refund untouched.
  *
  * <p>The job assumes a single trade-service instance: two instances would query the same refunds
- * twice.
+ * twice. Disable it with {@code lp.pay.alipay.refund-reconcile.enabled=false}.
  *
  * @author Caspian
  * @since 0.7.0
@@ -52,6 +52,10 @@ public class RefundReconcileJob {
 
     private final PaymentGateway paymentGateway;
 
+    private final RefundReconcileMetrics metrics;
+
+    private final boolean enabled;
+
     private final long graceMinutes;
 
     /**
@@ -60,6 +64,8 @@ public class RefundReconcileJob {
      * @param refundRequestMapper refund persistence
      * @param paymentMapper payment persistence
      * @param paymentGateway channel adapter used for the read-only refund query
+     * @param metrics meters refreshed after every scan
+     * @param enabled whether the scan runs at all
      * @param graceMinutes minutes a refund must stay unchanged before its first read-back
      * @author Caspian
      * @since 0.7.0
@@ -68,15 +74,22 @@ public class RefundReconcileJob {
             RefundRequestMapper refundRequestMapper,
             PaymentMapper paymentMapper,
             PaymentGateway paymentGateway,
+            RefundReconcileMetrics metrics,
+            @Value("${lp.pay.alipay.refund-reconcile.enabled:true}") boolean enabled,
             @Value("${lp.trade.refund-reconcile-grace-minutes:10}") long graceMinutes) {
         this.refundRequestMapper = refundRequestMapper;
         this.paymentMapper = paymentMapper;
         this.paymentGateway = paymentGateway;
+        this.metrics = metrics;
+        this.enabled = enabled;
         this.graceMinutes = graceMinutes;
     }
 
     /**
      * Inspects one batch of unsettled refunds; never throws so the scheduler keeps running.
+     *
+     * <p>Disabled by {@code lp.pay.alipay.refund-reconcile.enabled=false} so a multi-instance
+     * deployment can keep duplicate reads away until a leader election exists.
      *
      * @author Caspian
      * @since 0.7.0
@@ -85,6 +98,9 @@ public class RefundReconcileJob {
             fixedDelayString = "${lp.trade.refund-reconcile-scan-delay-ms:600000}",
             initialDelayString = "${lp.trade.refund-reconcile-initial-delay-ms:120000}")
     public void scan() {
+        if (!enabled) {
+            return;
+        }
         LocalDateTime now = LocalDateTime.now();
         List<RefundRequest> candidates;
         try {
@@ -108,6 +124,7 @@ public class RefundReconcileJob {
                         exception.getMessage());
             }
         }
+        metrics.refresh();
     }
 
     private void inspect(RefundRequest refund, LocalDateTime checkedAt) {
@@ -125,6 +142,7 @@ public class RefundReconcileJob {
                                     statusName(refund.getStatus())));
             return;
         }
+        metrics.recordScanned();
         ChannelRefundState state;
         try {
             state = paymentGateway.refundQuery(payment, refund.getRefundNo());

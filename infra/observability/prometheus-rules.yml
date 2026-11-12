@@ -123,3 +123,59 @@ groups:
             lines naming the storage error. Alerting stops refreshing while the switch is off, so a
             firing alert from before the switch will not clear by itself.
           runbook: "docs/local-dev-guide.md"
+  - name: lp-trade-refund-reconcile
+    rules:
+      # A missing series is not zero: when trade-service is down or the scrape target disappears,
+      # the two rules below would stay silent exactly while refunds become unobservable.
+      - alert: LpTradeRefundReconcileMetricsMissing
+        expr: absent(lp_trade_refund_reconcile_pending)
+        for: 10m
+        labels:
+          severity: warning
+          service: trade-service
+          domain: refund-reconcile
+        annotations:
+          summary: "Refund reconciliation metrics are not being collected"
+          description: >-
+            No sample for lp_trade_refund_reconcile_pending for ten minutes: trade-service is down,
+            the scrape target is gone, or /actuator/prometheus stopped exposing the meters. Check the
+            scrape targets and GET /actuator/prometheus on trade-service.
+          runbook: "docs/local-dev-guide.md"
+      # The channel confirmed the refund but the local row is still approved or unknown. Until P6d
+      # converges these rows automatically, every one of them needs a human; a single sustained row
+      # is already a defect, so the threshold is one.
+      - alert: LpTradeRefundReconcileChannelDone
+        expr: lp_trade_refund_reconcile_channel_done >= 1
+        for: 30m
+        labels:
+          severity: warning
+          service: trade-service
+          domain: refund-reconcile
+        annotations:
+          summary: "{{ $value }} refunds are refunded at the channel but unsettled locally"
+          description: >-
+            The read-only reconciliation confirmed a channel refund for exactly the requested amount
+            while refund_request.status is still 1 or 5. The money has left the merchant account but
+            the order still shows refunding. Check the WARN line "refund completed at channel but
+            still ..." for refund numbers, verify the channel bill, then settle the refund and order
+            manually. Do not mark the refund failed: that would return the order to paid and allow a
+            second application.
+          runbook: "docs/local-dev-guide.md"
+      # Refunds do not converge on their own before P6d, so age is the only honest backlog signal.
+      # One day is far beyond the 1h/6h retry ladder, so it means the scan is not running or every
+      # read-back keeps failing.
+      - alert: LpTradeRefundReconcileOldestSeconds
+        expr: lp_trade_refund_reconcile_oldest_seconds > 86400
+        for: 30m
+        labels:
+          severity: warning
+          service: trade-service
+          domain: refund-reconcile
+        annotations:
+          summary: "A refund has been unsettled for {{ $value }} seconds"
+          description: >-
+            The oldest unsettled refund is more than a day old, far beyond the grace period and the
+            1h/6h retry ladder. Check that lp.pay.alipay.refund-reconcile.enabled is true and that
+            the scan WARN log is not repeating "refund reconcile query failed". A failing channel
+            query leaves the row unchanged by design.
+          runbook: "docs/local-dev-guide.md"
