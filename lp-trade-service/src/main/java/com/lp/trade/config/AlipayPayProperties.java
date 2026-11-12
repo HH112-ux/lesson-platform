@@ -21,6 +21,8 @@ public class AlipayPayProperties {
 
     private String notifyUrl = "";
 
+    private boolean refundEnabled = true;
+
     /**
      * Returns the absolute path of the credential file read at startup.
      *
@@ -85,5 +87,31 @@ public class AlipayPayProperties {
      */
     public void setNotifyUrl(String notifyUrl) {
         this.notifyUrl = notifyUrl;
+    }
+
+    /**
+     * Returns whether refunds may be sent to the channel.
+     *
+     * <p>Refunds are the only operation that moves money out, so they have their own switch: an
+     * incident can stop refunds while payments keep working. A disabled switch makes the adapter
+     * fail with {@code 50205} before any request is signed, so nothing reaches the channel.
+     *
+     * @return {@code true} when refunds are allowed, {@code true} by default
+     * @author Caspian
+     * @since 0.6.0
+     */
+    public boolean isRefundEnabled() {
+        return refundEnabled;
+    }
+
+    /**
+     * Sets whether refunds may be sent to the channel.
+     *
+     * @param refundEnabled {@code false} to refuse every refund before signing a request
+     * @author Caspian
+     * @since 0.6.0
+     */
+    public void setRefundEnabled(boolean refundEnabled) {
+        this.refundEnabled = refundEnabled;
     }
 }

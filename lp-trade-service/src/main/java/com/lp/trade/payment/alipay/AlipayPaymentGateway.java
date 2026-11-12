@@ -8,13 +8,16 @@ import com.alipay.api.domain.AlipayTradeCloseModel;
 import com.alipay.api.domain.AlipayTradeFastpayRefundQueryModel;
 import com.alipay.api.domain.AlipayTradePagePayModel;
 import com.alipay.api.domain.AlipayTradeQueryModel;
+import com.alipay.api.domain.AlipayTradeRefundModel;
 import com.alipay.api.request.AlipayTradeCloseRequest;
 import com.alipay.api.request.AlipayTradeFastpayRefundQueryRequest;
 import com.alipay.api.request.AlipayTradePagePayRequest;
 import com.alipay.api.request.AlipayTradeQueryRequest;
+import com.alipay.api.request.AlipayTradeRefundRequest;
 import com.alipay.api.response.AlipayTradeCloseResponse;
 import com.alipay.api.response.AlipayTradeFastpayRefundQueryResponse;
 import com.alipay.api.response.AlipayTradeQueryResponse;
+import com.alipay.api.response.AlipayTradeRefundResponse;
 import com.lp.common.exception.BizException;
 import com.lp.common.exception.ErrorCode;
 import com.lp.trade.config.AlipayPayProperties;
@@ -183,23 +186,74 @@ public class AlipayPaymentGateway implements PaymentGateway {
     }
 
     /**
-     * Refuses refunds until the refund slice is implemented.
+     * Sends one refund to the channel and confirms whether it moved money.
      *
-     * <p>The port is required by {@link PaymentGateway}; wiring refunds here now would let the
-     * refund service move money before its amount checks and idempotency tests exist.
+     * <p>The local refund number is sent as {@code out_request_no}, which is Alipay's idempotency
+     * key for refunds: replaying the same number returns the first result instead of refunding
+     * again. Alipay has no separate refund number, so the same value is returned as the channel
+     * reference.
      *
-     * @param payment payment to refund
-     * @param refundNo local refund number
-     * @param amount amount to refund in yuan
-     * @return never returns
-     * @throws BizException always, because the refund channel is not implemented yet
+     * <p>The answer is only trusted when the channel states that funds changed and reports exactly
+     * the requested amount. Otherwise the refund is read back once through {@link
+     * #refundQuery(PaymentRecord, String)}; a read failure, a missing record, a non-success status
+     * or a different amount all raise {@link ChannelOutcomeUnknownException}. The refund request is
+     * never sent twice, because a duplicate refund is worse than one that waits for operations.
+     *
+     * @param payment successful payment to refund
+     * @param refundNo local refund number, sent as {@code out_request_no}
+     * @param amount amount in yuan, never above {@code payment.amount}
+     * @return {@code refundNo}, because Alipay has no separate refund number
+     * @throws BizException when refunds are disabled, the amount is invalid, or the channel proves
+     *     the trade never existed, so no money moved
+     * @throws ChannelOutcomeUnknownException when the outcome cannot be confirmed
      * @author Caspian
      * @since 0.4.0
      */
     @Override
     public String refund(PaymentRecord payment, String refundNo, BigDecimal amount) {
-        throw new BizException(
-                ErrorCode.CHANNEL_UPSTREAM_ERROR, "alipay refund is not implemented yet");
+        if (!properties.isRefundEnabled()) {
+            throw new BizException(ErrorCode.PAYMENT_NOT_CONFIGURED, "alipay refund is disabled");
+        }
+        TradeOrder order = requireOrder(payment);
+        BigDecimal refundAmount = requireRefundableAmount(payment, amount);
+        AlipayTradeRefundModel model = new AlipayTradeRefundModel();
+        model.setOutTradeNo(order.getOrderNo());
+        model.setOutRequestNo(refundNo);
+        model.setRefundAmount(amount(refundAmount));
+        if (StringUtils.hasText(payment.getChannelTradeNo())) {
+            model.setTradeNo(payment.getChannelTradeNo());
+        }
+        AlipayTradeRefundRequest request = new AlipayTradeRefundRequest();
+        request.setBizModel(model);
+        AlipayTradeRefundResponse response;
+        try {
+            response = client.execute(request);
+        } catch (AlipayApiException exception) {
+            throw new ChannelOutcomeUnknownException("alipay refund outcome is unknown", exception);
+        }
+        if (response == null) {
+            throw new ChannelOutcomeUnknownException("alipay returned no refund response");
+        }
+        if (!response.isSuccess()) {
+            if (TRADE_NOT_EXIST.equals(response.getSubCode())) {
+                // The channel never created this trade, so no refund can have run.
+                throw new BizException(
+                        ErrorCode.CHANNEL_UPSTREAM_ERROR, "alipay trade does not exist");
+            }
+            // ACQ.TRADE_STATUS_ERROR is not a definite rejection: it also covers a trade that was
+            // already refunded, where the money did move. Only a proven no-op may be a rejection.
+            throw new ChannelOutcomeUnknownException(
+                    "alipay refund rejected ambiguously: " + response.getSubCode());
+        }
+        if (fundsChangedBy(response, refundAmount)) {
+            LOG.info(
+                    "alipay refund accepted, orderNo={}, refundNo={}, amount={}",
+                    order.getOrderNo(),
+                    refundNo,
+                    refundAmount);
+            return refundNo;
+        }
+        return confirmRefund(payment, order, refundNo, refundAmount);
     }
 
     /**
@@ -357,6 +411,67 @@ public class AlipayPaymentGateway implements PaymentGateway {
             throw new BizException(ErrorCode.NOT_FOUND, "order not found");
         }
         return order;
+    }
+
+    private BigDecimal requireRefundableAmount(PaymentRecord payment, BigDecimal amount) {
+        if (amount == null || amount.signum() <= 0) {
+            throw new BizException(ErrorCode.PARAM_INVALID, "refund amount must be positive");
+        }
+        BigDecimal rounded = amount.setScale(2, RoundingMode.HALF_UP);
+        if (payment.getAmount() == null || rounded.compareTo(payment.getAmount()) > 0) {
+            throw new BizException(
+                    ErrorCode.PARAM_INVALID, "refund amount exceeds the paid amount");
+        }
+        return rounded;
+    }
+
+    private boolean fundsChangedBy(AlipayTradeRefundResponse response, BigDecimal expected) {
+        if (!"Y".equals(response.getFundChange())) {
+            return false;
+        }
+        BigDecimal refunded =
+                parseChannelAmount(response.getRefundFee(), "alipay refund returned no fee");
+        return refunded.compareTo(expected) == 0;
+    }
+
+    private String confirmRefund(
+            PaymentRecord payment, TradeOrder order, String refundNo, BigDecimal expected) {
+        ChannelRefundState state;
+        try {
+            state = refundQuery(payment, refundNo);
+        } catch (RuntimeException exception) {
+            // A failed read is not proof that the refund did not run, so it must never become a
+            // rejection; the refund request itself is not sent again.
+            throw new ChannelOutcomeUnknownException(
+                    "alipay refund confirmation query failed", exception);
+        }
+        if (state.succeeded() && state.amountMatches(expected)) {
+            LOG.info(
+                    "alipay refund confirmed by query, orderNo={}, refundNo={}, amount={}",
+                    order.getOrderNo(),
+                    refundNo,
+                    expected);
+            return refundNo;
+        }
+        LOG.warn(
+                "alipay refund not confirmed, orderNo={}, refundNo={}, status={}, amount={}",
+                order.getOrderNo(),
+                refundNo,
+                state.refundStatus(),
+                state.refundAmount());
+        throw new ChannelOutcomeUnknownException("alipay refund outcome is not confirmed");
+    }
+
+    private BigDecimal parseChannelAmount(String value, String missingMessage) {
+        if (!StringUtils.hasText(value)) {
+            throw new ChannelOutcomeUnknownException(missingMessage);
+        }
+        try {
+            return new BigDecimal(value);
+        } catch (NumberFormatException exception) {
+            throw new ChannelOutcomeUnknownException(
+                    "alipay refund returned an invalid amount", exception);
+        }
     }
 
     private String subject(TradeOrder order) {

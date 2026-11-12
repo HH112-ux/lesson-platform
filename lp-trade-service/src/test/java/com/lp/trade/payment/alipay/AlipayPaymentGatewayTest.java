@@ -7,17 +7,25 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.alipay.api.AlipayApiException;
 import com.alipay.api.AlipayClient;
+import com.alipay.api.domain.AlipayTradeRefundModel;
 import com.alipay.api.request.AlipayTradeCloseRequest;
 import com.alipay.api.request.AlipayTradeFastpayRefundQueryRequest;
 import com.alipay.api.request.AlipayTradeQueryRequest;
+import com.alipay.api.request.AlipayTradeRefundRequest;
 import com.alipay.api.response.AlipayTradeCloseResponse;
 import com.alipay.api.response.AlipayTradeFastpayRefundQueryResponse;
 import com.alipay.api.response.AlipayTradeQueryResponse;
+import com.alipay.api.response.AlipayTradeRefundResponse;
 import com.lp.common.exception.BizException;
+import com.lp.common.exception.ErrorCode;
 import com.lp.trade.config.AlipayPayProperties;
 import com.lp.trade.config.TradeProperties;
 import com.lp.trade.domain.PaymentChannel;
@@ -36,6 +44,7 @@ import java.time.LocalDateTime;
 import java.util.Base64;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 /**
  * Verifies that the Alipay adapter builds a signed page pay form from persisted data only.
@@ -104,10 +113,13 @@ class AlipayPaymentGatewayTest {
     }
 
     private AlipayPaymentGateway gatewayWith(AlipayClient client) {
+        return gatewayWith(new AlipayPayProperties(), client);
+    }
+
+    private AlipayPaymentGateway gatewayWith(AlipayPayProperties properties, AlipayClient client) {
         TradeProperties tradeProperties = new TradeProperties();
         tradeProperties.setWebBaseUrl("http://127.0.0.1:5173");
-        return new AlipayPaymentGateway(
-                new AlipayPayProperties(), tradeProperties, mapper(), client);
+        return new AlipayPaymentGateway(properties, tradeProperties, mapper(), client);
     }
 
     @Test
@@ -296,17 +308,184 @@ class AlipayPaymentGatewayTest {
     }
 
     @Test
-    void reportsInvalidRefundQueryAmountAsUnknown() throws Exception {
+    void refundsWithOutRequestNumberAndAmount() throws Exception {
         AlipayClient client = mock(AlipayClient.class);
-        AlipayTradeFastpayRefundQueryResponse response =
-                new AlipayTradeFastpayRefundQueryResponse();
+        AlipayTradeRefundResponse response = new AlipayTradeRefundResponse();
         response.setCode("10000");
-        response.setRefundStatus("REFUND_SUCCESS");
-        response.setRefundAmount("not-a-number");
-        when(client.execute(any(AlipayTradeFastpayRefundQueryRequest.class))).thenReturn(response);
+        response.setFundChange("Y");
+        response.setRefundFee("99.00");
+        when(client.execute(any(AlipayTradeRefundRequest.class))).thenReturn(response);
+
+        String refundNo = "RF" + ORDER_NO;
+
+        assertEquals(
+                refundNo, gatewayWith(client).refund(payment(), refundNo, new BigDecimal("99.00")));
+
+        ArgumentCaptor<AlipayTradeRefundRequest> captor =
+                ArgumentCaptor.forClass(AlipayTradeRefundRequest.class);
+        verify(client).execute(captor.capture());
+        AlipayTradeRefundModel model = (AlipayTradeRefundModel) captor.getValue().getBizModel();
+        assertEquals(ORDER_NO, model.getOutTradeNo());
+        assertEquals(refundNo, model.getOutRequestNo());
+        assertEquals("99.00", model.getRefundAmount());
+    }
+
+    @Test
+    void confirmsRefundByQueryWhenFundChangeIsMissing() throws Exception {
+        AlipayClient client = mock(AlipayClient.class);
+        AlipayTradeRefundResponse refund = new AlipayTradeRefundResponse();
+        refund.setCode("10000");
+        refund.setFundChange("N");
+        AlipayTradeFastpayRefundQueryResponse query = new AlipayTradeFastpayRefundQueryResponse();
+        query.setCode("10000");
+        query.setRefundStatus("REFUND_SUCCESS");
+        query.setRefundAmount("99.00");
+        when(client.execute(any(AlipayTradeRefundRequest.class))).thenReturn(refund);
+        when(client.execute(any(AlipayTradeFastpayRefundQueryRequest.class))).thenReturn(query);
+
+        String refundNo = "RF" + ORDER_NO;
+
+        assertEquals(
+                refundNo, gatewayWith(client).refund(payment(), refundNo, new BigDecimal("99.00")));
+        verify(client, times(1)).execute(any(AlipayTradeRefundRequest.class));
+        verify(client, times(1)).execute(any(AlipayTradeFastpayRefundQueryRequest.class));
+    }
+
+    @Test
+    void parksRefundAsUnknownWhenQueryAmountDiffers() throws Exception {
+        AlipayClient client = mock(AlipayClient.class);
+        AlipayTradeRefundResponse refund = new AlipayTradeRefundResponse();
+        refund.setCode("10000");
+        refund.setFundChange("N");
+        AlipayTradeFastpayRefundQueryResponse query = new AlipayTradeFastpayRefundQueryResponse();
+        query.setCode("10000");
+        query.setRefundStatus("REFUND_SUCCESS");
+        query.setRefundAmount("98.00");
+        when(client.execute(any(AlipayTradeRefundRequest.class))).thenReturn(refund);
+        when(client.execute(any(AlipayTradeFastpayRefundQueryRequest.class))).thenReturn(query);
+
+        String refundNo = "RF" + ORDER_NO;
 
         assertThrows(
                 ChannelOutcomeUnknownException.class,
-                () -> gatewayWith(client).refundQuery(payment(), "RF" + ORDER_NO));
+                () -> gatewayWith(client).refund(payment(), refundNo, new BigDecimal("99.00")));
+        verify(client, times(1)).execute(any(AlipayTradeRefundRequest.class));
+    }
+
+    @Test
+    void neverTurnsAFailedConfirmationQueryIntoARejection() throws Exception {
+        AlipayClient client = mock(AlipayClient.class);
+        AlipayTradeRefundResponse refund = new AlipayTradeRefundResponse();
+        refund.setCode("10000");
+        refund.setFundChange("N");
+        AlipayTradeFastpayRefundQueryResponse query = new AlipayTradeFastpayRefundQueryResponse();
+        query.setCode("40004");
+        query.setSubCode("ACQ.SYSTEM_ERROR");
+        when(client.execute(any(AlipayTradeRefundRequest.class))).thenReturn(refund);
+        when(client.execute(any(AlipayTradeFastpayRefundQueryRequest.class))).thenReturn(query);
+
+        String refundNo = "RF" + ORDER_NO;
+
+        assertThrows(
+                ChannelOutcomeUnknownException.class,
+                () -> gatewayWith(client).refund(payment(), refundNo, new BigDecimal("99.00")));
+        verify(client, times(1)).execute(any(AlipayTradeRefundRequest.class));
+    }
+
+    @Test
+    void parksMissingRefundFeeAsUnknown() throws Exception {
+        AlipayClient client = mock(AlipayClient.class);
+        AlipayTradeRefundResponse response = new AlipayTradeRefundResponse();
+        response.setCode("10000");
+        response.setFundChange("Y");
+        when(client.execute(any(AlipayTradeRefundRequest.class))).thenReturn(response);
+
+        String refundNo = "RF" + ORDER_NO;
+
+        assertThrows(
+                ChannelOutcomeUnknownException.class,
+                () -> gatewayWith(client).refund(payment(), refundNo, new BigDecimal("99.00")));
+        verify(client, never()).execute(any(AlipayTradeFastpayRefundQueryRequest.class));
+    }
+
+    @Test
+    void reportsUnknownTradeAsDefiniteRejection() throws Exception {
+        AlipayClient client = mock(AlipayClient.class);
+        AlipayTradeRefundResponse response = new AlipayTradeRefundResponse();
+        response.setCode("40004");
+        response.setSubCode("ACQ.TRADE_NOT_EXIST");
+        when(client.execute(any(AlipayTradeRefundRequest.class))).thenReturn(response);
+
+        BizException exception =
+                assertThrows(
+                        BizException.class,
+                        () ->
+                                gatewayWith(client)
+                                        .refund(
+                                                payment(),
+                                                "RF" + ORDER_NO,
+                                                new BigDecimal("99.00")));
+
+        assertEquals(ErrorCode.CHANNEL_UPSTREAM_ERROR.getCode(), exception.getCode());
+    }
+
+    @Test
+    void parksTradeStatusErrorAsUnknownBecauseMoneyMayHaveMoved() throws Exception {
+        AlipayClient client = mock(AlipayClient.class);
+        AlipayTradeRefundResponse response = new AlipayTradeRefundResponse();
+        response.setCode("40004");
+        response.setSubCode("ACQ.TRADE_STATUS_ERROR");
+        when(client.execute(any(AlipayTradeRefundRequest.class))).thenReturn(response);
+
+        assertThrows(
+                ChannelOutcomeUnknownException.class,
+                () ->
+                        gatewayWith(client)
+                                .refund(payment(), "RF" + ORDER_NO, new BigDecimal("99.00")));
+    }
+
+    @Test
+    void parksRefundTransportFailureAsUnknown() throws Exception {
+        AlipayClient client = mock(AlipayClient.class);
+        when(client.execute(any(AlipayTradeRefundRequest.class)))
+                .thenThrow(new AlipayApiException("timeout"));
+
+        assertThrows(
+                ChannelOutcomeUnknownException.class,
+                () ->
+                        gatewayWith(client)
+                                .refund(payment(), "RF" + ORDER_NO, new BigDecimal("99.00")));
+    }
+
+    @Test
+    void refusesRefundWhenTheSwitchIsOff() {
+        AlipayClient client = mock(AlipayClient.class);
+        AlipayPayProperties properties = new AlipayPayProperties();
+        properties.setRefundEnabled(false);
+
+        BizException exception =
+                assertThrows(
+                        BizException.class,
+                        () ->
+                                gatewayWith(properties, client)
+                                        .refund(
+                                                payment(),
+                                                "RF" + ORDER_NO,
+                                                new BigDecimal("99.00")));
+
+        assertEquals(ErrorCode.PAYMENT_NOT_CONFIGURED.getCode(), exception.getCode());
+        verifyNoInteractions(client);
+    }
+
+    @Test
+    void refusesRefundAbovePaidAmountBeforeCallingTheChannel() {
+        AlipayClient client = mock(AlipayClient.class);
+
+        assertThrows(
+                BizException.class,
+                () ->
+                        gatewayWith(client)
+                                .refund(payment(), "RF" + ORDER_NO, new BigDecimal("100.00")));
+        verifyNoInteractions(client);
     }
 }
