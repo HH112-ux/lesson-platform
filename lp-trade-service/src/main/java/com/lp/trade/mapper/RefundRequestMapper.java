@@ -201,6 +201,27 @@ public interface RefundRequestMapper {
     int markUnknown(@Param("id") long id, @Param("failReason") String failReason);
 
     /**
+     * Reads refunds whose channel outcome has not been settled locally.
+     *
+     * <p>Only approved and unknown rows are returned, oldest first, and only when they have not
+     * changed for the grace period. The grace period keeps a refund that is still waiting for the
+     * channel answer out of the reconciliation scan.
+     *
+     * @param updatedBefore rows unchanged since this instant are eligible
+     * @param limit maximum rows per scan
+     * @return refunds awaiting channel confirmation
+     * @author Caspian
+     * @since 0.7.0
+     */
+    @Select(
+            "SELECT "
+                    + COLUMNS
+                    + " FROM refund_request WHERE status IN (1, 5) AND deleted = 0 "
+                    + "AND updated_at <= #{updatedBefore} ORDER BY id LIMIT #{limit}")
+    List<RefundRequest> selectReconcileCandidates(
+            @Param("updatedBefore") LocalDateTime updatedBefore, @Param("limit") int limit);
+
+    /**
      * Counts refunds for the operations review list.
      *
      * @param status status filter, {@code null} for all statuses
