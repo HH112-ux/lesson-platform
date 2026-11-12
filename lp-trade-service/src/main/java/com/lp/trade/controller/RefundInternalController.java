@@ -5,6 +5,7 @@ import com.lp.common.exception.BizException;
 import com.lp.common.exception.ErrorCode;
 import com.lp.common.result.Result;
 import com.lp.common.web.TraceIds;
+import com.lp.trade.dto.ChannelRefundStatusView;
 import com.lp.trade.dto.RefundAdminPageView;
 import com.lp.trade.dto.RefundReviewRequest;
 import com.lp.trade.dto.RefundView;
@@ -63,6 +64,26 @@ public class RefundInternalController {
             @RequestParam(value = "pageSize", defaultValue = "20") int pageSize,
             HttpServletRequest request) {
         return Result.ok(refundService.list(status, pageNum, pageSize), TraceIds.resolve(request));
+    }
+
+    /**
+     * Reads one refund back from the channel for the operations console.
+     *
+     * <p>The call is read-only by design: it lets an operator see what the channel reports for a
+     * refund that is stuck locally, and never changes the refund. A missing channel record or a
+     * failed query is returned as an explicit outcome instead of {@code 404}.
+     *
+     * @param refundId refund primary key
+     * @param request current request, used to resolve the trace id
+     * @return channel snapshot plus the local reconciliation bookkeeping
+     * @throws BizException with {@code 40401} when the refund is absent
+     * @author Caspian
+     * @since 0.9.0
+     */
+    @GetMapping("/{refundId}/channel")
+    public Result<ChannelRefundStatusView> channel(
+            @PathVariable("refundId") long refundId, HttpServletRequest request) {
+        return Result.ok(refundService.channelStatus(refundId), TraceIds.resolve(request));
     }
 
     /**

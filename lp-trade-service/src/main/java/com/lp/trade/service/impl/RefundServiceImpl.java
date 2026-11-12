@@ -9,8 +9,10 @@ import com.lp.common.money.Money;
 import com.lp.trade.client.LearnProgressClient;
 import com.lp.trade.domain.OrderStatus;
 import com.lp.trade.domain.PaymentStatus;
+import com.lp.trade.domain.RefundReconcileFinding;
 import com.lp.trade.domain.RefundStatus;
 import com.lp.trade.dto.ApplyRefundRequest;
+import com.lp.trade.dto.ChannelRefundStatusView;
 import com.lp.trade.dto.CourseProgressSummary;
 import com.lp.trade.dto.RefundAdminPageView;
 import com.lp.trade.dto.RefundAdminView;
@@ -25,6 +27,7 @@ import com.lp.trade.mapper.AuditOutboxMapper;
 import com.lp.trade.mapper.PaymentMapper;
 import com.lp.trade.mapper.RefundRequestMapper;
 import com.lp.trade.mapper.TradeOrderMapper;
+import com.lp.trade.payment.ChannelRefundState;
 import com.lp.trade.payment.PaymentGateway;
 import com.lp.trade.service.RefundService;
 import com.lp.trade.service.RefundSettlementService;
@@ -209,6 +212,96 @@ public class RefundServiceImpl implements RefundService {
         }
         TradeOrder order = tradeOrderMapper.selectById(refund.getOrderId());
         return view(order, refund);
+    }
+
+    /**
+     * Reads one refund back from the channel without changing any local state.
+     *
+     * <p>It stores no finding, retries nothing and settles nothing, so an operator can inspect a
+     * stuck refund without altering the books. A missing record and a failed query are reported as
+     * unknown instead of a {@code 404} or an empty success.
+     *
+     * @param refundId refund primary key
+     * @return channel snapshot plus the local reconciliation bookkeeping
+     * @throws BizException when the refund itself is absent
+     * @author Caspian
+     * @since 0.9.0
+     */
+    @Override
+    public ChannelRefundStatusView channelStatus(long refundId) {
+        RefundRequest refund = refundRequestMapper.selectById(refundId);
+        if (refund == null) {
+            throw new BizException(ErrorCode.NOT_FOUND);
+        }
+        PaymentRecord payment =
+                refund.getPaymentId() == null
+                        ? null
+                        : paymentMapper.selectById(refund.getPaymentId());
+        if (payment == null || !Objects.equals(payment.getStatus(), PaymentStatus.SUCCESS)) {
+            return channelView(
+                    refund,
+                    ChannelRefundStatusView.UNAVAILABLE,
+                    null,
+                    null,
+                    null,
+                    "payment is missing or not successful");
+        }
+        LocalDateTime queriedAt = LocalDateTime.now();
+        ChannelRefundState state;
+        try {
+            state = paymentGateway.refundQuery(payment, refund.getRefundNo());
+        } catch (RuntimeException exception) {
+            String reason =
+                    exception.getMessage() == null
+                            ? exception.getClass().getSimpleName()
+                            : exception.getMessage();
+            return channelView(
+                    refund, ChannelRefundStatusView.QUERY_FAILED, queriedAt, null, null, reason);
+        }
+        Long amountFen = state.refundAmount() == null ? null : Money.toFen(state.refundAmount());
+        String status = state.refundStatus();
+        if (status == null) {
+            return channelView(
+                    refund,
+                    ChannelRefundStatusView.NOT_FOUND,
+                    queriedAt,
+                    null,
+                    amountFen,
+                    "channel has no refund under this request number");
+        }
+        if (state.succeeded()) {
+            return channelView(
+                    refund, ChannelRefundStatusView.CONFIRMED, queriedAt, status, amountFen, null);
+        }
+        return channelView(
+                refund,
+                ChannelRefundStatusView.OTHER,
+                queriedAt,
+                status,
+                amountFen,
+                "channel status does not confirm the refund");
+    }
+
+    private static ChannelRefundStatusView channelView(
+            RefundRequest refund,
+            String outcome,
+            LocalDateTime queriedAt,
+            String channelRefundStatus,
+            Long channelRefundAmountFen,
+            String queryMessage) {
+        return new ChannelRefundStatusView(
+                refund.getId() == null ? 0L : refund.getId(),
+                outcome,
+                channelRefundStatus,
+                channelRefundAmountFen,
+                refund.getChannelRefundNo(),
+                queriedAt,
+                queryMessage,
+                refund.getReconcileFinding() == null
+                        ? RefundReconcileFinding.NONE
+                        : refund.getReconcileFinding(),
+                refund.getReconcileCheckedAt(),
+                refund.getReconcileAttempts() == null ? 0 : refund.getReconcileAttempts());
     }
 
     /**

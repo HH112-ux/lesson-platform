@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -25,6 +26,7 @@ import com.lp.trade.domain.PaymentStatus;
 import com.lp.trade.domain.RefundReconcileFinding;
 import com.lp.trade.domain.RefundStatus;
 import com.lp.trade.dto.ApplyRefundRequest;
+import com.lp.trade.dto.ChannelRefundStatusView;
 import com.lp.trade.dto.CourseProgressSummary;
 import com.lp.trade.dto.RefundView;
 import com.lp.trade.entitlement.EntitlementService;
@@ -37,6 +39,7 @@ import com.lp.trade.mapper.AuditOutboxMapper;
 import com.lp.trade.mapper.PaymentMapper;
 import com.lp.trade.mapper.RefundRequestMapper;
 import com.lp.trade.mapper.TradeOrderMapper;
+import com.lp.trade.payment.ChannelRefundState;
 import com.lp.trade.payment.PaymentGateway;
 import com.lp.trade.service.RefundSettlementService;
 import java.math.BigDecimal;
@@ -787,6 +790,127 @@ class RefundServiceImplTest {
 
         assertEquals(ErrorCode.NOT_FOUND.getCode(), exception.getCode());
         verify(refundRequestMapper, never()).insert(any(RefundRequest.class));
+    }
+
+    /**
+     * A confirmed channel refund is returned as a snapshot and nothing local changes.
+     *
+     * @author Caspian
+     * @since 0.9.0
+     */
+    @Test
+    void returnsConfirmedChannelSnapshotWithoutChangingLocalState() {
+        RefundRequest refund = refund(RefundStatus.APPROVED);
+        refund.setPaymentId(3L);
+        refund.setReconcileCheckedAt(LocalDateTime.now().minusMinutes(20));
+        refund.setReconcileAttempts(2);
+        when(refundRequestMapper.selectById(REFUND_ID)).thenReturn(refund);
+        when(paymentMapper.selectById(3L)).thenReturn(payment());
+        when(paymentGateway.refundQuery(any(PaymentRecord.class), eq(REFUND_NO)))
+                .thenReturn(new ChannelRefundState(ChannelRefundState.REFUND_SUCCESS, PAY_AMOUNT));
+
+        ChannelRefundStatusView view = refundService.channelStatus(REFUND_ID);
+
+        assertEquals(ChannelRefundStatusView.CONFIRMED, view.channelOutcome());
+        assertEquals(ChannelRefundState.REFUND_SUCCESS, view.channelRefundStatus());
+        assertEquals(990L, view.channelRefundAmountFen());
+        assertEquals(RefundReconcileFinding.CHANNEL_DONE, view.reconcileFinding());
+        assertEquals(2, view.reconcileAttempts());
+        assertNotNull(view.reconcileCheckedAt());
+        assertNotNull(view.queriedAt());
+        assertNull(view.queryMessage());
+        assertNull(view.channelRefundNo());
+        verify(refundRequestMapper, never())
+                .markReconcileChecked(anyLong(), anyInt(), any(LocalDateTime.class));
+        verify(refundRequestMapper, never()).markChannelDone(anyLong(), any(LocalDateTime.class));
+        verify(entitlementService, never()).revoke(anyLong(), anyLong(), anyLong(), anyString());
+    }
+
+    /**
+     * A refund the channel does not report is returned as unknown, not as {@code 404}.
+     *
+     * @author Caspian
+     * @since 0.9.0
+     */
+    @Test
+    void reportsMissingChannelRecordAsUnknown() {
+        RefundRequest refund = refund(RefundStatus.APPROVED);
+        refund.setPaymentId(3L);
+        when(refundRequestMapper.selectById(REFUND_ID)).thenReturn(refund);
+        when(paymentMapper.selectById(3L)).thenReturn(payment());
+        when(paymentGateway.refundQuery(any(PaymentRecord.class), eq(REFUND_NO)))
+                .thenReturn(ChannelRefundState.notFound());
+
+        ChannelRefundStatusView view = refundService.channelStatus(REFUND_ID);
+
+        assertEquals(ChannelRefundStatusView.NOT_FOUND, view.channelOutcome());
+        assertNull(view.channelRefundStatus());
+        assertNull(view.channelRefundAmountFen());
+        assertNotNull(view.queriedAt());
+        assertNotNull(view.queryMessage());
+    }
+
+    /**
+     * A failed channel query is reported as unknown with the reason, without throwing.
+     *
+     * @author Caspian
+     * @since 0.9.0
+     */
+    @Test
+    void reportsChannelQueryFailureAsUnknown() {
+        RefundRequest refund = refund(RefundStatus.UNKNOWN);
+        refund.setPaymentId(3L);
+        when(refundRequestMapper.selectById(REFUND_ID)).thenReturn(refund);
+        when(paymentMapper.selectById(3L)).thenReturn(payment());
+        when(paymentGateway.refundQuery(any(PaymentRecord.class), eq(REFUND_NO)))
+                .thenThrow(new IllegalStateException("gateway down"));
+
+        ChannelRefundStatusView view = refundService.channelStatus(REFUND_ID);
+
+        assertEquals(ChannelRefundStatusView.QUERY_FAILED, view.channelOutcome());
+        assertEquals("gateway down", view.queryMessage());
+        assertNull(view.channelRefundStatus());
+        assertNotNull(view.queriedAt());
+    }
+
+    /**
+     * A missing or unsuccessful payment is reported without asking the channel.
+     *
+     * @author Caspian
+     * @since 0.9.0
+     */
+    @Test
+    void reportsUnavailableWhenPaymentIsNotSettled() {
+        PaymentRecord pending = payment();
+        pending.setStatus(PaymentStatus.PENDING);
+        RefundRequest refund = refund(RefundStatus.APPROVED);
+        refund.setPaymentId(3L);
+        when(refundRequestMapper.selectById(REFUND_ID)).thenReturn(refund);
+        when(paymentMapper.selectById(3L)).thenReturn(pending);
+
+        ChannelRefundStatusView view = refundService.channelStatus(REFUND_ID);
+
+        assertEquals(ChannelRefundStatusView.UNAVAILABLE, view.channelOutcome());
+        assertNull(view.queriedAt());
+        assertNotNull(view.queryMessage());
+        verify(paymentGateway, never()).refundQuery(any(), anyString());
+    }
+
+    /**
+     * An absent refund is still a real {@code 404}, because the resource itself is unknown.
+     *
+     * @author Caspian
+     * @since 0.9.0
+     */
+    @Test
+    void rejectsChannelStatusOfAbsentRefund() {
+        when(refundRequestMapper.selectById(REFUND_ID)).thenReturn(null);
+
+        BizException exception =
+                assertThrows(BizException.class, () -> refundService.channelStatus(REFUND_ID));
+
+        assertEquals(ErrorCode.NOT_FOUND.getCode(), exception.getCode());
+        verify(paymentGateway, never()).refundQuery(any(), anyString());
     }
 
     private ApplyRefundRequest request(Long amountFen) {
