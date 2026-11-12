@@ -41,6 +41,12 @@ public class RefundRequest {
 
     private String channelRefundNo;
 
+    private Integer reconcileAttempts;
+
+    private LocalDateTime reconcileCheckedAt;
+
+    private String reconcileFinding;
+
     private String failReason;
 
     private LocalDateTime refundedAt;
@@ -329,6 +335,72 @@ public class RefundRequest {
      */
     public void setChannelRefundNo(String channelRefundNo) {
         this.channelRefundNo = channelRefundNo;
+    }
+
+    /**
+     * Returns how many times the read-only reconciliation queried the channel.
+     *
+     * @return query count, {@code 0} before the first scan
+     * @author Caspian
+     * @since 0.7.0
+     */
+    public Integer getReconcileAttempts() {
+        return reconcileAttempts;
+    }
+
+    /**
+     * Sets how many times the read-only reconciliation queried the channel.
+     *
+     * @param reconcileAttempts query count
+     * @author Caspian
+     * @since 0.7.0
+     */
+    public void setReconcileAttempts(Integer reconcileAttempts) {
+        this.reconcileAttempts = reconcileAttempts;
+    }
+
+    /**
+     * Returns when the read-only reconciliation last queried the channel.
+     *
+     * @return last query time, {@code null} before the first scan
+     * @author Caspian
+     * @since 0.7.0
+     */
+    public LocalDateTime getReconcileCheckedAt() {
+        return reconcileCheckedAt;
+    }
+
+    /**
+     * Sets when the read-only reconciliation last queried the channel.
+     *
+     * @param reconcileCheckedAt last query time
+     * @author Caspian
+     * @since 0.7.0
+     */
+    public void setReconcileCheckedAt(LocalDateTime reconcileCheckedAt) {
+        this.reconcileCheckedAt = reconcileCheckedAt;
+    }
+
+    /**
+     * Returns the last reconciliation finding, used to log only when it changes.
+     *
+     * @return finding code, {@code null} before the first scan
+     * @author Caspian
+     * @since 0.7.0
+     */
+    public String getReconcileFinding() {
+        return reconcileFinding;
+    }
+
+    /**
+     * Sets the last reconciliation finding.
+     *
+     * @param reconcileFinding finding code
+     * @author Caspian
+     * @since 0.7.0
+     */
+    public void setReconcileFinding(String reconcileFinding) {
+        this.reconcileFinding = reconcileFinding;
     }
 
     /**

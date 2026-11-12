@@ -84,6 +84,10 @@ lp:
       # Refunds have their own switch: turning it off stops refunds with 50205 before any request
       # is signed, while payments keep working. Defaults to on so the channel behaves normally.
       refund-enabled: ${LP_PAY_ALIPAY_REFUND_ENABLED:true}
+      # The read-only refund scan assumes a single trade-service instance: two instances would poll
+      # the same refunds twice. Disable it when scaling out until a leader election exists.
+      refund-reconcile:
+        enabled: ${LP_PAY_ALIPAY_REFUND_RECONCILE_ENABLED:true}
       credentials-file: ${LP_PAY_ALIPAY_CREDENTIALS_FILE:}
       gateway-url: ${LP_PAY_ALIPAY_GATEWAY_URL:https://openapi-sandbox.dl.alipaydev.com/gateway.do}
       # Public callback URL registered at the channel. Empty keeps the channel default, which is
