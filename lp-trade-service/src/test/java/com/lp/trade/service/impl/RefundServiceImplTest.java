@@ -9,8 +9,10 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -37,6 +39,10 @@ import com.lp.trade.mapper.TradeOrderMapper;
 import com.lp.trade.payment.PaymentGateway;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.ArrayDeque;
+import java.util.Deque;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -298,6 +304,134 @@ class RefundServiceImplTest {
         assertEquals(OperatorRole.OPS, outbox.getOperatorRole());
         assertEquals("trace-1", outbox.getTraceId());
         assertTrue(outbox.getDedupeKey().startsWith("refund-review:" + REFUND_ID + ":"));
+    }
+
+    /**
+     * A failing revoke intent rolls the whole settlement back, money state included.
+     *
+     * <p>This is the failure surface introduced by moving the revoke into the settlement
+     * transaction: before, the outbox write ran after commit, so it could not undo the refund. The
+     * snapshot manager below emulates the database rollback for the fake row state.
+     *
+     * @author Caspian
+     * @since 0.8.0
+     */
+    @Test
+    void rollsBackSettlementWhenRevokeFails() {
+        Map<String, Object> state = new HashMap<>();
+        state.put("refund", RefundStatus.PENDING_REVIEW);
+        state.put("order", OrderStatus.PAID);
+        state.put("payment", PaymentStatus.SUCCESS);
+        SnapshotTransactionManager transactionManager = new SnapshotTransactionManager(state);
+        RefundServiceImpl service =
+                new RefundServiceImpl(
+                        tradeOrderMapper,
+                        paymentMapper,
+                        refundRequestMapper,
+                        paymentGateway,
+                        entitlementService,
+                        learnProgressClient,
+                        new TransactionTemplate(transactionManager),
+                        auditOutboxMapper);
+        when(refundRequestMapper.selectById(REFUND_ID))
+                .thenAnswer(invocation -> refund((Integer) state.get("refund")));
+        when(tradeOrderMapper.selectById(ORDER_ID))
+                .thenAnswer(invocation -> orderWith((Integer) state.get("order")));
+        when(tradeOrderMapper.selectFirstItem(ORDER_ID)).thenReturn(item());
+        when(refundRequestMapper.markApproved(eq(REFUND_ID), eq(REVIEWER_ID), any()))
+                .thenAnswer(
+                        invocation -> {
+                            state.put("refund", RefundStatus.APPROVED);
+                            return 1;
+                        });
+        when(tradeOrderMapper.markRefunding(ORDER_ID))
+                .thenAnswer(
+                        invocation -> {
+                            state.put("order", OrderStatus.REFUNDING);
+                            return 1;
+                        });
+        when(paymentGateway.refund(any(PaymentRecord.class), eq(REFUND_NO), eq(PAY_AMOUNT)))
+                .thenReturn(CHANNEL_REFUND_NO);
+        when(refundRequestMapper.markSuccess(
+                        eq(REFUND_ID), eq(CHANNEL_REFUND_NO), eq("review:" + REVIEWER_ID), any()))
+                .thenAnswer(
+                        invocation -> {
+                            state.put("refund", RefundStatus.REFUNDED);
+                            return 1;
+                        });
+        when(tradeOrderMapper.markRefunded(eq(ORDER_ID), any()))
+                .thenAnswer(
+                        invocation -> {
+                            state.put("order", OrderStatus.REFUNDED);
+                            return 1;
+                        });
+        when(paymentMapper.selectLatestByOrderId(ORDER_ID)).thenReturn(payment());
+        when(paymentMapper.markRefunded(3L))
+                .thenAnswer(
+                        invocation -> {
+                            state.put("payment", PaymentStatus.REFUNDED);
+                            return 1;
+                        });
+        doThrow(new IllegalStateException("outbox unavailable"))
+                .when(entitlementService)
+                .revoke(USER_ID, COURSE_ID, ORDER_ID, ORDER_NO);
+
+        assertThrows(
+                IllegalStateException.class,
+                () ->
+                        service.review(
+                                REFUND_ID, true, null, REVIEWER_ID, OperatorRole.OPS, "trace-1"));
+
+        assertEquals(RefundStatus.APPROVED, state.get("refund"));
+        assertEquals(OrderStatus.REFUNDING, state.get("order"));
+        assertEquals(PaymentStatus.SUCCESS, state.get("payment"));
+        assertEquals(1, transactionManager.rollbackCount());
+    }
+
+    /**
+     * A second settlement of the same refund never revokes access twice.
+     *
+     * @author Caspian
+     * @since 0.8.0
+     */
+    @Test
+    void repeatedSettlementDoesNotRevokeTwice() {
+        AtomicInteger reads = new AtomicInteger();
+        when(refundRequestMapper.selectById(REFUND_ID))
+                .thenAnswer(
+                        invocation -> {
+                            int read = reads.incrementAndGet();
+                            if (read == 1) {
+                                return pendingRefund();
+                            }
+                            return read == 2 ? refund(RefundStatus.APPROVED) : refundedRefund();
+                        });
+        when(tradeOrderMapper.selectById(ORDER_ID))
+                .thenReturn(paidOrder(LocalDateTime.now().minusDays(1)));
+        when(tradeOrderMapper.selectFirstItem(ORDER_ID)).thenReturn(item());
+        when(refundRequestMapper.markApproved(eq(REFUND_ID), eq(REVIEWER_ID), any())).thenReturn(1);
+        when(tradeOrderMapper.markRefunding(ORDER_ID)).thenReturn(1);
+        when(paymentGateway.refund(any(PaymentRecord.class), eq(REFUND_NO), eq(PAY_AMOUNT)))
+                .thenReturn(CHANNEL_REFUND_NO);
+        when(refundRequestMapper.markSuccess(
+                        eq(REFUND_ID), eq(CHANNEL_REFUND_NO), eq("review:" + REVIEWER_ID), any()))
+                .thenReturn(1);
+        when(tradeOrderMapper.markRefunded(eq(ORDER_ID), any())).thenReturn(1);
+        when(paymentMapper.selectLatestByOrderId(ORDER_ID)).thenReturn(payment());
+        when(paymentMapper.markRefunded(3L)).thenReturn(1);
+
+        RefundView first =
+                refundService.review(
+                        REFUND_ID, true, null, REVIEWER_ID, OperatorRole.OPS, "trace-1");
+        RefundView second =
+                refundService.review(
+                        REFUND_ID, true, null, REVIEWER_ID, OperatorRole.OPS, "trace-2");
+
+        assertEquals(RefundStatus.REFUNDED, first.getStatus());
+        assertEquals(RefundStatus.REFUNDED, second.getStatus());
+        verify(entitlementService, times(1)).revoke(USER_ID, COURSE_ID, ORDER_ID, ORDER_NO);
+        verify(paymentGateway, times(1))
+                .refund(any(PaymentRecord.class), eq(REFUND_NO), eq(PAY_AMOUNT));
     }
 
     /**
@@ -634,6 +768,12 @@ class RefundServiceImplTest {
         return order;
     }
 
+    private TradeOrder orderWith(int status) {
+        TradeOrder order = paidOrder(LocalDateTime.now().minusDays(1));
+        order.setStatus(status);
+        return order;
+    }
+
     private PaymentRecord payment() {
         PaymentRecord payment = new PaymentRecord();
         payment.setId(3L);
@@ -718,5 +858,50 @@ class RefundServiceImplTest {
 
         @Override
         public void rollback(TransactionStatus status) {}
+    }
+
+    /**
+     * Emulates database rollback for the in-memory row state used by the rollback case.
+     *
+     * <p>Every transaction snapshots the state; a commit drops the snapshot and a rollback restores
+     * it. This is what lets the test tell a revoke write that lives inside the settlement
+     * transaction from one that still runs after commit.
+     *
+     * @author Caspian
+     * @since 0.8.0
+     */
+    private static final class SnapshotTransactionManager implements PlatformTransactionManager {
+
+        private final Map<String, Object> state;
+
+        private final Deque<Map<String, Object>> snapshots = new ArrayDeque<>();
+
+        private int rollbackCount;
+
+        private SnapshotTransactionManager(Map<String, Object> state) {
+            this.state = state;
+        }
+
+        @Override
+        public TransactionStatus getTransaction(TransactionDefinition definition) {
+            snapshots.push(new HashMap<>(state));
+            return new SimpleTransactionStatus();
+        }
+
+        @Override
+        public void commit(TransactionStatus status) {
+            snapshots.pop();
+        }
+
+        @Override
+        public void rollback(TransactionStatus status) {
+            state.clear();
+            state.putAll(snapshots.pop());
+            rollbackCount++;
+        }
+
+        private int rollbackCount() {
+            return rollbackCount;
+        }
     }
 }
