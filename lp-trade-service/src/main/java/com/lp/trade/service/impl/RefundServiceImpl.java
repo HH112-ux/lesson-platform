@@ -15,7 +15,6 @@ import com.lp.trade.dto.CourseProgressSummary;
 import com.lp.trade.dto.RefundAdminPageView;
 import com.lp.trade.dto.RefundAdminView;
 import com.lp.trade.dto.RefundView;
-import com.lp.trade.entitlement.EntitlementService;
 import com.lp.trade.entity.AdminRefundRow;
 import com.lp.trade.entity.AuditOutbox;
 import com.lp.trade.entity.PaymentRecord;
@@ -28,6 +27,7 @@ import com.lp.trade.mapper.RefundRequestMapper;
 import com.lp.trade.mapper.TradeOrderMapper;
 import com.lp.trade.payment.PaymentGateway;
 import com.lp.trade.service.RefundService;
+import com.lp.trade.service.RefundSettlementService;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -87,7 +87,7 @@ public class RefundServiceImpl implements RefundService {
 
     private final PaymentGateway paymentGateway;
 
-    private final EntitlementService entitlementService;
+    private final RefundSettlementService settlementService;
 
     private final LearnProgressClient learnProgressClient;
 
@@ -102,7 +102,7 @@ public class RefundServiceImpl implements RefundService {
      * @param paymentMapper successful payment lookup
      * @param refundRequestMapper refund persistence
      * @param paymentGateway channel adapter
-     * @param entitlementService outbox backed entitlement operations
+     * @param settlementService shared settlement gate for the review and reconciliation paths
      * @param learnProgressClient internal course progress lookup for admission
      * @param transactionTemplate explicit transaction boundary for the channel call
      * @param auditOutboxMapper refund audit intents written in the decision transaction
@@ -114,7 +114,7 @@ public class RefundServiceImpl implements RefundService {
             PaymentMapper paymentMapper,
             RefundRequestMapper refundRequestMapper,
             PaymentGateway paymentGateway,
-            EntitlementService entitlementService,
+            RefundSettlementService settlementService,
             LearnProgressClient learnProgressClient,
             TransactionTemplate transactionTemplate,
             AuditOutboxMapper auditOutboxMapper) {
@@ -122,7 +122,7 @@ public class RefundServiceImpl implements RefundService {
         this.paymentMapper = paymentMapper;
         this.refundRequestMapper = refundRequestMapper;
         this.paymentGateway = paymentGateway;
-        this.entitlementService = entitlementService;
+        this.settlementService = settlementService;
         this.learnProgressClient = learnProgressClient;
         this.transactionTemplate = transactionTemplate;
         this.auditOutboxMapper = auditOutboxMapper;
@@ -405,26 +405,19 @@ public class RefundServiceImpl implements RefundService {
             return view(order, refundRequestMapper.selectById(refundId));
         }
         LocalDateTime now = LocalDateTime.now();
+        // The channel is satisfied. Record that finding first, because the shared settlement gate
+        // refuses a refund whose stored finding is not CHANNEL_DONE.
         transactionTemplate.executeWithoutResult(
-                status -> {
-                    if (refundRequestMapper.markSuccess(
-                                    refundId, channelRefundNo, "review:" + reviewerId, now)
-                            == 0) {
-                        throw new BizException(
-                                ErrorCode.STATE_CONFLICT, "refund is no longer approved");
-                    }
-                    if (tradeOrderMapper.markRefunded(order.getId(), now) == 0) {
-                        LOG.warn("order did not move to refunded: order={}", order.getOrderNo());
-                    }
-                    if (paymentMapper.markRefunded(payment.getId()) == 0) {
-                        LOG.warn("payment did not move to refunded: order={}", order.getOrderNo());
-                    }
-                    entitlementService.revoke(
-                            order.getUserId(),
-                            item.getCourseId(),
-                            order.getId(),
-                            order.getOrderNo());
-                });
+                status -> refundRequestMapper.markChannelDone(refundId, now));
+        int settled =
+                settlementService.settle(
+                        refundId,
+                        Money.toFen(refund.getAmount()),
+                        channelRefundNo,
+                        "review:" + reviewerId);
+        if (settled == 0) {
+            throw new BizException(ErrorCode.STATE_CONFLICT, "refund is no longer approved");
+        }
         LOG.info(
                 "refund succeeded: order={}, refund={}, reviewer={}",
                 order.getOrderNo(),
