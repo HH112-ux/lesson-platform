@@ -1,5 +1,6 @@
 package com.lp.trade.mapper;
 
+import com.lp.trade.domain.RefundReconcileFinding;
 import com.lp.trade.entity.AdminRefundRow;
 import com.lp.trade.entity.RefundRequest;
 import java.time.LocalDateTime;
@@ -31,7 +32,10 @@ public interface RefundRequestMapper {
             "id, refund_no AS refundNo, order_id AS orderId, payment_id AS paymentId, "
                     + "user_id AS userId, channel, amount, reason, review_reason AS reviewReason, "
                     + "reviewed_by AS reviewedBy, reviewed_at AS reviewedAt, status, "
-                    + "channel_refund_no AS channelRefundNo, fail_reason AS failReason, "
+                    + "channel_refund_no AS channelRefundNo, "
+                    + "reconcile_attempts AS reconcileAttempts, "
+                    + "reconcile_checked_at AS reconcileCheckedAt, "
+                    + "reconcile_finding AS reconcileFinding, fail_reason AS failReason, "
                     + "refunded_at AS refundedAt";
 
     /**
@@ -199,6 +203,92 @@ public interface RefundRequestMapper {
             "UPDATE refund_request SET status = 5, fail_reason = #{failReason} "
                     + "WHERE id = #{id} AND status = 1")
     int markUnknown(@Param("id") long id, @Param("failReason") String failReason);
+
+    /**
+     * Reads refunds whose channel outcome has not been settled locally.
+     *
+     * <p>Only approved and unknown rows unchanged for the grace period are returned. A row is
+     * eligible again after one hour following its first query and after six hours from the second
+     * query on, so a refund that never settles cannot be polled every tick. Rows queried least
+     * recently come first, which keeps the batch cap from starving old refunds.
+     *
+     * @param graceBefore rows unchanged since this instant are eligible for their first query
+     * @param firstRetryBefore rows last queried before this instant are eligible for a second query
+     * @param laterRetryBefore rows last queried before this instant are eligible for later queries
+     * @param limit maximum rows per scan
+     * @return refunds awaiting channel confirmation
+     * @author Caspian
+     * @since 0.7.0
+     */
+    @Select(
+            "SELECT "
+                    + COLUMNS
+                    + " FROM refund_request WHERE status IN (1, 5) AND deleted = 0 "
+                    + "AND updated_at <= #{graceBefore} "
+                    + "AND (reconcile_checked_at IS NULL "
+                    + "OR (reconcile_attempts = 1 AND reconcile_checked_at <= #{firstRetryBefore}) "
+                    + "OR (reconcile_attempts >= 2 AND reconcile_checked_at <= #{laterRetryBefore})) "
+                    + "ORDER BY COALESCE(reconcile_checked_at, created_at) ASC, id ASC "
+                    + "LIMIT #{limit}")
+    List<RefundRequest> selectReconcileCandidates(
+            @Param("graceBefore") LocalDateTime graceBefore,
+            @Param("firstRetryBefore") LocalDateTime firstRetryBefore,
+            @Param("laterRetryBefore") LocalDateTime laterRetryBefore,
+            @Param("limit") int limit);
+
+    /**
+     * Records one read-only reconciliation query on a refund that is still unsettled.
+     *
+     * <p>The status predicate guarantees the bookkeeping can never revive a settled refund.
+     *
+     * @param id refund primary key
+     * @param finding finding code of this query
+     * @param checkedAt query time
+     * @return affected rows, {@code 0} when the refund already settled
+     * @author Caspian
+     * @since 0.7.0
+     */
+    @Update(
+            "UPDATE refund_request SET reconcile_attempts = reconcile_attempts + 1, "
+                    + "reconcile_checked_at = #{checkedAt}, reconcile_finding = #{finding} "
+                    + "WHERE id = #{id} AND status IN (1, 5) AND deleted = 0")
+    int markReconcileChecked(
+            @Param("id") long id,
+            @Param("finding") int finding,
+            @Param("checkedAt") LocalDateTime checkedAt);
+
+    /**
+     * Counts refunds still waiting for a settled channel outcome.
+     *
+     * @return approved and unknown refunds
+     * @author Caspian
+     * @since 0.7.0
+     */
+    @Select("SELECT COUNT(*) FROM refund_request WHERE status IN (1, 5) AND deleted = 0")
+    long countReconcilePending();
+
+    /**
+     * Counts refunds the channel reports as refunded while the local status is still unsettled.
+     *
+     * @return refunds needing a human follow-up until automatic convergence exists
+     * @author Caspian
+     * @since 0.7.0
+     */
+    @Select(
+            "SELECT COUNT(*) FROM refund_request WHERE status IN (1, 5) AND deleted = 0 "
+                    + "AND reconcile_finding = "
+                    + RefundReconcileFinding.CHANNEL_DONE)
+    long countReconcileChannelDone();
+
+    /**
+     * Returns when the oldest unsettled refund was created.
+     *
+     * @return creation time of the oldest unsettled refund, or {@code null} when none exists
+     * @author Caspian
+     * @since 0.7.0
+     */
+    @Select("SELECT MIN(created_at) FROM refund_request WHERE status IN (1, 5) AND deleted = 0")
+    LocalDateTime oldestReconcileCreatedAt();
 
     /**
      * Counts refunds for the operations review list.
