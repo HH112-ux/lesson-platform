@@ -28,8 +28,10 @@ import org.springframework.stereotype.Component;
  *
  * <p>A refund that never settles is not polled every tick. The first read-back happens after the
  * grace period, the second one an hour later and every further one six hours later; each scan is
- * capped and serves the refunds queried least recently first. The bookkeeping columns are the only
- * write, and their status predicate keeps a settled refund untouched.
+ * capped and serves the refunds queried least recently first. A finding is logged only when it
+ * differs from the previous one, while every query is counted, so a stuck refund does not turn the
+ * log into noise. The bookkeeping columns are the only write, and their status predicate keeps a
+ * settled refund untouched.
  *
  * <p>The job assumes a single trade-service instance: two instances would query the same refunds
  * twice.
@@ -111,66 +113,93 @@ public class RefundReconcileJob {
     private void inspect(RefundRequest refund, LocalDateTime checkedAt) {
         PaymentRecord payment = paymentMapper.selectById(refund.getPaymentId());
         if (payment == null || !Objects.equals(payment.getStatus(), PaymentStatus.SUCCESS)) {
-            LOG.warn(
-                    "refund reconcile skipped, payment is not successful: refund={}, localStatus={}",
-                    refund.getRefundNo(),
-                    statusName(refund.getStatus()));
-            record(refund, checkedAt, RefundReconcileFinding.PAYMENT_UNSETTLED);
+            record(
+                    refund,
+                    checkedAt,
+                    RefundReconcileFinding.PAYMENT_UNSETTLED,
+                    () ->
+                            LOG.warn(
+                                    "refund reconcile skipped, payment is not successful: "
+                                            + "refund={}, localStatus={}",
+                                    refund.getRefundNo(),
+                                    statusName(refund.getStatus())));
             return;
         }
         ChannelRefundState state;
         try {
             state = paymentGateway.refundQuery(payment, refund.getRefundNo());
         } catch (RuntimeException exception) {
-            LOG.warn(
-                    "refund reconcile query failed, left unchanged: refund={}, localStatus={}, "
-                            + "reason={}",
-                    refund.getRefundNo(),
-                    statusName(refund.getStatus()),
-                    exception.getMessage());
-            record(refund, checkedAt, RefundReconcileFinding.QUERY_FAILED);
+            record(
+                    refund,
+                    checkedAt,
+                    RefundReconcileFinding.QUERY_FAILED,
+                    () ->
+                            LOG.warn(
+                                    "refund reconcile query failed, left unchanged: refund={}, "
+                                            + "localStatus={}, reason={}",
+                                    refund.getRefundNo(),
+                                    statusName(refund.getStatus()),
+                                    exception.getMessage()));
             return;
         }
         if (state.succeeded() && state.amountMatches(refund.getAmount())) {
-            LOG.warn(
-                    "refund completed at channel but still {} locally, manual follow-up needed: "
-                            + "refund={}, orderId={}, amount={}",
-                    statusName(refund.getStatus()),
-                    refund.getRefundNo(),
-                    refund.getOrderId(),
-                    refund.getAmount());
-            record(refund, checkedAt, RefundReconcileFinding.CHANNEL_DONE);
+            record(
+                    refund,
+                    checkedAt,
+                    RefundReconcileFinding.CHANNEL_DONE,
+                    () ->
+                            LOG.warn(
+                                    "refund completed at channel but still {} locally, manual "
+                                            + "follow-up needed: refund={}, orderId={}, amount={}",
+                                    statusName(refund.getStatus()),
+                                    refund.getRefundNo(),
+                                    refund.getOrderId(),
+                                    refund.getAmount()));
             return;
         }
         if (state.refundStatus() == null) {
-            LOG.warn(
-                    "refund not found at channel, left unchanged: refund={}, localStatus={}",
-                    refund.getRefundNo(),
-                    statusName(refund.getStatus()));
-            record(refund, checkedAt, RefundReconcileFinding.CHANNEL_NOT_FOUND);
+            record(
+                    refund,
+                    checkedAt,
+                    RefundReconcileFinding.CHANNEL_NOT_FOUND,
+                    () ->
+                            LOG.warn(
+                                    "refund not found at channel, left unchanged: refund={}, "
+                                            + "localStatus={}",
+                                    refund.getRefundNo(),
+                                    statusName(refund.getStatus())));
             return;
         }
-        LOG.warn(
-                "refund channel state does not confirm the request, left unchanged: refund={}, "
-                        + "localStatus={}, channelStatus={}, channelAmount={}, expected={}",
-                refund.getRefundNo(),
-                statusName(refund.getStatus()),
-                state.refundStatus(),
-                state.refundAmount(),
-                refund.getAmount());
-        record(refund, checkedAt, RefundReconcileFinding.CHANNEL_OTHER);
+        record(
+                refund,
+                checkedAt,
+                RefundReconcileFinding.CHANNEL_OTHER,
+                () ->
+                        LOG.warn(
+                                "refund channel state does not confirm the request, left "
+                                        + "unchanged: refund={}, localStatus={}, channelStatus={}, "
+                                        + "channelAmount={}, expected={}",
+                                refund.getRefundNo(),
+                                statusName(refund.getStatus()),
+                                state.refundStatus(),
+                                state.refundAmount(),
+                                refund.getAmount()));
     }
 
     /**
-     * Stores the finding and counts the attempt, which drives the backoff of the next scan.
+     * Stores the finding and logs it only when it differs from the previous one.
      *
      * @param refund scanned refund
      * @param checkedAt query time
      * @param finding finding code of this query
+     * @param log warning emitted only on a change
      * @author Caspian
      * @since 0.7.0
      */
-    private void record(RefundRequest refund, LocalDateTime checkedAt, int finding) {
+    private void record(RefundRequest refund, LocalDateTime checkedAt, int finding, Runnable log) {
+        if (!Integer.valueOf(finding).equals(refund.getReconcileFinding())) {
+            log.run();
+        }
         refundRequestMapper.markReconcileChecked(refund.getId(), finding, checkedAt);
     }
 
