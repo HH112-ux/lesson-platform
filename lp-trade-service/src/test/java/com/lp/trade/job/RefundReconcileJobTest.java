@@ -1,6 +1,7 @@
 package com.lp.trade.job;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -10,6 +11,9 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.lp.trade.domain.PaymentStatus;
 import com.lp.trade.domain.RefundReconcileFinding;
 import com.lp.trade.domain.RefundStatus;
@@ -24,9 +28,10 @@ import java.time.LocalDateTime;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.slf4j.LoggerFactory;
 
 /**
- * Verifies that the reconciliation scan is read-only towards refund state and throttled.
+ * Verifies that the reconciliation scan is read-only towards refund state, throttled and quiet.
  *
  * @author Caspian
  * @since 0.7.0
@@ -168,6 +173,52 @@ class RefundReconcileJobTest {
         assertDoesNotThrow(() -> job().scan());
 
         verifyNoInteractions(paymentMapper, paymentGateway);
+    }
+
+    @Test
+    void logsFindingWhenPreviousFindingDiffers() {
+        RefundRequest refund = refund(RefundStatus.APPROVED, RefundReconcileFinding.CHANNEL_OTHER);
+        stubChannelSuccess(refund);
+
+        List<ILoggingEvent> events = scanAndCaptureLogs();
+
+        assertEquals(1, events.size());
+    }
+
+    @Test
+    void keepsQuietWhenFindingIsUnchanged() {
+        RefundRequest refund = refund(RefundStatus.APPROVED, RefundReconcileFinding.CHANNEL_DONE);
+        stubChannelSuccess(refund);
+
+        List<ILoggingEvent> events = scanAndCaptureLogs();
+
+        assertTrue(events.isEmpty());
+    }
+
+    private List<ILoggingEvent> scanAndCaptureLogs() {
+        Logger logger = (Logger) LoggerFactory.getLogger(RefundReconcileJob.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            job().scan();
+        } finally {
+            logger.detachAppender(appender);
+        }
+        return appender.list;
+    }
+
+    private void stubChannelSuccess(RefundRequest refund) {
+        when(refundRequestMapper.selectReconcileCandidates(
+                        any(LocalDateTime.class),
+                        any(LocalDateTime.class),
+                        any(LocalDateTime.class),
+                        eq(50)))
+                .thenReturn(List.of(refund));
+        PaymentRecord payment = payment(PaymentStatus.SUCCESS);
+        when(paymentMapper.selectById(refund.getPaymentId())).thenReturn(payment);
+        when(paymentGateway.refundQuery(payment, refund.getRefundNo()))
+                .thenReturn(new ChannelRefundState("REFUND_SUCCESS", new BigDecimal("99.00")));
     }
 
     private RefundReconcileJob job() {
