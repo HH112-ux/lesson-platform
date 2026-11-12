@@ -1,6 +1,7 @@
 package com.lp.trade.service;
 
 import com.lp.trade.dto.ApplyRefundRequest;
+import com.lp.trade.dto.ChannelRefundStatusView;
 import com.lp.trade.dto.RefundAdminPageView;
 import com.lp.trade.dto.RefundView;
 
@@ -86,4 +87,20 @@ public interface RefundService {
      * @since 0.1.0
      */
     RefundAdminPageView list(Integer status, int pageNum, int pageSize);
+
+    /**
+     * Reads one refund back from the channel without changing any local state.
+     *
+     * <p>The query only observes: it never settles the refund, never records a finding and never
+     * retries the channel refund. A missing channel record or a failed query is reported through
+     * {@link ChannelRefundStatusView#channelOutcome()}, not as a {@code 404} or an empty success,
+     * because the caller must see "unknown" rather than "nothing happened".
+     *
+     * @param refundId refund primary key
+     * @return channel snapshot plus the local reconciliation bookkeeping
+     * @throws com.lp.common.exception.BizException when the refund itself is absent
+     * @author Caspian
+     * @since 0.9.0
+     */
+    ChannelRefundStatusView channelStatus(long refundId);
 }
