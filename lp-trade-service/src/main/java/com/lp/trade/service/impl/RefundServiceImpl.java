@@ -407,7 +407,9 @@ public class RefundServiceImpl implements RefundService {
         LocalDateTime now = LocalDateTime.now();
         transactionTemplate.executeWithoutResult(
                 status -> {
-                    if (refundRequestMapper.markSuccess(refundId, channelRefundNo, now) == 0) {
+                    if (refundRequestMapper.markSuccess(
+                                    refundId, channelRefundNo, "review:" + reviewerId, now)
+                            == 0) {
                         throw new BizException(
                                 ErrorCode.STATE_CONFLICT, "refund is no longer approved");
                     }
@@ -417,9 +419,12 @@ public class RefundServiceImpl implements RefundService {
                     if (paymentMapper.markRefunded(payment.getId()) == 0) {
                         LOG.warn("payment did not move to refunded: order={}", order.getOrderNo());
                     }
+                    entitlementService.revoke(
+                            order.getUserId(),
+                            item.getCourseId(),
+                            order.getId(),
+                            order.getOrderNo());
                 });
-        entitlementService.revoke(
-                order.getUserId(), item.getCourseId(), order.getId(), order.getOrderNo());
         LOG.info(
                 "refund succeeded: order={}, refund={}, reviewer={}",
                 order.getOrderNo(),

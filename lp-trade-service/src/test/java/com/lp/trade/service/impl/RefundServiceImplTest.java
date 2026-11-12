@@ -155,8 +155,8 @@ class RefundServiceImplTest {
         assertEquals(990L, view.getAmountFen());
         assertNull(view.getRefundedAt());
         verify(paymentGateway, never()).refund(any(), anyString(), any());
-        verify(entitlementService, never()).revoke(anyLong(), anyLong(), anyLong(), anyString());
         verify(tradeOrderMapper, never()).markRefunding(anyLong());
+        verify(entitlementService, never()).revoke(anyLong(), anyLong(), anyLong(), anyString());
     }
 
     /**
@@ -271,7 +271,8 @@ class RefundServiceImplTest {
         when(tradeOrderMapper.markRefunding(ORDER_ID)).thenReturn(1);
         when(paymentGateway.refund(any(PaymentRecord.class), eq(REFUND_NO), eq(PAY_AMOUNT)))
                 .thenReturn(CHANNEL_REFUND_NO);
-        when(refundRequestMapper.markSuccess(eq(REFUND_ID), eq(CHANNEL_REFUND_NO), any()))
+        when(refundRequestMapper.markSuccess(
+                        eq(REFUND_ID), eq(CHANNEL_REFUND_NO), eq("review:" + REVIEWER_ID), any()))
                 .thenReturn(1);
         when(tradeOrderMapper.markRefunded(eq(ORDER_ID), any())).thenReturn(1);
         when(paymentMapper.markRefunded(3L)).thenReturn(1);
@@ -359,8 +360,8 @@ class RefundServiceImplTest {
         assertEquals(3, outbox.getActionType());
         assertEquals(3, outbox.getToStatus());
         assertEquals("progress too high", outbox.getRemark());
-        verify(entitlementService, never()).revoke(anyLong(), anyLong(), anyLong(), anyString());
         verify(tradeOrderMapper, never()).markRefunding(anyLong());
+        verify(entitlementService, never()).revoke(anyLong(), anyLong(), anyLong(), anyString());
     }
 
     /**
@@ -489,7 +490,8 @@ class RefundServiceImplTest {
                             assertTrue(releaseChannel.await(5, TimeUnit.SECONDS));
                             return CHANNEL_REFUND_NO;
                         });
-        when(refundRequestMapper.markSuccess(eq(REFUND_ID), eq(CHANNEL_REFUND_NO), any()))
+        when(refundRequestMapper.markSuccess(
+                        eq(REFUND_ID), eq(CHANNEL_REFUND_NO), eq("review:" + REVIEWER_ID), any()))
                 .thenAnswer(
                         invocation -> {
                             storedStatus.set(RefundStatus.REFUNDED);
