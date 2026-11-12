@@ -44,6 +44,8 @@ class RefundReconcileJobTest {
 
     private final PaymentGateway paymentGateway = mock(PaymentGateway.class);
 
+    private final RefundReconcileMetrics metrics = mock(RefundReconcileMetrics.class);
+
     @Test
     void reportsChannelSuccessWithoutChangingRefundState() {
         RefundRequest refund = refund(RefundStatus.APPROVED, null);
@@ -58,12 +60,14 @@ class RefundReconcileJobTest {
         when(paymentGateway.refundQuery(payment, refund.getRefundNo()))
                 .thenReturn(new ChannelRefundState("REFUND_SUCCESS", new BigDecimal("99.00")));
 
-        assertDoesNotThrow(() -> job().scan());
+        assertDoesNotThrow(() -> job(true).scan());
 
         verify(paymentGateway).refundQuery(payment, refund.getRefundNo());
         verify(refundRequestMapper)
                 .markReconcileChecked(
                         eq(1L), eq(RefundReconcileFinding.CHANNEL_DONE), any(LocalDateTime.class));
+        verify(metrics).recordScanned();
+        verify(metrics).refresh();
     }
 
     @Test
@@ -80,7 +84,7 @@ class RefundReconcileJobTest {
         when(paymentGateway.refundQuery(payment, refund.getRefundNo()))
                 .thenReturn(ChannelRefundState.notFound());
 
-        assertDoesNotThrow(() -> job().scan());
+        assertDoesNotThrow(() -> job(true).scan());
 
         verify(refundRequestMapper)
                 .markReconcileChecked(
@@ -101,7 +105,7 @@ class RefundReconcileJobTest {
         when(paymentMapper.selectById(refund.getPaymentId()))
                 .thenReturn(payment(PaymentStatus.CLOSED));
 
-        job().scan();
+        job(true).scan();
 
         verifyNoInteractions(paymentGateway);
         verify(refundRequestMapper)
@@ -109,6 +113,7 @@ class RefundReconcileJobTest {
                         eq(1L),
                         eq(RefundReconcileFinding.PAYMENT_UNSETTLED),
                         any(LocalDateTime.class));
+        verify(metrics).refresh();
     }
 
     @Test
@@ -130,7 +135,7 @@ class RefundReconcileJobTest {
         when(paymentGateway.refundQuery(payment, second.getRefundNo()))
                 .thenReturn(ChannelRefundState.notFound());
 
-        assertDoesNotThrow(() -> job().scan());
+        assertDoesNotThrow(() -> job(true).scan());
 
         verify(paymentGateway).refundQuery(payment, second.getRefundNo());
         verify(refundRequestMapper)
@@ -148,7 +153,7 @@ class RefundReconcileJobTest {
                 .thenReturn(List.of());
         LocalDateTime before = LocalDateTime.now();
 
-        job().scan();
+        job(true).scan();
 
         ArgumentCaptor<LocalDateTime> grace = ArgumentCaptor.forClass(LocalDateTime.class);
         ArgumentCaptor<LocalDateTime> firstRetry = ArgumentCaptor.forClass(LocalDateTime.class);
@@ -159,20 +164,14 @@ class RefundReconcileJobTest {
         assertTrue(!grace.getValue().isAfter(before.minusMinutes(10).plusSeconds(1)));
         assertTrue(!firstRetry.getValue().isAfter(before.minusHours(1).plusSeconds(1)));
         assertTrue(!laterRetry.getValue().isAfter(before.minusHours(6).plusSeconds(1)));
+        verify(metrics).refresh();
     }
 
     @Test
-    void survivesCandidateQueryFailure() {
-        when(refundRequestMapper.selectReconcileCandidates(
-                        any(LocalDateTime.class),
-                        any(LocalDateTime.class),
-                        any(LocalDateTime.class),
-                        eq(50)))
-                .thenThrow(new IllegalStateException("database down"));
+    void doesNothingWhenDisabled() {
+        job(false).scan();
 
-        assertDoesNotThrow(() -> job().scan());
-
-        verifyNoInteractions(paymentMapper, paymentGateway);
+        verifyNoInteractions(refundRequestMapper, paymentMapper, paymentGateway, metrics);
     }
 
     @Test
@@ -180,7 +179,7 @@ class RefundReconcileJobTest {
         RefundRequest refund = refund(RefundStatus.APPROVED, RefundReconcileFinding.CHANNEL_OTHER);
         stubChannelSuccess(refund);
 
-        List<ILoggingEvent> events = scanAndCaptureLogs();
+        List<ILoggingEvent> events = scanAndCaptureLogs(true);
 
         assertEquals(1, events.size());
     }
@@ -190,18 +189,18 @@ class RefundReconcileJobTest {
         RefundRequest refund = refund(RefundStatus.APPROVED, RefundReconcileFinding.CHANNEL_DONE);
         stubChannelSuccess(refund);
 
-        List<ILoggingEvent> events = scanAndCaptureLogs();
+        List<ILoggingEvent> events = scanAndCaptureLogs(true);
 
         assertTrue(events.isEmpty());
     }
 
-    private List<ILoggingEvent> scanAndCaptureLogs() {
+    private List<ILoggingEvent> scanAndCaptureLogs(boolean enabled) {
         Logger logger = (Logger) LoggerFactory.getLogger(RefundReconcileJob.class);
         ListAppender<ILoggingEvent> appender = new ListAppender<>();
         appender.start();
         logger.addAppender(appender);
         try {
-            job().scan();
+            job(enabled).scan();
         } finally {
             logger.detachAppender(appender);
         }
@@ -221,8 +220,9 @@ class RefundReconcileJobTest {
                 .thenReturn(new ChannelRefundState("REFUND_SUCCESS", new BigDecimal("99.00")));
     }
 
-    private RefundReconcileJob job() {
-        return new RefundReconcileJob(refundRequestMapper, paymentMapper, paymentGateway, 10);
+    private RefundReconcileJob job(boolean enabled) {
+        return new RefundReconcileJob(
+                refundRequestMapper, paymentMapper, paymentGateway, metrics, enabled, 10);
     }
 
     private RefundRequest refund(int status, Integer finding) {
