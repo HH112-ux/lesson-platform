@@ -215,6 +215,24 @@ export interface AdminRefundPage {
   pageSize: number
 }
 
+/** Read-only channel snapshot of one refund. */
+export interface AdminChannelRefundStatusView {
+  refundId: number
+  /** CONFIRMED, NOT_FOUND, OTHER, QUERY_FAILED or UNAVAILABLE. */
+  channelOutcome: string
+  channelRefundStatus?: string | null
+  /** Channel refund amount in fen. */
+  channelRefundAmountFen?: number | null
+  channelRefundNo?: string | null
+  queriedAt?: string | null
+  /** Why the outcome is unknown; empty when the channel confirmed the refund. */
+  queryMessage?: string | null
+  /** 0 not scanned, 1 channel done, 2 not found, 3 other, 4 query failed, 5 payment not settled. */
+  reconcileFinding: number
+  reconcileCheckedAt?: string | null
+  reconcileAttempts: number
+}
+
 /** Body of {@code POST /api/v1/admin/refunds/{refundId}/review}. */
 export interface RefundReviewPayload {
   approved: boolean
@@ -264,4 +282,20 @@ export function reviewRefund(
     method: 'POST',
     body: JSON.stringify(payload),
   })
+}
+
+/**
+ * Reads one refund back from the channel without changing it.
+ *
+ * @param refundId refund identifier
+ * @returns channel snapshot plus the local reconciliation bookkeeping
+ * @author Caspian
+ * @since 0.9.0
+ */
+export function loadRefundChannelStatus(
+  refundId: number,
+): Promise<AdminChannelRefundStatusView> {
+  return apiRequest<AdminChannelRefundStatusView>(
+    `/api/v1/admin/refunds/${refundId}/channel`,
+  )
 }
