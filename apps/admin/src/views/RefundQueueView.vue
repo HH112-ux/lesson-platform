@@ -9,7 +9,13 @@
  * @since 0.1.0
  */
 import { onMounted, ref } from 'vue'
-import { listRefunds, reviewRefund, type AdminRefundView } from '../api/admin'
+import {
+  listRefunds,
+  loadRefundChannelStatus,
+  reviewRefund,
+  type AdminChannelRefundStatusView,
+  type AdminRefundView,
+} from '../api/admin'
 import { describeError } from '../utils/errors'
 import { formatFen, formatTime } from '../utils/format'
 
@@ -34,6 +40,39 @@ const actionError = ref('')
 const busyId = ref<number | null>(null)
 const rejecting = ref<AdminRefundView | null>(null)
 const rejectReason = ref('')
+const channelRefund = ref<AdminRefundView | null>(null)
+const channelView = ref<AdminChannelRefundStatusView | null>(null)
+const channelLoading = ref(false)
+const channelError = ref('')
+
+const CHANNEL_OUTCOME: Record<string, string> = {
+  CONFIRMED: '渠道已确认退款',
+  NOT_FOUND: '渠道未查到退款记录（未知，不能认定为未退款）',
+  OTHER: '渠道状态未确认退款（未知）',
+  QUERY_FAILED: '渠道查询失败（未知）',
+  UNAVAILABLE: '本地支付状态不允许查询（未知）',
+}
+
+const RECONCILE_FINDING: Record<number, string> = {
+  0: '尚未查询',
+  1: '渠道已确认退款、本地尚未推进',
+  2: '渠道无退款记录',
+  3: '渠道为其他状态',
+  4: '渠道查询失败',
+  5: '支付未成功',
+}
+
+function outcomeText(outcome: string): string {
+  return CHANNEL_OUTCOME[outcome] ?? `未知(${outcome})`
+}
+
+function findingText(finding: number): string {
+  return RECONCILE_FINDING[finding] ?? `未知(${finding})`
+}
+
+function channelAmountText(amountFen?: number | null): string {
+  return amountFen === null || amountFen === undefined ? '未返回' : `¥${formatFen(amountFen)}`
+}
 
 function statusText(status: number): string {
   return REFUND_STATUS[status] ?? `未知(${status})`
@@ -117,6 +156,26 @@ async function submit(refundId: number, approved: boolean, rejectReasonText: str
   } finally {
     busyId.value = null
   }
+}
+
+async function openChannel(refund: AdminRefundView): Promise<void> {
+  channelRefund.value = refund
+  channelView.value = null
+  channelError.value = ''
+  channelLoading.value = true
+  try {
+    channelView.value = await loadRefundChannelStatus(refund.refundId)
+  } catch (error) {
+    channelError.value = describeError(error, '渠道状态查询失败')
+  } finally {
+    channelLoading.value = false
+  }
+}
+
+function closeChannel(): void {
+  channelRefund.value = null
+  channelView.value = null
+  channelError.value = ''
 }
 
 onMounted(load)
@@ -241,10 +300,16 @@ onMounted(load)
                   驳回
                 </button>
               </template>
-              <span
-                v-else
-                class="lp-muted"
-              >已处理</span>
+              <template v-else>
+                <button
+                  v-if="refund.status !== 3"
+                  class="lp-btn"
+                  @click="openChannel(refund)"
+                >
+                  查看渠道
+                </button>
+                <span class="lp-muted">已处理</span>
+              </template>
             </td>
           </tr>
         </tbody>
@@ -270,6 +335,68 @@ onMounted(load)
           下一页
         </button>
       </footer>
+    </div>
+
+    <div
+      v-if="channelRefund"
+      class="dialog-mask"
+    >
+      <div class="dialog lp-card channel-dialog">
+        <h2>渠道退款状态</h2>
+        <p class="lp-muted">
+          退款单 {{ channelRefund.refundNo }}，本地状态：{{ statusText(channelRefund.status) }}。
+        </p>
+        <p
+          v-if="channelLoading"
+          class="lp-muted"
+        >
+          正在查询渠道…
+        </p>
+        <p
+          v-else-if="channelError"
+          class="action-error"
+        >
+          {{ channelError }}
+        </p>
+        <dl
+          v-else-if="channelView"
+          class="channel-grid"
+        >
+          <dt>渠道结论</dt>
+          <dd :class="{ unknown: channelView.channelOutcome !== 'CONFIRMED' }">
+            {{ outcomeText(channelView.channelOutcome) }}
+          </dd>
+          <dt>渠道退款状态</dt>
+          <dd>{{ channelView.channelRefundStatus || '未返回' }}</dd>
+          <dt>渠道退款金额</dt>
+          <dd>{{ channelAmountText(channelView.channelRefundAmountFen) }}</dd>
+          <dt>渠道退款单号</dt>
+          <dd>{{ channelView.channelRefundNo || '本地尚未记录' }}</dd>
+          <dt>查询时间</dt>
+          <dd>{{ channelView.queriedAt ? formatTime(channelView.queriedAt) : '未查询' }}</dd>
+          <dt>说明</dt>
+          <dd>{{ channelView.queryMessage || '—' }}</dd>
+          <dt>本地对账结论</dt>
+          <dd>{{ findingText(channelView.reconcileFinding) }}</dd>
+          <dt>最近对账查询</dt>
+          <dd>
+            {{ channelView.reconcileCheckedAt ? formatTime(channelView.reconcileCheckedAt) : '从未查询' }}
+          </dd>
+          <dt>对账查询次数</dt>
+          <dd>{{ channelView.reconcileAttempts }}</dd>
+        </dl>
+        <p class="lp-muted">
+          本查询只读，不会改变退款状态，也不会触发结算或重试。
+        </p>
+        <div class="dialog-actions">
+          <button
+            class="lp-btn"
+            @click="closeChannel"
+          >
+            关闭
+          </button>
+        </div>
+      </div>
     </div>
 
     <div
@@ -381,6 +508,31 @@ h1 {
 
 .dialog {
   width: 420px;
+}
+
+.channel-dialog {
+  width: 560px;
+}
+
+.channel-grid {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  gap: 8px 12px;
+  margin: 12px 0;
+  font-size: 13px;
+}
+
+.channel-grid dt {
+  color: #8a919f;
+}
+
+.channel-grid dd {
+  margin: 0;
+}
+
+.channel-grid .unknown {
+  color: #d14343;
+  font-weight: 600;
 }
 
 .dialog h2 {
