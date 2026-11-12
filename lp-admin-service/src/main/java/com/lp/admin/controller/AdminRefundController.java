@@ -1,5 +1,6 @@
 package com.lp.admin.controller;
 
+import com.lp.admin.dto.AdminChannelRefundStatusView;
 import com.lp.admin.dto.AdminRefundPageView;
 import com.lp.admin.dto.AdminRefundReviewRequest;
 import com.lp.admin.dto.AdminRefundView;
@@ -72,6 +73,33 @@ public class AdminRefundController {
         ConsoleRoles.requirePermission(permissions, ConsoleRoles.ORDER_LIST);
         return Result.ok(
                 adminRefundService.page(status, pageNum, pageSize), TraceIds.resolve(request));
+    }
+
+    /**
+     * Reads one refund back from the channel for the console detail panel.
+     *
+     * <p>Read-only: it lets operations see what the channel reports for a refund that is stuck
+     * locally, and never changes the refund. A missing channel record is returned as {@code
+     * NOT_FOUND} inside the body, not as an HTTP {@code 404}.
+     *
+     * @param roles gateway injected roles, comma separated
+     * @param permissions gateway injected permission codes, comma separated
+     * @param refundId refund primary key
+     * @param request current request, used to resolve the trace id
+     * @return channel snapshot plus the local reconciliation bookkeeping
+     * @author Caspian
+     * @since 0.9.0
+     */
+    @GetMapping("/{refundId}/channel")
+    public Result<AdminChannelRefundStatusView> channel(
+            @RequestHeader(value = IdentityHeaders.USER_ROLES, required = false) String roles,
+            @RequestHeader(value = IdentityHeaders.USER_PERMISSIONS, required = false)
+                    String permissions,
+            @PathVariable("refundId") long refundId,
+            HttpServletRequest request) {
+        ConsoleRoles.requireConsole(roles);
+        ConsoleRoles.requirePermission(permissions, ConsoleRoles.ORDER_LIST);
+        return Result.ok(adminRefundService.channelStatus(refundId), TraceIds.resolve(request));
     }
 
     /**
