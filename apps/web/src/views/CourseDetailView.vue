@@ -8,6 +8,8 @@ import {
   type CourseCard,
 } from '../api/courses'
 import { currentRoute, navigate } from '../router'
+import { addCartItem, getCart } from '../api/cart'
+import { ApiError } from '../api/client'
 import { describeError, isNotFound, isUnauthorized } from '../utils/errors'
 import { formatCents } from '../utils/format'
 import { isSignedIn } from '../utils/session'
@@ -21,6 +23,9 @@ const notFound = ref(false)
 
 const chapters = ref<ChapterNode[]>([])
 const chaptersError = ref('')
+const added = ref(false)
+const adding = ref(false)
+const cartNotice = ref('')
 
 const priceText = computed(() => {
   if (!course.value) {
@@ -43,6 +48,15 @@ async function loadCourse(): Promise<void> {
   notFound.value = false
   try {
     course.value = await getCourse(courseId)
+    if (isSignedIn.value) {
+      // A cart read failure must never block the course detail; the add button still works.
+      try {
+        const cart = await getCart()
+        added.value = (cart.items ?? []).some((item) => item.courseId === courseId)
+      } catch {
+        added.value = false
+      }
+    }
   } catch (error) {
     course.value = null
     notFound.value = isNotFound(error)
@@ -69,6 +83,35 @@ function buy(): void {
     return
   }
   navigate(`/checkout/${course.value.courseId}`)
+}
+
+/** Adds the course to the server side cart; anonymous visitors are sent to sign in first. */
+async function addToCart(): Promise<void> {
+  if (added.value || adding.value) {
+    return
+  }
+  if (!isSignedIn.value) {
+    navigate(loginHref.value)
+    return
+  }
+  adding.value = true
+  cartNotice.value = ''
+  try {
+    await addCartItem(courseId)
+    added.value = true
+  } catch (error) {
+    if (isUnauthorized(error)) {
+      navigate(loginHref.value)
+      return
+    }
+    if (error instanceof ApiError && error.code === 61002) {
+      cartNotice.value = '你已拥有该课程，无需加入购物车。'
+      return
+    }
+    cartNotice.value = describeError(error)
+  } finally {
+    adding.value = false
+  }
 }
 
 function lessonHref(lessonId: number): string {
@@ -151,27 +194,55 @@ void loadChapters()
                 class="lp-btn lp-btn--primary lp-btn--block"
                 href="/learning/my-courses"
               >继续学习</a>
-              <button
-                v-else-if="!paymentEnabled"
-                type="button"
-                class="lp-btn lp-btn--primary lp-btn--block"
-                disabled
-              >
-                暂未开放购买
-              </button>
-              <a
-                v-else-if="!isSignedIn"
-                class="lp-btn lp-btn--primary lp-btn--block"
-                :href="loginHref"
-              >登录后购买</a>
-              <button
-                v-else
-                type="button"
-                class="lp-btn lp-btn--primary lp-btn--block"
-                @click="buy"
-              >
-                立即购买
-              </button>
+              <template v-else>
+                <button
+                  v-if="!paymentEnabled"
+                  type="button"
+                  class="lp-btn lp-btn--primary lp-btn--block"
+                  disabled
+                >
+                  暂未开放购买
+                </button>
+                <a
+                  v-else-if="!isSignedIn"
+                  class="lp-btn lp-btn--primary lp-btn--block"
+                  :href="loginHref"
+                >登录后购买</a>
+                <button
+                  v-else
+                  type="button"
+                  class="lp-btn lp-btn--primary lp-btn--block"
+                  @click="buy"
+                >
+                  立即购买
+                </button>
+                <a
+                  v-if="added"
+                  class="lp-btn lp-btn--ghost lp-btn--block"
+                  href="/cart"
+                >已加入购物车 · 去查看</a>
+                <button
+                  v-else
+                  type="button"
+                  class="lp-btn lp-btn--ghost lp-btn--block"
+                  :disabled="adding"
+                  @click="addToCart"
+                >
+                  {{ adding ? '正在加入…' : '加入购物车' }}
+                </button>
+                <p
+                  v-if="!isSignedIn"
+                  class="lp-small lp-subtle cart-hint"
+                >
+                  加入购物车需先登录。
+                </p>
+                <p
+                  v-if="cartNotice"
+                  class="lp-alert cart-hint"
+                >
+                  {{ cartNotice }}
+                </p>
+              </template>
             </div>
           </div>
         </section>
@@ -282,8 +353,15 @@ void loadChapters()
 }
 
 .actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
   margin-top: auto;
   padding-top: 8px;
+}
+
+.cart-hint {
+  margin: 0;
 }
 
 .outline {
