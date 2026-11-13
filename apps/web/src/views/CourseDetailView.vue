@@ -48,15 +48,7 @@ async function loadCourse(): Promise<void> {
   notFound.value = false
   try {
     course.value = await getCourse(courseId)
-    if (isSignedIn.value) {
-      // A cart read failure must never block the course detail; the add button still works.
-      try {
-        const cart = await getCart()
-        added.value = (cart.items ?? []).some((item) => item.courseId === courseId)
-      } catch {
-        added.value = false
-      }
-    }
+    void syncCartState()
   } catch (error) {
     course.value = null
     notFound.value = isNotFound(error)
@@ -83,6 +75,19 @@ function buy(): void {
     return
   }
   navigate(`/checkout/${course.value.courseId}`)
+}
+
+/** Reads the cart after the detail is visible; a failure only resets the add state. */
+async function syncCartState(): Promise<void> {
+  if (!isSignedIn.value) {
+    return
+  }
+  try {
+    const cart = await getCart()
+    added.value = (cart.items ?? []).some((item) => item.courseId === courseId)
+  } catch {
+    added.value = false
+  }
 }
 
 /** Adds the course to the server side cart; anonymous visitors are sent to sign in first. */
