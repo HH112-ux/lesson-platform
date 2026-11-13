@@ -221,6 +221,37 @@ req POST /api/v1/learning/progress "$STUDENT_TOKEN" \
 require_code "report progress"
 pass "progress=$(jq -r '.data.positionSeconds // .data.position' <<<"$BODY")"
 
+step 14 "student checks out two courses as one combined order"
+# The catalog exposes owned and price, so pick two paid courses this buyer does not own yet.
+req GET "/api/v1/courses?page=1&size=20" "$STUDENT_TOKEN"
+require_code "catalog for combined order"
+COMBO_IDS="$(jq -c '[.data.items[] | select(.owned == false and .price > 0)][0:2] | map(.courseId)' <<<"$BODY")"
+[ "$(jq 'length' <<<"$COMBO_IDS")" = "2" ] \
+  || die "need two purchasable courses, found $(jq 'length' <<<"$COMBO_IDS")"
+COMBO_KEY="combo-$RUN_KEY"
+req POST /api/v1/orders "$STUDENT_TOKEN" \
+  "$(jq -nc --argjson ids "$COMBO_IDS" --arg key "$COMBO_KEY" \
+    '{courseIds:$ids,idempotencyKey:$key}')"
+require_code "create combined order"
+COMBO_ORDER_NO="$(jq -r '.data.orderNo' <<<"$BODY")"
+COMBO_LINES="$(jq -r '.data.items | length' <<<"$BODY")"
+COMBO_PAY="$(jq -r '.data.payAmountFen' <<<"$BODY")"
+COMBO_SUM="$(jq -r '[.data.items[].priceFen] | add' <<<"$BODY")"
+[ "$COMBO_LINES" = "2" ] || die "combined order has $COMBO_LINES lines, expected 2"
+[ "$COMBO_PAY" = "$COMBO_SUM" ] \
+  || die "combined payAmountFen=$COMBO_PAY does not match the line sum=$COMBO_SUM"
+pass "orderNo=$COMBO_ORDER_NO lines=$COMBO_LINES payAmountFen=$COMBO_PAY"
+
+# Replaying the same course set must return the same order instead of creating a second one.
+req POST /api/v1/orders "$STUDENT_TOKEN" \
+  "$(jq -nc --argjson ids "$COMBO_IDS" --arg key "$COMBO_KEY" \
+    '{courseIds:$ids,idempotencyKey:$key}')"
+require_code "replay combined order"
+REPLAY_ORDER_NO="$(jq -r '.data.orderNo' <<<"$BODY")"
+[ "$REPLAY_ORDER_NO" = "$COMBO_ORDER_NO" ] \
+  || die "replay created $REPLAY_ORDER_NO instead of $COMBO_ORDER_NO"
+pass "replay orderNo=$REPLAY_ORDER_NO"
+
 if [ "$SKIPPED_COUNT" -gt 0 ]; then
   printf '\nSMOKE FAIL: %s step(s) skipped\n' "$SKIPPED_COUNT"
   exit 1
