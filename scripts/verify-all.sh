@@ -92,8 +92,9 @@ abort_with_log() {
   exit 1
 }
 
-# Removes only rows whose course title starts with one of the drill prefixes. Demo seed
-# courses use different titles, so the seed data is never touched.
+# Removes only rows whose course title starts with one of the drill prefixes, plus the unpaid
+# combined checkout orders whose idempotency key carries the smoke prefix. Demo seed courses
+# use different titles, so the seed data is never touched.
 cleanup_drill_data() {
   # A default schema is required for the temporary tables below, and the connection must
   # declare utf8mb4 or the Chinese drill titles would never match in LIKE.
@@ -132,6 +133,21 @@ DELETE FROM lp_cms.course WHERE id IN (SELECT id FROM drill_course);
 
 SELECT CONCAT('cleanup removed ', COUNT(*), ' drill courses') AS result FROM drill_course;
 
+-- Combined checkout orders buy demo seed courses, so the drill course join cannot find them.
+-- The idempotency key prefix identifies them, and only unpaid rows are removed.
+CREATE TEMPORARY TABLE combo_order (id BIGINT UNSIGNED PRIMARY KEY);
+INSERT IGNORE INTO combo_order (id)
+SELECT id FROM lp_oms.trade_order
+WHERE idempotency_key LIKE 'combo-smoke-%' AND status = 0;
+
+SELECT CONCAT('cleanup found ', COUNT(*), ' combined smoke orders') AS result FROM combo_order;
+
+DELETE i FROM lp_oms.trade_order_item i
+INNER JOIN combo_order c ON c.id = i.order_id;
+DELETE o FROM lp_oms.trade_order o
+INNER JOIN combo_order c ON c.id = o.id;
+
+DROP TEMPORARY TABLE combo_order;
 DROP TEMPORARY TABLE drill_order;
 DROP TEMPORARY TABLE drill_course;
 SQL
