@@ -1,6 +1,7 @@
 package com.lp.trade.dto;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * Order projection returned by {@code POST /api/v1/orders}.
@@ -27,6 +28,8 @@ public class OrderView {
 
     private final long courseId;
 
+    private final List<OrderItemView> items;
+
     private final LocalDateTime payExpireAt;
 
     private final LocalDateTime paidAt;
@@ -40,7 +43,8 @@ public class OrderView {
      * @param totalAmountFen original amount in fen
      * @param discountAmountFen discount in fen
      * @param payAmountFen payable amount in fen
-     * @param courseId course id
+     * @param courseId first course id, kept for single course clients
+     * @param items every line of the order, in creation order
      * @param payExpireAt payment deadline, may be {@code null}
      * @param paidAt payment time, may be {@code null}
      * @author Caspian
@@ -54,6 +58,7 @@ public class OrderView {
             long discountAmountFen,
             long payAmountFen,
             long courseId,
+            List<OrderItemView> items,
             LocalDateTime payExpireAt,
             LocalDateTime paidAt) {
         this.orderNo = orderNo;
@@ -63,6 +68,7 @@ public class OrderView {
         this.discountAmountFen = discountAmountFen;
         this.payAmountFen = payAmountFen;
         this.courseId = courseId;
+        this.items = items == null ? List.of() : List.copyOf(items);
         this.payExpireAt = payExpireAt;
         this.paidAt = paidAt;
     }
@@ -142,6 +148,17 @@ public class OrderView {
      */
     public long getCourseId() {
         return courseId;
+    }
+
+    /**
+     * Returns every line of the order.
+     *
+     * @return immutable line list, one element for legacy single course orders
+     * @author Caspian
+     * @since 0.22.0
+     */
+    public List<OrderItemView> getItems() {
+        return items;
     }
 
     /**
