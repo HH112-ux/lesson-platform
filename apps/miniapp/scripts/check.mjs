@@ -82,23 +82,36 @@ if (errors.length > 0) {
 }
 
 /**
- * Resolves the apiBaseUrl the mini program will actually use at runtime.
+ * Reads config.local.js once so both base URLs resolve from the same snapshot.
  *
- * @returns {{value: string, source: string}} effective URL and where it came from
+ * @returns {object} parsed local config, or an empty object when absent or unreadable
  */
-function resolveApiBaseUrl() {
+function readLocalConfig() {
   const localPath = resolve(root, 'config.local.js')
   if (existsSync(localPath)) {
     try {
       const local = require(localPath)
-      if (typeof local.apiBaseUrl === 'string' && local.apiBaseUrl.trim()) {
-        return { value: local.apiBaseUrl.trim().replace(/\/+$/, ''), source: 'config.local.js' }
-      }
+      return local && typeof local === 'object' ? local : {}
     } catch (error) {
       console.warn(`WARN ignoring unreadable config.local.js: ${error.message}`)
     }
   }
-  return { value: defaults.apiBaseUrl, source: 'default (config.js)' }
+  return {}
+}
+
+/**
+ * Resolves one base URL the mini program will actually use at runtime.
+ *
+ * @param {object} local parsed config.local.js content
+ * @param {string} key configuration key to read
+ * @param {string} fallback default value from config.js
+ * @returns {{value: string, source: string}} effective URL and where it came from
+ */
+function resolveBaseUrl(local, key, fallback) {
+  if (typeof local[key] === 'string' && local[key].trim()) {
+    return { value: local[key].trim().replace(/\/+$/, ''), source: 'config.local.js' }
+  }
+  return { value: fallback, source: 'default (config.js)' }
 }
 
 /**
@@ -132,28 +145,31 @@ function isPrivateHost(hostname) {
 }
 
 /**
- * Describes why the effective apiBaseUrl is not acceptable for upload or release.
+ * Describes why an effective base URL is not acceptable for upload or release.
  *
  * @param {string} value effective base URL
+ * @param {string} [name] configuration key used in messages
  * @returns {string} empty string when the URL is a public HTTPS endpoint
  */
-function describePublicApiProblem(value) {
+function describePublicApiProblem(value, name = 'apiBaseUrl') {
   let parsed
   try {
     parsed = new URL(value)
   } catch {
-    return `apiBaseUrl is not an absolute URL: ${value}`
+    return `${name} is not an absolute URL: ${value}`
   }
   if (parsed.protocol !== 'https:') {
-    return `apiBaseUrl must use https, got ${parsed.protocol.replace(':', '')}`
+    return `${name} must use https, got ${parsed.protocol.replace(':', '')}`
   }
   if (isPrivateHost(parsed.hostname)) {
-    return `apiBaseUrl host ${parsed.hostname} is loopback or private; upload needs a filed public domain`
+    return `${name} host ${parsed.hostname} is loopback or private; upload needs a filed public domain`
   }
   return ''
 }
 
-const apiBase = resolveApiBaseUrl()
+const localConfig = readLocalConfig()
+const apiBase = resolveBaseUrl(localConfig, 'apiBaseUrl', defaults.apiBaseUrl)
+const webBase = resolveBaseUrl(localConfig, 'webBaseUrl', defaults.webBaseUrl)
 const requirePublicApi = process.argv.includes('--require-public-api')
 const publicApiProblem = requirePublicApi ? describePublicApiProblem(apiBase.value) : ''
 if (publicApiProblem) {
@@ -161,6 +177,14 @@ if (publicApiProblem) {
   console.error(`- ${publicApiProblem}`)
   console.error(`- effective value: ${apiBase.value} (source: ${apiBase.source})`)
   console.error('- set LP_MINIAPP_API_BASE_URL to the filed HTTPS domain, run: pnpm --filter lp-miniapp prepare:env')
+  process.exit(1)
+}
+const publicWebProblem = requirePublicApi ? describePublicApiProblem(webBase.value, 'webBaseUrl') : ''
+if (publicWebProblem) {
+  console.error('FAIL upload/release requires a public HTTPS webBaseUrl')
+  console.error(`- ${publicWebProblem}`)
+  console.error(`- effective value: ${webBase.value} (source: ${webBase.source})`)
+  console.error('- set LP_MINIAPP_WEB_BASE_URL to the filed HTTPS domain, run: pnpm --filter lp-miniapp prepare:env')
   process.exit(1)
 }
 
@@ -178,9 +202,14 @@ const appidMode = appidProblem ? `not configured (${resolved.source})` : `config
 console.log(`OK mini program static check (${pages.length} page(s), appid: ${appidMode})`)
 
 console.log(`apiBaseUrl: ${apiBase.value} (${apiBase.source})`)
+console.log(`webBaseUrl: ${webBase.value} (${webBase.source})`)
 const injectedApiBase = (process.env.LP_MINIAPP_API_BASE_URL ?? '').trim().replace(/\/+$/, '')
 if (injectedApiBase && injectedApiBase !== apiBase.value) {
   console.warn('WARN LP_MINIAPP_API_BASE_URL is set but config.local.js was not refreshed; run: pnpm --filter lp-miniapp prepare:env')
+}
+const injectedWebBase = (process.env.LP_MINIAPP_WEB_BASE_URL ?? '').trim().replace(/\/+$/, '')
+if (injectedWebBase && injectedWebBase !== webBase.value) {
+  console.warn('WARN LP_MINIAPP_WEB_BASE_URL is set but config.local.js was not refreshed; run: pnpm --filter lp-miniapp prepare:env')
 }
 try {
   if (isPrivateHost(new URL(apiBase.value).hostname)) {
@@ -193,6 +222,6 @@ if (appidProblem) {
   console.log('NOTE real-device acceptance and upload must run: pnpm --filter lp-miniapp check:appid')
 }
 if (requirePublicApi) {
-  console.log('NOTE upload gate passed: apiBaseUrl is HTTPS on a public host.')
+  console.log('NOTE upload gate passed: apiBaseUrl and webBaseUrl are HTTPS on public hosts.')
 }
 console.log('NOTE miniprogram-ci compile/upload is skipped: it requires a real AppID and upload private key.')

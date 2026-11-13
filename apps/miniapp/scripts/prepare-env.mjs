@@ -1,6 +1,6 @@
-// Generates the git-ignored config.local.js from LP_MINIAPP_API_BASE_URL. Injection is
-// optional: without the variable the mini program keeps the defaults in config.js and the
-// script only reports the effective value.
+// Generates the git-ignored config.local.js from LP_MINIAPP_API_BASE_URL and
+// LP_MINIAPP_WEB_BASE_URL. Injection is optional: without the variables the mini program keeps
+// the defaults in config.js and the script only reports the effective values.
 import { existsSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, resolve } from 'node:path'
@@ -10,7 +10,8 @@ import defaults from '../config.js'
 const require = createRequire(import.meta.url)
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const localPath = resolve(root, 'config.local.js')
-const ENV_NAME = 'LP_MINIAPP_API_BASE_URL'
+const API_ENV_NAME = 'LP_MINIAPP_API_BASE_URL'
+const WEB_ENV_NAME = 'LP_MINIAPP_WEB_BASE_URL'
 
 /**
  * Trims trailing slashes so callers can concatenate paths without double slashes.
@@ -25,61 +26,106 @@ function normalizeBaseUrl(value) {
 /**
  * Prints a reminder when the effective URL cannot be reached from a phone.
  *
+ * @param {string} name configuration key shown in the warning
  * @param {string} value effective base URL
  * @returns {void}
  */
-function warnIfLocalhost(value) {
+function warnIfLocalhost(name, value) {
   if (/^https?:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/.test(value)) {
-    console.warn('WARN apiBaseUrl points to localhost; a phone cannot reach it. Use the Mac LAN IP.')
+    console.warn(`WARN ${name} points to localhost; a phone cannot reach it. Use the Mac LAN IP.`)
   }
 }
 
 /**
- * Reads the apiBaseUrl currently written in config.local.js, if any.
+ * Reads config.local.js so injecting one URL keeps the other one intact.
  *
- * @returns {{value: string, source: string}} the effective URL and its source
+ * @returns {object} parsed local config, or an empty object when absent or unreadable
  */
-function readEffective() {
-  if (existsSync(localPath)) {
-    try {
-      const local = require(localPath)
-      if (typeof local.apiBaseUrl === 'string' && local.apiBaseUrl.trim()) {
-        return { value: normalizeBaseUrl(local.apiBaseUrl), source: 'config.local.js' }
-      }
-    } catch (error) {
-      console.warn(`WARN ignoring unreadable config.local.js: ${error.message}`)
-    }
+function readLocalConfig() {
+  if (!existsSync(localPath)) {
+    return {}
   }
-  return { value: defaults.apiBaseUrl, source: 'default (config.js)' }
+  try {
+    const local = require(localPath)
+    return local && typeof local === 'object' ? local : {}
+  } catch (error) {
+    console.warn(`WARN ignoring unreadable config.local.js: ${error.message}`)
+    return {}
+  }
 }
 
-const injected = (process.env[ENV_NAME] ?? '').trim()
+/**
+ * Resolves one URL from config.local.js, falling back to the shared default.
+ *
+ * @param {object} local parsed config.local.js content
+ * @param {string} key configuration key to read
+ * @param {string} fallback default value from config.js
+ * @returns {{value: string, source: string}} effective URL and its source
+ */
+function resolveEffective(local, key, fallback) {
+  const value = local[key]
+  if (typeof value === 'string' && value.trim()) {
+    return { value: normalizeBaseUrl(value), source: 'config.local.js' }
+  }
+  return { value: fallback, source: 'default (config.js)' }
+}
 
-if (!injected) {
-  const effective = readEffective()
-  console.log(`apiBaseUrl: ${effective.value} (${effective.source})`)
-  console.log(`NOTE ${ENV_NAME} is not set; config.local.js was not changed.`)
-  warnIfLocalhost(effective.value)
+/**
+ * Validates an injected base URL without echoing the raw value.
+ *
+ * @param {string} envName environment variable name used in messages
+ * @param {string} raw raw environment value
+ * @returns {string} normalized URL
+ */
+function parseOverride(envName, raw) {
+  const normalized = normalizeBaseUrl(raw)
+  let parsed
+  try {
+    parsed = new URL(normalized)
+  } catch {
+    // Never echo the raw value: it may contain a pasted secret or credentials.
+    console.error(`FAIL ${envName} is not a valid absolute URL (value length: ${raw.length})`)
+    process.exit(1)
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    console.error(`FAIL ${envName} must use http or https, got ${parsed.protocol}`)
+    process.exit(1)
+  }
+  return normalized
+}
+
+const local = readLocalConfig()
+const injectedApi = (process.env[API_ENV_NAME] ?? '').trim()
+const injectedWeb = (process.env[WEB_ENV_NAME] ?? '').trim()
+const localApi = resolveEffective(local, 'apiBaseUrl', defaults.apiBaseUrl)
+const localWeb = resolveEffective(local, 'webBaseUrl', defaults.webBaseUrl)
+
+if (!injectedApi && !injectedWeb) {
+  console.log(`apiBaseUrl: ${localApi.value} (${localApi.source})`)
+  console.log(`webBaseUrl: ${localWeb.value} (${localWeb.source})`)
+  console.log(`NOTE ${API_ENV_NAME} and ${WEB_ENV_NAME} are not set; config.local.js was not changed.`)
+  warnIfLocalhost('apiBaseUrl', localApi.value)
+  warnIfLocalhost('webBaseUrl', localWeb.value)
   process.exit(0)
 }
 
-const normalized = normalizeBaseUrl(injected)
-let parsed
-try {
-  parsed = new URL(normalized)
-} catch {
-  // Never echo the raw value: it may contain a pasted secret or credentials.
-  console.error(`FAIL ${ENV_NAME} is not a valid absolute URL (value length: ${injected.length})`)
-  process.exit(1)
-}
-if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-  console.error(`FAIL ${ENV_NAME} must use http or https, got ${parsed.protocol}`)
-  process.exit(1)
-}
+const api = injectedApi ? parseOverride(API_ENV_NAME, injectedApi) : localApi.value
+const web = injectedWeb ? parseOverride(WEB_ENV_NAME, injectedWeb) : localWeb.value
+const apiSource = injectedApi ? `injected via ${API_ENV_NAME}` : localApi.source
+const webSource = injectedWeb ? `injected via ${WEB_ENV_NAME}` : localWeb.source
 
-const content = `// Generated by scripts/prepare-env.mjs from ${ENV_NAME}. Git-ignored, but bundled into preview and upload packages.\nmodule.exports = {\n  apiBaseUrl: '${normalized}',\n}\n`
+const content = [
+  `// Generated by scripts/prepare-env.mjs from ${API_ENV_NAME} and ${WEB_ENV_NAME}. Git-ignored, but bundled into preview and upload packages.`,
+  'module.exports = {',
+  `  apiBaseUrl: '${api}',`,
+  `  webBaseUrl: '${web}',`,
+  '}',
+  '',
+].join('\n')
 writeFileSync(localPath, content)
 
-console.log(`apiBaseUrl: ${normalized} (injected via ${ENV_NAME} -> config.local.js)`)
+console.log(`apiBaseUrl: ${api} (${apiSource} -> config.local.js)`)
+console.log(`webBaseUrl: ${web} (${webSource} -> config.local.js)`)
 console.log('NOTE config.local.js is git-ignored and bundled on purpose; upload checks must run check:upload.')
-warnIfLocalhost(normalized)
+warnIfLocalhost('apiBaseUrl', api)
+warnIfLocalhost('webBaseUrl', web)
