@@ -26,8 +26,10 @@
 | POST | `/api/v1/orders/purchase-ticket` | 需登录 | `{courseId}` | `{url,qrPayload,ticket,expiresAt}` |
 | POST | `/api/v1/orders/purchase-ticket/redeem` | 无需登录 | `{ticket}` | `{accessToken,refreshToken,expiresIn,courseId}` |
 | GET | `/api/v1/courses/{courseId}` | 需登录 | — | 课程详情，含 `price`（分）与 `owned` |
-| POST | `/api/v1/orders` | 需登录 | `{courseId,idempotencyKey}` | `{orderNo,status,payAmount,...}` |
+| POST | `/api/v1/orders` | 需登录 | `{courseId,idempotencyKey}` 或 `{courseIds,idempotencyKey}` | `{orderNo,status,payAmount,items,...}` |
 | POST | `/api/v1/payments/{orderNo}/pay` | 需登录 | — | `{payNo,channel,payParams}` |
+
+`courseId` 与 `courseIds` 互斥：前者为单课程下单，语义与旧契约一致；后者把勾选的多门课程合并为一笔订单，去重后 1–20 门，金额由服务端按分汇总。合并订单本期不接受 `couponId`，携带即返回 `40001`，见 SPEC-TRADE-001 AC-8 至 AC-12。
 
 `redeem` 返回的 token 与正常登录一致，直接写入浏览器会话；浏览器来源经网关固定映射为 `web`，下单渠道因此固定为支付宝，客户端不传渠道参数。
 
@@ -47,7 +49,7 @@
 | 网络失败 | 0（前端合成） | 「网络连接失败，请检查网络后重试」 |
 | 课程下架 | 62003 | 「课程已下架，暂时无法购买」 |
 | 已购过 | 61002 或 `owned=true` | 「你已拥有该课程」并展示「去学习」入口 |
-| 支付通道未配置 | 50205 | 「支付通道尚未配置，请联系客服」 |
+| 支付通道未配置 | 50205 | 「支付二维码暂未开通」并引导联系客服，不渲染可扫码的二维码 |
 | 其他非 2xx | 原样 | 展示后端 `message`，不吞错 |
 
 ## 6. 浏览器端实现
@@ -55,6 +57,8 @@
 - 页面路由：`/purchase`，由 `apps/web/src/App.vue` 按 `pathname` 分发，未引入路由库。
 - 登录态：`localStorage` 的 `lp.accessToken` 与 `lp.refreshToken`，读写集中在 `apps/web/src/api/client.ts`；请求统一加 `Authorization: Bearer <token>`。
 - 页面实现：`apps/web/src/views/PurchaseView.vue`；错误文案与价格格式化等纯函数在 `apps/web/src/utils/purchase.ts`，由 `purchase.spec.ts` 覆盖。
+- 购物车与合并结算：`/cart` 勾选多门课程后跳转 `/checkout?courseIds=`，由 `CheckoutView.vue` 调用 `POST /api/v1/orders {courseIds}`；页面只展示各行单价，应付金额始终以服务端返回的 `payAmount` 为准。
+- 支付占位：支付渠道未配置时后端返回 50205，结算页显示带「未开通」标识的虚线占位区并展示订单号，不绘制可扫码的二维码，也不展示支付成功。
 - 下单与支付复用现有 `/api/v1/orders`、`/api/v1/payments/{orderNo}/pay`，不新增支付逻辑。
 - 「去学习」入口指向 `/learning/my-courses`，该页面已实现（按最近学习排序，含退款失效标记）。
 
