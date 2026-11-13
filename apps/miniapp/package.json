@@ -3,6 +3,7 @@
   "private": true,
   "version": "0.0.0",
   "scripts": {
+    "test": "node --test utils/media.test.js",
     "check": "node scripts/check.mjs",
     "check:appid": "node scripts/check.mjs --require-appid",
     "check:upload": "node scripts/check.mjs --require-public-api",
