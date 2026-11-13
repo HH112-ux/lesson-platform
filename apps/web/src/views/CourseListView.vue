@@ -320,58 +320,93 @@ void Promise.all([load(), loadCategories(), syncCart()])
             </div>
           </a>
           <div class="body foot">
-            <p class="lp-price price">
+            <p class="price">
               {{ course.price === 0 ? '免费' : `¥${formatCents(course.price)}` }}
             </p>
             <div class="card-actions">
               <a
                 v-if="course.owned"
-                class="lp-btn lp-btn--ghost card-action"
+                class="lp-btn lp-btn--primary card-primary"
                 href="/learning/my-courses"
                 @click.stop
               >继续学习</a>
-              <template v-else-if="course.price === 0">
-                <button
-                  type="button"
-                  class="lp-btn lp-btn--primary card-action"
-                  @click.stop.prevent="openDetail(course)"
-                >
-                  免费学习
-                </button>
-              </template>
+              <button
+                v-else-if="course.price === 0"
+                type="button"
+                class="lp-btn lp-btn--primary card-primary"
+                @click.stop.prevent="openDetail(course)"
+              >
+                免费学习
+              </button>
               <template v-else>
                 <a
                   v-if="isAdded(course)"
-                  class="lp-btn lp-btn--ghost card-action"
+                  class="cart-toggle"
                   href="/cart"
+                  aria-label="已加入购物车，前往购物车"
+                  title="已加入购物车，去购物车"
                   @click.stop
-                >已加入 · 去购物车</a>
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    aria-hidden="true"
+                  >
+                    <path
+                      d="M5 12.5l4.5 4.5L19 7.5"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2.4"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    />
+                  </svg>
+                </a>
                 <button
                   v-else
                   type="button"
-                  class="lp-btn lp-btn--ghost card-action"
+                  class="cart-toggle"
+                  :aria-label="addingId === course.courseId ? '正在加入购物车' : '加入购物车'"
+                  :aria-busy="addingId === course.courseId || undefined"
                   :disabled="addingId === course.courseId"
+                  title="加入购物车"
                   @click.stop.prevent="addToCart(course)"
                 >
-                  {{ addingId === course.courseId ? '加入中…' : '加入购物车' }}
+                  <span
+                    v-if="addingId === course.courseId"
+                    class="cart-spinner"
+                    aria-hidden="true"
+                  />
+                  <svg
+                    v-else
+                    viewBox="0 0 24 24"
+                    aria-hidden="true"
+                  >
+                    <path
+                      d="M12 5v14M5 12h14"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2.4"
+                      stroke-linecap="round"
+                    />
+                  </svg>
                 </button>
                 <button
                   type="button"
-                  class="lp-btn lp-btn--primary card-action"
+                  class="lp-btn lp-btn--primary card-primary"
                   @click.stop.prevent="openDetail(course)"
                 >
                   购买
                 </button>
               </template>
             </div>
+            <p
+              v-if="noticeById[course.courseId]"
+              class="cart-notice"
+              role="status"
+            >
+              {{ noticeById[course.courseId] }}
+            </p>
           </div>
-          <p
-            v-if="noticeById[course.courseId]"
-            class="lp-alert card-notice"
-            aria-live="polite"
-          >
-            {{ noticeById[course.courseId] }}
-          </p>
         </article>
       </div>
 
@@ -523,38 +558,110 @@ void Promise.all([load(), loadCategories(), syncCart()])
 }
 
 .foot {
+  position: relative;
   flex-direction: row;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 12px;
+  min-height: 52px;
   padding: 0 16px 16px;
-}
-
-.foot .price {
-  margin-top: 0;
 }
 
 .card-actions {
   display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
+  flex: 0 0 auto;
+  align-items: center;
   gap: 8px;
 }
 
-.card-action {
-  padding: 5px 12px;
+.card-primary {
+  height: 36px;
+  padding: 0 14px;
   font-size: 13px;
+  font-weight: 500;
   white-space: nowrap;
 }
 
-.card-action:disabled {
-  cursor: wait;
-  opacity: 0.65;
+.card-primary:focus-visible {
+  outline: 2px solid var(--lp-primary);
+  outline-offset: 2px;
 }
 
-.card-notice {
-  margin: 0 16px 14px;
+.cart-toggle {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--lp-border);
+  border-radius: var(--lp-radius-sm);
+  background: var(--lp-bg);
+  color: var(--lp-text-muted);
+  cursor: pointer;
+  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.cart-toggle:hover {
+  border-color: var(--lp-primary);
+  background: var(--lp-primary-soft);
+  color: var(--lp-primary);
+}
+
+.cart-toggle:active {
+  transform: scale(0.96);
+}
+
+.cart-toggle:focus-visible {
+  outline: 2px solid var(--lp-primary);
+  outline-offset: 2px;
+}
+
+.cart-toggle:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.cart-toggle:disabled:hover {
+  border-color: var(--lp-border);
+  background: var(--lp-bg);
+  color: var(--lp-text-muted);
+}
+
+.cart-toggle svg {
+  width: 18px;
+  height: 18px;
+}
+
+.cart-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--lp-border);
+  border-top-color: var(--lp-text-muted);
+  border-radius: 50%;
+  animation: cart-spin 0.7s linear infinite;
+}
+
+@keyframes cart-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.cart-notice {
+  position: absolute;
+  right: 16px;
+  bottom: calc(100% + 6px);
+  z-index: 2;
+  max-width: calc(100% - 32px);
+  padding: 6px 10px;
+  border-radius: var(--lp-radius-sm);
+  background: var(--lp-text);
+  color: var(--lp-surface);
   font-size: 12px;
+  line-height: 1.45;
+  box-shadow: var(--lp-shadow);
 }
 
 .name {
@@ -566,8 +673,13 @@ void Promise.all([load(), loadCategories(), syncCart()])
 }
 
 .price {
-  margin-top: 4px;
-  font-size: 16px;
+  overflow: hidden;
+  color: var(--lp-text);
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .pager {
