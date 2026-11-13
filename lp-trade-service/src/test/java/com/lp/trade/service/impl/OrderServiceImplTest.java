@@ -174,6 +174,32 @@ class OrderServiceImplTest {
     }
 
     /**
+     * A combined total above the storable limit is rejected instead of failing in the database.
+     *
+     * @author Caspian
+     * @since 0.22.0
+     */
+    @Test
+    void rejectsCombinedTotalOverflow() {
+        when(courseInternalClient.course(7L)).thenReturn(courseWithId(7L, 9_999_999_999L, 2));
+        when(courseInternalClient.course(9L)).thenReturn(courseWithId(9L, 9_999_999_999L, 2));
+        when(tradeOrderMapper.countOwned(USER_ID, 7L)).thenReturn(0L);
+        when(tradeOrderMapper.countOwned(USER_ID, 9L)).thenReturn(0L);
+
+        BizException exception =
+                assertThrows(
+                        BizException.class,
+                        () ->
+                                orderService.create(
+                                        USER_ID,
+                                        "web",
+                                        combinedRequest("key-28", List.of(7L, 9L))));
+
+        assertEquals(62003, exception.getCode());
+        verify(tradeOrderMapper, never()).insertOrder(any(TradeOrder.class));
+    }
+
+    /**
      * Sending both course fields is ambiguous and rejected before any course is read.
      *
      * @author Caspian

@@ -216,6 +216,9 @@ public class OrderServiceImpl implements OrderService {
             courses.add(course);
             total = total.add(BigDecimal.valueOf(course.getPrice(), 2));
         }
+        if (!Money.isStorable(total.movePointRight(2).longValueExact())) {
+            throw new BizException(ErrorCode.TRADE_UNAVAILABLE, "course price is invalid");
+        }
 
         CouponSelection selection = selectCoupon(userId, request.getCouponId(), total);
         BigDecimal discount = selection == null ? ZERO : selection.discount;
