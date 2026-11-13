@@ -2,7 +2,6 @@ package com.lp.gateway.filter;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lp.common.identity.IdentityHeaders;
 import com.lp.gateway.config.IdentityProperties;
 import com.lp.gateway.security.JwtVerifier;
@@ -28,6 +27,7 @@ import org.springframework.mock.http.server.reactive.MockServerHttpRequest;
 import org.springframework.mock.web.server.MockServerWebExchange;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Covers the gateway identity contract from {@code docs/engineering-plan.md} 6.2/6.4.
