@@ -241,13 +241,18 @@ public class OrderServiceImpl implements OrderService {
         // snapshot.
         tradeOrderMapper.insertOrder(order);
 
+        List<LineAmounts> lines = new ArrayList<>(courses.size());
         for (CourseSnapshot course : courses) {
             if (combined) {
                 BigDecimal lineAmount = BigDecimal.valueOf(course.getPrice(), 2);
-                insertItem(order.getId(), course, lineAmount, ZERO, lineAmount);
+                lines.add(new LineAmounts(lineAmount, ZERO, lineAmount));
             } else {
-                insertItem(order.getId(), course, total, discount, payAmount);
+                lines.add(new LineAmounts(total, discount, payAmount));
             }
+        }
+        requireReconciled(lines, total, discount, payAmount);
+        for (int index = 0; index < courses.size(); index++) {
+            insertItem(order.getId(), courses.get(index), lines.get(index));
         }
         consumeCoupon(selection, order.getId(), now);
         if (completed) {
@@ -298,21 +303,49 @@ public class OrderServiceImpl implements OrderService {
         return order;
     }
 
-    private void insertItem(
-            Long orderId,
-            CourseSnapshot course,
-            BigDecimal total,
-            BigDecimal discount,
-            BigDecimal payAmount) {
+    private void insertItem(Long orderId, CourseSnapshot course, LineAmounts amounts) {
         TradeOrderItem item = new TradeOrderItem();
         item.setOrderId(orderId);
         item.setCourseId(course.getCourseId());
         item.setOwnerTeacherId(course.getTeacherId());
         item.setCourseTitle(course.getTitle());
-        item.setPrice(total);
-        item.setDiscountAmount(discount);
-        item.setActualAmount(payAmount);
+        item.setPrice(amounts.price());
+        item.setDiscountAmount(amounts.discount());
+        item.setActualAmount(amounts.pay());
         tradeOrderMapper.insertItem(item);
+    }
+
+    /**
+     * Fails the transaction when the line amounts do not add up to the order amounts.
+     *
+     * <p>Refunds and reconciliation work from the order-level amounts, while reports and support
+     * read the lines, so the two must always agree. A coupon is only accepted on a single course
+     * order, therefore no discount may be spread over several lines; the check keeps that rule true
+     * even if the line construction changes later.
+     *
+     * @param lines amounts about to be stored on the order lines
+     * @param total order total in yuan
+     * @param discount order discount in yuan
+     * @param payAmount order payable amount in yuan
+     * @throws IllegalStateException when any line sum differs from its order amount
+     * @author Caspian
+     * @since 0.22.0
+     */
+    private void requireReconciled(
+            List<LineAmounts> lines, BigDecimal total, BigDecimal discount, BigDecimal payAmount) {
+        long lineTotal = 0;
+        long lineDiscount = 0;
+        long linePay = 0;
+        for (LineAmounts line : lines) {
+            lineTotal += Money.toFen(line.price());
+            lineDiscount += Money.toFen(line.discount());
+            linePay += Money.toFen(line.pay());
+        }
+        if (lineTotal != Money.toFen(total)
+                || lineDiscount != Money.toFen(discount)
+                || linePay != Money.toFen(payAmount)) {
+            throw new IllegalStateException("order lines do not reconcile with the order amounts");
+        }
     }
 
     private void consumeCoupon(CouponSelection selection, Long orderId, LocalDateTime now) {
@@ -750,4 +783,15 @@ public class OrderServiceImpl implements OrderService {
      * @since 0.22.0
      */
     private record CourseSelection(List<Long> courseIds, boolean legacy) {}
+
+    /**
+     * Amounts stored on one order line.
+     *
+     * @param price line price in yuan
+     * @param discount line discount in yuan
+     * @param pay line payable amount in yuan
+     * @author Caspian
+     * @since 0.22.0
+     */
+    private record LineAmounts(BigDecimal price, BigDecimal discount, BigDecimal pay) {}
 }
