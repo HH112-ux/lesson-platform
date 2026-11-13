@@ -12,6 +12,7 @@ import com.lp.trade.mapper.PaymentMapper;
 import com.lp.trade.mapper.RefundRequestMapper;
 import com.lp.trade.mapper.TradeOrderMapper;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Objects;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -99,9 +100,13 @@ public class RefundSettlementService {
             return 0;
         }
         TradeOrder order = tradeOrderMapper.selectById(refund.getOrderId());
-        TradeOrderItem item = tradeOrderMapper.selectFirstItem(refund.getOrderId());
-        if (order == null || item == null || item.getCourseId() == null) {
+        List<TradeOrderItem> items = tradeOrderMapper.selectItems(refund.getOrderId());
+        if (order == null || items.isEmpty()) {
             LOG.warn("refund settlement skipped, order or line missing: refund={}", refundId);
+            return 0;
+        }
+        if (items.stream().anyMatch(item -> item.getCourseId() == null)) {
+            LOG.warn("refund settlement skipped, order line has no course: refund={}", refundId);
             return 0;
         }
         LocalDateTime now = LocalDateTime.now();
@@ -118,8 +123,10 @@ public class RefundSettlementService {
         if (payment == null || paymentMapper.markRefunded(payment.getId()) == 0) {
             LOG.warn("payment did not move to refunded: order={}", order.getOrderNo());
         }
-        entitlementService.revoke(
-                order.getUserId(), item.getCourseId(), order.getId(), order.getOrderNo());
+        for (TradeOrderItem item : items) {
+            entitlementService.revoke(
+                    order.getUserId(), item.getCourseId(), order.getId(), order.getOrderNo());
+        }
         return 1;
     }
 

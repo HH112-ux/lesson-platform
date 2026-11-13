@@ -22,6 +22,7 @@ import com.lp.trade.mapper.PaymentMapper;
 import com.lp.trade.mapper.RefundRequestMapper;
 import com.lp.trade.mapper.TradeOrderMapper;
 import java.math.BigDecimal;
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -100,7 +101,7 @@ class RefundSettlementServiceTest {
     void settlesChannelDoneRefundAndRevokesEntitlement() {
         when(refundRequestMapper.selectById(REFUND_ID)).thenReturn(refund(RefundStatus.APPROVED));
         when(tradeOrderMapper.selectById(ORDER_ID)).thenReturn(refundingOrder());
-        when(tradeOrderMapper.selectFirstItem(ORDER_ID)).thenReturn(item());
+        when(tradeOrderMapper.selectItems(ORDER_ID)).thenReturn(List.of(item()));
         when(refundRequestMapper.markSuccess(
                         eq(REFUND_ID), eq(CHANNEL_REFUND_NO), eq(AMOUNT), eq(SETTLED_BY), any()))
                 .thenReturn(1);
@@ -114,6 +115,32 @@ class RefundSettlementServiceTest {
         assertEquals(1, settled);
         verify(paymentMapper).markRefunded(3L);
         verify(entitlementService).revoke(USER_ID, COURSE_ID, ORDER_ID, ORDER_NO);
+    }
+
+    /**
+     * A combined order revokes access to every line, not only the first one.
+     *
+     * @author Caspian
+     * @since 0.22.0
+     */
+    @Test
+    void settlesCombinedOrderAndRevokesEveryCourse() {
+        when(refundRequestMapper.selectById(REFUND_ID)).thenReturn(refund(RefundStatus.APPROVED));
+        when(tradeOrderMapper.selectById(ORDER_ID)).thenReturn(refundingOrder());
+        when(tradeOrderMapper.selectItems(ORDER_ID)).thenReturn(List.of(item(7L), item(9L)));
+        when(refundRequestMapper.markSuccess(
+                        eq(REFUND_ID), eq(CHANNEL_REFUND_NO), eq(AMOUNT), eq(SETTLED_BY), any()))
+                .thenReturn(1);
+        when(tradeOrderMapper.markRefunded(eq(ORDER_ID), any())).thenReturn(1);
+        when(paymentMapper.selectLatestByOrderId(ORDER_ID)).thenReturn(payment());
+        when(paymentMapper.markRefunded(3L)).thenReturn(1);
+
+        int settled =
+                settlementService.settle(REFUND_ID, AMOUNT_FEN, CHANNEL_REFUND_NO, SETTLED_BY);
+
+        assertEquals(1, settled);
+        verify(entitlementService).revoke(USER_ID, 7L, ORDER_ID, ORDER_NO);
+        verify(entitlementService).revoke(USER_ID, 9L, ORDER_ID, ORDER_NO);
     }
 
     /**
@@ -175,7 +202,7 @@ class RefundSettlementServiceTest {
     void skipsWhenConditionalUpdateLosesRace() {
         when(refundRequestMapper.selectById(REFUND_ID)).thenReturn(refund(RefundStatus.APPROVED));
         when(tradeOrderMapper.selectById(ORDER_ID)).thenReturn(refundingOrder());
-        when(tradeOrderMapper.selectFirstItem(ORDER_ID)).thenReturn(item());
+        when(tradeOrderMapper.selectItems(ORDER_ID)).thenReturn(List.of(item()));
         when(refundRequestMapper.markSuccess(
                         eq(REFUND_ID), eq(CHANNEL_REFUND_NO), eq(AMOUNT), eq(SETTLED_BY), any()))
                 .thenReturn(0);
@@ -222,9 +249,13 @@ class RefundSettlementServiceTest {
     }
 
     private TradeOrderItem item() {
+        return item(COURSE_ID);
+    }
+
+    private TradeOrderItem item(long courseId) {
         TradeOrderItem item = new TradeOrderItem();
         item.setOrderId(ORDER_ID);
-        item.setCourseId(COURSE_ID);
+        item.setCourseId(courseId);
         return item;
     }
 

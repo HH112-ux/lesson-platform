@@ -37,6 +37,7 @@ import com.lp.trade.service.AccountDeletionGuard;
 import com.lp.trade.service.PaymentAnomalyRecorder;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -131,13 +132,36 @@ class PaymentServiceImplTest {
         when(paymentMapper.markSuccess(eq(1L), eq(TRADE_NO), any(LocalDateTime.class)))
                 .thenReturn(1);
         when(tradeOrderMapper.markPaid(eq(ORDER_ID), any(LocalDateTime.class))).thenReturn(1);
-        when(tradeOrderMapper.selectFirstItem(ORDER_ID)).thenReturn(item());
+        when(tradeOrderMapper.selectItems(ORDER_ID)).thenReturn(List.of(item()));
 
         paymentService.handleNotify(PaymentChannel.ALIPAY, Map.of(), "body", notification("99.00"));
         paymentService.handleNotify(PaymentChannel.ALIPAY, Map.of(), "body", notification("99.00"));
 
         verify(entitlementService, times(1)).grant(USER_ID, COURSE_ID, ORDER_ID, ORDER_NO);
         verify(paymentMapper, times(1)).markSuccess(eq(1L), eq(TRADE_NO), any(LocalDateTime.class));
+    }
+
+    /**
+     * A combined order grants access to every line, not only the first one.
+     *
+     * @author Caspian
+     * @since 0.22.0
+     */
+    @Test
+    void grantsEveryCourseOfACombinedOrder() {
+        when(paymentMapper.selectByChannelTradeNo(PaymentChannel.ALIPAY, TRADE_NO))
+                .thenReturn(null);
+        when(tradeOrderMapper.selectByOrderNo(ORDER_NO)).thenReturn(order());
+        when(paymentMapper.selectLatestByOrderId(ORDER_ID)).thenReturn(pendingPayment());
+        when(paymentMapper.markSuccess(eq(1L), eq(TRADE_NO), any(LocalDateTime.class)))
+                .thenReturn(1);
+        when(tradeOrderMapper.markPaid(eq(ORDER_ID), any(LocalDateTime.class))).thenReturn(1);
+        when(tradeOrderMapper.selectItems(ORDER_ID)).thenReturn(List.of(item(7L), item(9L)));
+
+        paymentService.handleNotify(PaymentChannel.ALIPAY, Map.of(), "body", notification("99.00"));
+
+        verify(entitlementService).grant(USER_ID, 7L, ORDER_ID, ORDER_NO);
+        verify(entitlementService).grant(USER_ID, 9L, ORDER_ID, ORDER_NO);
     }
 
     /**
@@ -349,7 +373,7 @@ class PaymentServiceImplTest {
         when(paymentMapper.markSuccess(eq(1L), eq(TRADE_NO), any(LocalDateTime.class)))
                 .thenReturn(1);
         when(tradeOrderMapper.markPaid(eq(ORDER_ID), any(LocalDateTime.class))).thenReturn(1);
-        when(tradeOrderMapper.selectFirstItem(ORDER_ID)).thenReturn(item());
+        when(tradeOrderMapper.selectItems(ORDER_ID)).thenReturn(List.of(item()));
 
         paymentService.handleNotify(PaymentChannel.WXPAY, Map.of(), "body", notification);
 
@@ -540,9 +564,13 @@ class PaymentServiceImplTest {
     }
 
     private TradeOrderItem item() {
+        return item(COURSE_ID);
+    }
+
+    private TradeOrderItem item(long courseId) {
         TradeOrderItem item = new TradeOrderItem();
         item.setOrderId(ORDER_ID);
-        item.setCourseId(COURSE_ID);
+        item.setCourseId(courseId);
         return item;
     }
 }
