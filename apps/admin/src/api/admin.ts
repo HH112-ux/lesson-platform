@@ -186,6 +186,87 @@ export function loadOverview(): Promise<MetricsOverview> {
   return apiRequest<MetricsOverview>('/api/v1/admin/metrics/overview')
 }
 
+/** One calendar day of the dashboard trend. */
+export interface DashboardDailyMetric {
+  /** Day in {@code yyyy-MM-dd} form, server time zone. */
+  date: string
+  /** Orders created on the day. */
+  orderCount: number
+  /** Settled orders created on the day. */
+  paidOrderCount: number
+  /** Settled revenue of the day, in fen. */
+  revenueFen: number
+}
+
+/** One row of the dashboard course ranking. */
+export interface DashboardCourseSale {
+  courseId: number
+  title: string
+  /** Paid order lines of the course. */
+  orderCount: number
+  /** Revenue of the course lines, in fen. */
+  revenueFen: number
+}
+
+/** Graphical dashboard returned by {@code GET /api/v1/admin/metrics/dashboard}. */
+export interface DashboardMetrics {
+  /** Effective window length in days. */
+  days: number
+  /**
+   * Gross merchandise volume inside the window, in fen, attributed to the order creation day.
+   * Refunds are never deducted from this figure.
+   */
+  revenueFen: number
+  /**
+   * Net revenue in fen: {@link revenueFen} minus refunds settled inside the window. Refunds are
+   * attributed to their settlement day, so this figure can differ from the gross value and may be
+   * negative.
+   */
+  netRevenueFen: number
+  /** Orders created inside the window. */
+  orderCount: number
+  /** Settled orders created inside the window. */
+  paidOrderCount: number
+  /** Paid orders divided by created orders. */
+  paidRate: number
+  /** Live learner accounts, role {@code STUDENT}. */
+  studentTotal: number
+  /** Learner accounts registered inside the window. */
+  newStudents: number
+  /** Live courses. */
+  courseTotal: number
+  /** Published courses. */
+  coursePublished: number
+  /** Courses waiting for the review decision. */
+  coursePendingReview: number
+  /** Refund applications created inside the window. */
+  refundAppliedCount: number
+  /** Refunds settled inside the window. */
+  refundedCount: number
+  /** Refunded amount inside the window, in fen. */
+  refundAmountFen: number
+  /** Refunds waiting for a review decision, current backlog. */
+  refundPendingCount: number
+  /** Refunds approved but not settled locally, current backlog. */
+  refundProcessingCount: number
+  /** One entry per calendar day, oldest first, zero filled. */
+  dailyTrend: DashboardDailyMetric[]
+  /** Best selling courses of the window, highest first. */
+  courseSales: DashboardCourseSale[]
+}
+
+/**
+ * Loads the graphical dashboard figures.
+ *
+ * @param days window length in days, the backend caps it at 90
+ * @returns aggregates of revenue, orders, users, courses, refunds, trend and ranking
+ * @author Caspian
+ * @since 0.21.0
+ */
+export function loadDashboard(days = 30): Promise<DashboardMetrics> {
+  return apiRequest<DashboardMetrics>(`/api/v1/admin/metrics/dashboard?days=${days}`)
+}
+
 /** One refund waiting for or already holding an operations decision. */
 export interface AdminRefundView {
   refundId: number
