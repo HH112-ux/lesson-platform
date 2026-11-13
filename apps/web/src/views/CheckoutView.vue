@@ -2,15 +2,25 @@
 import { computed, ref } from 'vue'
 import PageState from '../components/PageState.vue'
 import { getCourse, type CourseCard } from '../api/courses'
-import { createOrder, isOrderPaid, payOrder, type OrderView } from '../api/orders'
+import {
+  createCombinedOrder,
+  createOrder,
+  isOrderPaid,
+  payOrder,
+  type OrderView,
+} from '../api/orders'
+import { removeCartItem } from '../api/cart'
 import { ApiError } from '../api/client'
 import { currentRoute, navigate } from '../router'
 import { describeError, isUnauthorized } from '../utils/errors'
 import { formatCents } from '../utils/format'
 import { describePaymentFormRejection, submitPaymentForm } from '../utils/payment'
 
-const courseId = Number(currentRoute.value.params.courseId)
-const course = ref<CourseCard | null>(null)
+const MAX_COMBINED_COURSES = 20
+const requestCourseIds = parseCourseIds(currentRoute.value.query.get('courseIds'))
+const combined = requestCourseIds.length > 1
+const singleCourseId = Number(currentRoute.value.params.courseId)
+const courses = ref<CourseCard[]>([])
 const loading = ref(true)
 const errorText = ref('')
 const unauthorized = ref(false)
@@ -22,26 +32,71 @@ const paymentUnavailable = ref(false)
 const orderKey = crypto.randomUUID()
 const paymentKey = crypto.randomUUID()
 
-const priceText = computed(() => {
-  if (!course.value) {
-    return ''
+const nextPath = combined
+  ? `/checkout?courseIds=${requestCourseIds.join(',')}`
+  : `/checkout/${singleCourseId}`
+
+const payLabel = computed(() => {
+  if (paying.value) {
+    return '正在创建订单…'
   }
-  return course.value.price === 0 ? '免费' : `¥${formatCents(course.value.price)}`
+  return combined ? `合并支付 ${courses.value.length} 门课程` : '支付宝支付'
 })
 
-const payLabel = computed(() => (paying.value ? '正在创建订单…' : '支付宝支付'))
+/**
+ * Parses the comma separated course ids of a combined checkout.
+ *
+ * @param raw query value such as {@code 7,9}
+ * @returns positive integers without duplicates, empty when the value is absent
+ * @author Caspian
+ * @since 0.22.0
+ */
+function parseCourseIds(raw: string | null): number[] {
+  if (!raw) {
+    return []
+  }
+  const ids = raw
+    .split(',')
+    .map((value) => Number(value))
+    .filter((value) => Number.isInteger(value) && value > 0)
+  return Array.from(new Set(ids))
+}
 
-/** Loads the course summary shown on the cashier. */
+/**
+ * Renders one course price for display only.
+ *
+ * @param item course returned by the catalog
+ * @returns a human readable price
+ * @author Caspian
+ * @since 0.22.0
+ */
+function priceTextOf(item: CourseCard): string {
+  return item.price === 0 ? '免费' : `¥${formatCents(item.price)}`
+}
+
+/** Loads the courses shown on the cashier, one or several. */
 async function load(): Promise<void> {
   loading.value = true
   errorText.value = ''
   unauthorized.value = false
+  const ids = combined ? requestCourseIds : [singleCourseId]
+  if (ids.length === 0 || ids.some((id) => !Number.isInteger(id) || id <= 0)) {
+    courses.value = []
+    errorText.value = '课程信息不完整，请从课程页或购物车重新进入结算。'
+    loading.value = false
+    return
+  }
+  if (ids.length > MAX_COMBINED_COURSES) {
+    courses.value = []
+    errorText.value = `一次最多结算 ${MAX_COMBINED_COURSES} 门课程。`
+    loading.value = false
+    return
+  }
   try {
-    const detail = await getCourse(courseId)
-    course.value = detail
-    owned.value = detail.owned === true
+    courses.value = await Promise.all(ids.map((id) => getCourse(id)))
+    owned.value = courses.value.some((item) => item.owned === true)
   } catch (error) {
-    course.value = null
+    courses.value = []
     errorText.value = describeError(error)
     unauthorized.value = isUnauthorized(error)
   } finally {
@@ -49,17 +104,35 @@ async function load(): Promise<void> {
   }
 }
 
+/** Drops the settled lines from the cart without blocking the cashier. */
+async function clearSettledCartLines(): Promise<void> {
+  await Promise.all(
+    courses.value.map(async (item) => {
+      try {
+        await removeCartItem(item.courseId)
+      } catch {
+        // A stale cart line must never block an order that already exists.
+      }
+    }),
+  )
+}
+
 /** Creates the order and either finishes it or sends the buyer to the payment channel. */
 async function pay(): Promise<void> {
-  if (!course.value || paying.value) {
+  if (courses.value.length === 0 || paying.value) {
     return
   }
   paying.value = true
   notice.value = ''
   paymentUnavailable.value = false
   try {
-    const order = await createOrder(course.value.courseId, orderKey)
+    const order = combined
+      ? await createCombinedOrder(courses.value.map((item) => item.courseId), orderKey)
+      : await createOrder(courses.value[0].courseId, orderKey)
     createdOrder.value = order
+    if (combined) {
+      void clearSettledCartLines()
+    }
     if (isOrderPaid(order)) {
       navigate(`/orders/${order.orderNo}/result`)
       return
@@ -78,11 +151,11 @@ async function pay(): Promise<void> {
     }
     if (error instanceof ApiError && error.code === 61002) {
       owned.value = true
-      notice.value = '你已拥有该课程'
+      notice.value = combined ? '你已拥有其中一门课程' : '你已拥有该课程'
       return
     }
     if (isUnauthorized(error)) {
-      navigate(`/login?next=${encodeURIComponent(`/checkout/${courseId}`)}`)
+      navigate(`/login?next=${encodeURIComponent(nextPath)}`)
       return
     }
     notice.value = describeError(error)
@@ -113,7 +186,7 @@ void load()
         />
 
         <section
-          v-else-if="course"
+          v-else-if="courses.length"
           class="lp-card lp-card-body"
         >
           <h1 class="title">
@@ -123,19 +196,40 @@ void load()
             支付完成后课程会自动开通。
           </p>
 
-          <div class="summary">
+          <ul
+            v-if="combined"
+            class="summary summary-lines"
+          >
+            <li
+              v-for="item in courses"
+              :key="item.courseId"
+            >
+              <a
+                class="course-title"
+                :href="`/courses/${item.courseId}`"
+              >{{ item.title }}</a>
+              <span class="lp-price line-price">{{ priceTextOf(item) }}</span>
+            </li>
+          </ul>
+          <div
+            v-else
+            class="summary"
+          >
             <div class="summary-main">
               <p class="course-title">
-                {{ course.title }}
+                {{ courses[0].title }}
               </p>
               <p class="lp-muted lp-small">
-                {{ course.instructorName || '平台讲师' }} · {{ course.lessonCount }} 课时
+                {{ courses[0].instructorName || '平台讲师' }} · {{ courses[0].lessonCount }} 课时
               </p>
             </div>
             <p class="lp-price price">
-              {{ priceText }}
+              {{ priceTextOf(courses[0]) }}
             </p>
           </div>
+          <p class="lp-muted lp-small total-hint">
+            {{ combined ? `共 ${courses.length} 门课程，` : '' }}应付金额以提交订单后服务端返回为准。
+          </p>
 
           <p
             v-if="owned"
@@ -169,6 +263,10 @@ void load()
               当前环境尚未接入真实支付渠道，订单已创建但未支付。
             </p>
             <dl class="placeholder-meta">
+              <div v-if="combined">
+                <dt>课程</dt>
+                <dd>{{ courses.map((item) => item.title).join('、') }}</dd>
+              </div>
               <div>
                 <dt>订单号</dt>
                 <dd>{{ createdOrder.orderNo }}</dd>
@@ -242,6 +340,33 @@ void load()
   padding: 16px;
   border-radius: var(--lp-radius-sm);
   background: #f7f8fa;
+}
+
+.summary-lines {
+  display: block;
+  margin: 0 0 8px;
+  padding: 8px 16px;
+  list-style: none;
+}
+
+.summary-lines li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+}
+
+.summary-lines li + li {
+  border-top: 1px solid var(--lp-border);
+}
+
+.line-price {
+  white-space: nowrap;
+}
+
+.total-hint {
+  margin-bottom: 20px;
 }
 
 .course-title {

@@ -77,7 +77,7 @@ async function remove(courseId: number): Promise<void> {
   }
 }
 
-/** Opens the single course cashier until the multi course checkout decision is confirmed. */
+/** Opens the cashier for the selected courses, using one combined order from two upwards. */
 function checkout(): void {
   if (selected.value.length === 0) {
     return
@@ -86,7 +86,7 @@ function checkout(): void {
     navigate(`/checkout/${selected.value[0]}`)
     return
   }
-  notice.value = '多门课程合并结算方案确认中，请先选择一门课程结算。'
+  navigate(`/checkout?courseIds=${selected.value.join(',')}`)
 }
 
 void load()

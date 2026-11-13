@@ -37,6 +37,7 @@ describe('resolveRoute', () => {
   it('maps the cashier and payment result pages', () => {
     expect(resolveRoute('/checkout/9').name).toBe('checkout')
     expect(resolveRoute('/checkout/9').params.courseId).toBe('9')
+    expect(resolveRoute('/checkout', '?courseIds=7,9').params.courseIds).toBe('7,9')
 
     const result = resolveRoute('/orders/LP20261106001/result')
     expect(result.name).toBe('order-result')
