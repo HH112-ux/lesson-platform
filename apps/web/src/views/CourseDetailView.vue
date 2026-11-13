@@ -30,6 +30,7 @@ const priceText = computed(() => {
 })
 const offline = computed(() => course.value?.status === 3)
 const owned = computed(() => course.value?.owned === true)
+const paymentEnabled = import.meta.env.VITE_PAYMENT_ENABLED === 'true'
 const loginHref = computed(() => (
   `/login?next=${encodeURIComponent(`/courses/${courseId}`)}`
 ))
@@ -150,6 +151,14 @@ void loadChapters()
                 class="lp-btn lp-btn--primary lp-btn--block"
                 href="/learning/my-courses"
               >继续学习</a>
+              <button
+                v-else-if="!paymentEnabled"
+                type="button"
+                class="lp-btn lp-btn--primary lp-btn--block"
+                disabled
+              >
+                暂未开放购买
+              </button>
               <a
                 v-else-if="!isSignedIn"
                 class="lp-btn lp-btn--primary lp-btn--block"
