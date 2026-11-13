@@ -11,7 +11,6 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lp.auth.client.AccountAnonymizationClient;
 import com.lp.auth.config.AccountDeletionProperties;
 import com.lp.auth.config.MiniappProperties;
@@ -64,6 +63,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Covers the login, refresh and logout decision branches without Redis.

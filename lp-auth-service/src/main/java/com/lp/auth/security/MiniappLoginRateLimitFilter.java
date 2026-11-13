@@ -1,6 +1,5 @@
 package com.lp.auth.security;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lp.common.exception.ErrorCode;
 import com.lp.common.result.Result;
 import com.lp.common.web.TraceIds;
@@ -31,6 +30,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Rate limits {@code POST /api/v1/auth/miniapp-login} per real client IP and per device.

@@ -1,7 +1,5 @@
 package com.lp.auth.security;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lp.auth.config.JwtProperties;
 import com.lp.common.exception.BizException;
 import com.lp.common.exception.ErrorCode;
@@ -16,13 +14,15 @@ import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Redis backed refresh session store.
  *
  * <p>Keys follow {@code lp:auth:refresh:{sha256(token)}} and expire together with the refresh
- * token, so an abandoned session disappears without a cleanup job. An unreachable Redis fails
- * the request instead of silently accepting unvalidated tokens.</p>
+ * token, so an abandoned session disappears without a cleanup job. An unreachable Redis fails the
+ * request instead of silently accepting unvalidated tokens.
  *
  * @author Caspian
  * @since 0.1.0
@@ -45,13 +45,15 @@ public class RedisRefreshTokenStore implements RefreshTokenStore {
      * Creates the store.
      *
      * @param redisTemplate string template backed by the shared connection factory
-     * @param objectMapper  serializer for the session payload
-     * @param properties    token settings supplying the refresh lifetime
+     * @param objectMapper serializer for the session payload
+     * @param properties token settings supplying the refresh lifetime
      * @author Caspian
      * @since 0.1.0
      */
-    public RedisRefreshTokenStore(StringRedisTemplate redisTemplate, ObjectMapper objectMapper,
-                                  JwtProperties properties) {
+    public RedisRefreshTokenStore(
+            StringRedisTemplate redisTemplate,
+            ObjectMapper objectMapper,
+            JwtProperties properties) {
         this.redisTemplate = redisTemplate;
         this.objectMapper = objectMapper;
         this.ttl = Duration.ofSeconds(properties.getRefreshTokenTtlSeconds());
@@ -61,7 +63,7 @@ public class RedisRefreshTokenStore implements RefreshTokenStore {
      * Writes the session under the hashed token key.
      *
      * @param refreshToken raw refresh token
-     * @param session      session metadata
+     * @param session session metadata
      * @throws BizException {@code 50001} when Redis is unreachable
      * @author Caspian
      * @since 0.1.0
@@ -97,7 +99,7 @@ public class RedisRefreshTokenStore implements RefreshTokenStore {
         }
         try {
             return Optional.of(objectMapper.readValue(payload, RefreshSession.class));
-        } catch (JsonProcessingException ex) {
+        } catch (JacksonException ex) {
             log.error("refresh session payload is unreadable; treating it as revoked", ex);
             return Optional.empty();
         }
@@ -149,7 +151,7 @@ public class RedisRefreshTokenStore implements RefreshTokenStore {
     private String serialize(RefreshSession session) {
         try {
             return objectMapper.writeValueAsString(session);
-        } catch (JsonProcessingException ex) {
+        } catch (JacksonException ex) {
             throw new IllegalStateException("cannot serialize the refresh session", ex);
         }
     }
@@ -158,13 +160,15 @@ public class RedisRefreshTokenStore implements RefreshTokenStore {
      * Logs the dependency failure and builds the error raised to the caller.
      *
      * @param operation failed operation name, never the token itself
-     * @param ex        Redis failure
+     * @param ex Redis failure
      * @return never returns; always throws
      * @author Caspian
      * @since 0.1.0
      */
     private BizException unavailable(String operation, DataAccessException ex) {
-        log.error("refresh token store unavailable operation={} cause={}", operation,
+        log.error(
+                "refresh token store unavailable operation={} cause={}",
+                operation,
                 ex.getMessage());
         return new BizException(ErrorCode.INTERNAL_ERROR, "refresh token store unavailable");
     }
