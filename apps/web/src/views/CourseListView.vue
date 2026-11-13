@@ -561,7 +561,6 @@ void Promise.all([load(), loadCategories(), syncCart()])
   position: relative;
   flex-direction: row;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
   min-height: 52px;
   padding: 0 16px 16px;
@@ -572,6 +571,7 @@ void Promise.all([load(), loadCategories(), syncCart()])
   flex: 0 0 auto;
   align-items: center;
   gap: 8px;
+  margin-left: auto;
 }
 
 .card-primary {
@@ -595,16 +595,15 @@ void Promise.all([load(), loadCategories(), syncCart()])
   width: 36px;
   height: 36px;
   padding: 0;
-  border: 1px solid var(--lp-border);
-  border-radius: var(--lp-radius-sm);
+  border: none;
+  border-radius: 50%;
   background: var(--lp-bg);
   color: var(--lp-text-muted);
   cursor: pointer;
-  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
+  transition: color 0.15s ease, background-color 0.15s ease;
 }
 
 .cart-toggle:hover {
-  border-color: var(--lp-primary);
   background: var(--lp-primary-soft);
   color: var(--lp-primary);
 }
@@ -614,6 +613,8 @@ void Promise.all([load(), loadCategories(), syncCart()])
 }
 
 .cart-toggle:focus-visible {
+  background: var(--lp-primary-soft);
+  color: var(--lp-primary);
   outline: 2px solid var(--lp-primary);
   outline-offset: 2px;
 }
@@ -624,7 +625,6 @@ void Promise.all([load(), loadCategories(), syncCart()])
 }
 
 .cart-toggle:disabled:hover {
-  border-color: var(--lp-border);
   background: var(--lp-bg);
   color: var(--lp-text-muted);
 }
@@ -673,6 +673,8 @@ void Promise.all([load(), loadCategories(), syncCart()])
 }
 
 .price {
+  flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
   color: var(--lp-text);
   font-size: 18px;
