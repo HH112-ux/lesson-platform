@@ -2,7 +2,9 @@
 import { computed, ref } from 'vue'
 import PageState from '../components/PageState.vue'
 import { listCategories, listCourses, type Category, type CourseCard } from '../api/courses'
-import { currentRoute } from '../router'
+import { addCartItem, getCart } from '../api/cart'
+import { ApiError } from '../api/client'
+import { currentRoute, navigate } from '../router'
 import { describeError, isUnauthorized } from '../utils/errors'
 import { formatCents } from '../utils/format'
 import { isSignedIn } from '../utils/session'
@@ -23,6 +25,18 @@ const unauthorized = ref(false)
 
 const categories = ref<Category[]>([])
 const categoryError = ref('')
+
+const addedIds = ref<number[]>([])
+const addingId = ref<number | null>(null)
+const noticeById = ref<Record<number, string>>({})
+
+/** Builds the sign-in URL with the current catalog address as the return target. */
+function loginHref(): string {
+  const next = typeof window === 'undefined'
+    ? '/'
+    : `${window.location.pathname}${window.location.search}`
+  return `/login?next=${encodeURIComponent(next)}`
+}
 
 const pageCount = computed(() => (
   total.value > 0 ? Math.ceil(total.value / PAGE_SIZE) : 0
@@ -109,7 +123,72 @@ function retry(): void {
   void load()
 }
 
-void Promise.all([load(), loadCategories()])
+/** Tells whether the course already sits in the cart of this visitor. */
+function isAdded(course: CourseCard): boolean {
+  return addedIds.value.includes(course.courseId)
+}
+
+function setNotice(courseId: number, text: string): void {
+  noticeById.value = { ...noticeById.value, [courseId]: text }
+}
+
+/** Leaves for the sign-in page and returns to the current catalog URL afterwards. */
+function goLogin(): void {
+  navigate(loginHref())
+}
+
+/** Opens the course detail, where the purchase action lives; anonymous visitors sign in first. */
+function openDetail(course: CourseCard): void {
+  if (!isSignedIn.value) {
+    goLogin()
+    return
+  }
+  navigate(`/courses/${course.courseId}`)
+}
+
+/** Loads the server side cart once so already added courses show the cart link. */
+async function syncCart(): Promise<void> {
+  if (!isSignedIn.value) {
+    return
+  }
+  try {
+    const cart = await getCart()
+    addedIds.value = (cart.items ?? []).map((item) => item.courseId)
+  } catch {
+    addedIds.value = []
+  }
+}
+
+/** Adds one course without leaving the catalog; repeats are treated as already added. */
+async function addToCart(course: CourseCard): Promise<void> {
+  if (isAdded(course) || addingId.value === course.courseId) {
+    return
+  }
+  if (!isSignedIn.value) {
+    goLogin()
+    return
+  }
+  addingId.value = course.courseId
+  setNotice(course.courseId, '')
+  try {
+    await addCartItem(course.courseId)
+    addedIds.value = [...addedIds.value, course.courseId]
+  } catch (error) {
+    if (isUnauthorized(error)) {
+      goLogin()
+      return
+    }
+    if (error instanceof ApiError && error.code === 61002) {
+      setNotice(course.courseId, '你已拥有该课程，无需加入购物车。')
+      return
+    }
+    setNotice(course.courseId, describeError(error))
+  } finally {
+    addingId.value = null
+  }
+}
+
+void Promise.all([load(), loadCategories(), syncCart()])
 </script>
 
 <template>
@@ -206,40 +285,94 @@ void Promise.all([load(), loadCategories()])
         v-else
         class="lp-grid"
       >
-        <a
+        <article
           v-for="course in courses"
           :key="course.courseId"
           class="course lp-card"
-          :href="`/courses/${course.courseId}`"
         >
-          <div class="cover">
-            <img
-              v-if="course.coverUrl"
-              :src="course.coverUrl"
-              :alt="course.title"
-              loading="lazy"
-            >
-            <span
-              v-else
-              class="cover-fallback"
-            >{{ course.title.slice(0, 2) }}</span>
-            <span
-              v-if="course.owned"
-              class="owned"
-            >已购</span>
-          </div>
-          <div class="body">
-            <h2 class="name">
-              {{ course.title }}
-            </h2>
-            <p class="lp-muted lp-small">
-              {{ course.instructorName || '课程' }} · {{ course.lessonCount }} 课时
-            </p>
+          <a
+            class="card-main"
+            :href="`/courses/${course.courseId}`"
+          >
+            <div class="cover">
+              <img
+                v-if="course.coverUrl"
+                :src="course.coverUrl"
+                :alt="course.title"
+                loading="lazy"
+              >
+              <span
+                v-else
+                class="cover-fallback"
+              >{{ course.title.slice(0, 2) }}</span>
+              <span
+                v-if="course.owned"
+                class="owned"
+              >已购</span>
+            </div>
+            <div class="body">
+              <h2 class="name">
+                {{ course.title }}
+              </h2>
+              <p class="lp-muted lp-small">
+                {{ course.instructorName || '课程' }} · {{ course.lessonCount }} 课时
+              </p>
+            </div>
+          </a>
+          <div class="body foot">
             <p class="lp-price price">
               {{ course.price === 0 ? '免费' : `¥${formatCents(course.price)}` }}
             </p>
+            <div class="card-actions">
+              <a
+                v-if="course.owned"
+                class="lp-btn lp-btn--ghost card-action"
+                href="/learning/my-courses"
+                @click.stop
+              >继续学习</a>
+              <template v-else-if="course.price === 0">
+                <button
+                  type="button"
+                  class="lp-btn lp-btn--primary card-action"
+                  @click.stop.prevent="openDetail(course)"
+                >
+                  免费学习
+                </button>
+              </template>
+              <template v-else>
+                <a
+                  v-if="isAdded(course)"
+                  class="lp-btn lp-btn--ghost card-action"
+                  href="/cart"
+                  @click.stop
+                >已加入 · 去购物车</a>
+                <button
+                  v-else
+                  type="button"
+                  class="lp-btn lp-btn--ghost card-action"
+                  :disabled="addingId === course.courseId"
+                  @click.stop.prevent="addToCart(course)"
+                >
+                  {{ addingId === course.courseId ? '加入中…' : '加入购物车' }}
+                </button>
+                <button
+                  type="button"
+                  class="lp-btn lp-btn--primary card-action"
+                  @click.stop.prevent="openDetail(course)"
+                >
+                  购买
+                </button>
+              </template>
+            </div>
           </div>
-        </a>
+          <p
+            v-if="noticeById[course.courseId]"
+            class="lp-alert card-notice"
+            aria-live="polite"
+          >
+            {{ noticeById[course.courseId] }}
+          </p>
+        </article>
       </div>
 
       <div
@@ -329,6 +462,8 @@ void Promise.all([load(), loadCategories()])
 }
 
 .course {
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
   color: var(--lp-text);
 }
@@ -336,6 +471,15 @@ void Promise.all([load(), loadCategories()])
 .course:hover {
   text-decoration: none;
   box-shadow: 0 4px 12px rgba(31, 35, 41, 0.1);
+}
+
+.card-main {
+  display: block;
+  color: inherit;
+}
+
+.card-main:hover {
+  text-decoration: none;
 }
 
 .cover {
@@ -375,7 +519,42 @@ void Promise.all([load(), loadCategories()])
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 14px 16px 16px;
+  padding: 14px 16px 8px;
+}
+
+.foot {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 16px 16px;
+}
+
+.foot .price {
+  margin-top: 0;
+}
+
+.card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.card-action {
+  padding: 5px 12px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.card-action:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.card-notice {
+  margin: 0 16px 14px;
+  font-size: 12px;
 }
 
 .name {
