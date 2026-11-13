@@ -2,6 +2,7 @@ package com.lp.trade.mapper;
 
 import com.lp.trade.domain.RefundReconcileFinding;
 import com.lp.trade.entity.AdminRefundRow;
+import com.lp.trade.entity.RefundMetricsRow;
 import com.lp.trade.entity.RefundRequest;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -369,4 +370,32 @@ public interface RefundRequestMapper {
             @Param("status") Integer status,
             @Param("offset") int offset,
             @Param("limit") int limit);
+
+    /**
+     * Aggregates refund figures of the dashboard window and of the current backlog.
+     *
+     * <p>Applications and settled refunds use different timestamps on purpose: an application is
+     * counted on the day it was created, a successful refund on the day the money came back. The
+     * pending and processing counters ignore the window because they describe the backlog
+     * operations must clear now.
+     *
+     * @param from inclusive window lower bound
+     * @param to exclusive window upper bound
+     * @return aggregated refund figures, never {@code null}
+     * @author Caspian
+     * @since 0.21.0
+     */
+    @Select(
+            "SELECT "
+                    + "SUM(CASE WHEN created_at >= #{from} AND created_at < #{to} "
+                    + "THEN 1 ELSE 0 END) AS appliedCount, "
+                    + "SUM(CASE WHEN status = 2 AND refunded_at >= #{from} "
+                    + "AND refunded_at < #{to} THEN 1 ELSE 0 END) AS refundedCount, "
+                    + "SUM(CASE WHEN status = 2 AND refunded_at >= #{from} "
+                    + "AND refunded_at < #{to} THEN amount ELSE 0 END) AS refundedAmount, "
+                    + "SUM(CASE WHEN status = 0 THEN 1 ELSE 0 END) AS pendingCount, "
+                    + "SUM(CASE WHEN status IN (1, 5) THEN 1 ELSE 0 END) AS processingCount "
+                    + "FROM refund_request WHERE deleted = 0")
+    RefundMetricsRow selectMetrics(
+            @Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
 }

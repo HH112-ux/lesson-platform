@@ -2,6 +2,8 @@ package com.lp.trade.mapper;
 
 import com.lp.trade.entity.AdminOrderRow;
 import com.lp.trade.entity.CourseSaleRow;
+import com.lp.trade.entity.CourseSalesRankRow;
+import com.lp.trade.entity.DailyOrderMetricRow;
 import com.lp.trade.entity.TradeOrder;
 import com.lp.trade.entity.TradeOrderItem;
 import java.math.BigDecimal;
@@ -563,6 +565,55 @@ public interface TradeOrderMapper {
                     + "GROUP BY i.course_id, i.course_title "
                     + "ORDER BY COUNT(*) DESC, i.course_id ASC LIMIT #{limit}")
     List<CourseSaleRow> selectTopCourses(
+            @Param("from") LocalDateTime from,
+            @Param("to") LocalDateTime to,
+            @Param("limit") int limit);
+
+    /**
+     * Aggregates orders per calendar day inside the half open time window.
+     *
+     * <p>Only settled orders contribute to the revenue, so refunded orders never inflate the trend.
+     * Days without any order are absent from the result and are zero filled by the service.
+     *
+     * @param from inclusive lower bound
+     * @param to exclusive upper bound
+     * @return one row per day that has at least one order, oldest first
+     * @author Caspian
+     * @since 0.21.0
+     */
+    @Select(
+            "SELECT DATE(created_at) AS day, COUNT(*) AS orderCount, "
+                    + "SUM(CASE WHEN status = 1 THEN 1 ELSE 0 END) AS paidOrderCount, "
+                    + "SUM(CASE WHEN status = 1 THEN pay_amount ELSE 0 END) AS revenue "
+                    + "FROM trade_order WHERE deleted = 0 "
+                    + "AND created_at >= #{from} AND created_at < #{to} "
+                    + "GROUP BY DATE(created_at) ORDER BY day")
+    List<DailyOrderMetricRow> selectDailyMetrics(
+            @Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
+
+    /**
+     * Ranks courses by paid lines inside the half open time window.
+     *
+     * <p>Revenue uses the line amount instead of the order amount, so an order holding several
+     * courses is never counted twice.
+     *
+     * @param from inclusive lower bound
+     * @param to exclusive upper bound
+     * @param limit maximum rows
+     * @return one row per course, highest line count first
+     * @author Caspian
+     * @since 0.21.0
+     */
+    @Select(
+            "SELECT i.course_id AS courseId, MAX(i.course_title) AS title, "
+                    + "COUNT(*) AS orderCount, SUM(i.actual_amount) AS revenue "
+                    + "FROM trade_order_item i INNER JOIN trade_order o ON o.id = i.order_id "
+                    + "WHERE i.deleted = 0 AND o.deleted = 0 AND o.status = 1 "
+                    + "AND o.created_at >= #{from} AND o.created_at < #{to} "
+                    + "GROUP BY i.course_id "
+                    + "ORDER BY COUNT(*) DESC, SUM(i.actual_amount) DESC, i.course_id ASC "
+                    + "LIMIT #{limit}")
+    List<CourseSalesRankRow> selectCourseSalesRank(
             @Param("from") LocalDateTime from,
             @Param("to") LocalDateTime to,
             @Param("limit") int limit);
