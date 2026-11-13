@@ -1476,6 +1476,8 @@ spec:
 
 回滚：**没有秒级动态开关**，支付侧也没有可用的渠道降级开关：`LP_PAY_ALIPAY_ENABLED` 只覆盖台阶 1–4（发起表单并跳转支付、回调验签与入账、查单/关单），台阶 5 全部落地（P6 退款执行、悬挂只读巡检、自动收敛；P7 管理端渠道退款状态可视），两个限定仍然成立：自动收敛开关 `LP_PAY_ALIPAY_REFUND_CONVERGE_ENABLED` **默认 `false`**、当前不生效，只有 `channel_done` 告警兜底；真实沙箱的支付与退款一笔未跑、全部验证仅桩级 + 单测，仍不能闭环收款（依据见 `docs/project-status.md` §4.1），它只能用于「停止发起新支付、受理回调与超时关单的渠道同步」；退款侧可单独用 `LP_PAY_ALIPAY_REFUND_ENABLED=false` 停掉（固定 `50205`，支付不受影响），收敛异常时先置 `LP_PAY_ALIPAY_REFUND_CONVERGE_ENABLED=false` 并重启，**关开关即回到只读巡检与 `channel_done` 告警、不自动结算**；再置 `LP_PAY_ALIPAY_REFUND_RECONCILE_ENABLED=false` 则连退款查询与告警一起停（退款执行仍可用）；`LP_PAY_MOCK_ENABLED=false` 时由 `UnconfiguredPaymentGateway` 固定返回 `50205`（`lp-trade-service/src/main/java/com/lp/trade/payment/UnconfiguredPaymentGateway.java:21-25`）。可用手段是改环境变量后重启容器（分钟级，有秒级中断）：先把 `LP_IDENTITY_ENFORCE_MODE` 由 `hard` 改为非 `hard`（代码里 `obs` 与 `soft` 都是只记录不拒绝，`lp-gateway/src/main/java/com/lp/gateway/filter/JwtAuthFilter.java:199`），再回滚下游镜像 tag；无需数据回滚。触发阈值：支付成功率下降 > 0.5%，或出现跨用户数据事件，或网关 P95 增量 > 20ms。
 
+**合并下单回滚护栏（2026-11-13）**：合并订单的支付发放与退款撤销已改为按订单行逐行处理。回滚这部分代码前必须先运行 `bash scripts/check-multi-line-refunds.sh`：脚本以只读方式查询 `lp_oms`，列出「订单状态为 4 退款中」或「存在 status IN (0,1,5) 的进行中退款单」且订单行数大于 1 的订单。退出码 `0` 表示没有阻塞订单、可以回滚；退出码 `1` 表示**禁止回滚**并输出 `order_no / order_status / line_count / course_ids / refund_status` 清单，须先让这些退款结算或人工对账完成；退出码 `2` 表示无法连接数据库，同样按禁止回滚处理。脚本连接参数与 `scripts/refund-drill.sh` 一致，可用 `LP_GUARD_MYSQL_SERVICE` 与 `LP_MYSQL_ROOT_PASSWORD` 覆盖。
+
 ## 6.5 数据分层与脱敏落地
 
 | 等级 | 范围 | 处理 | 出域 |
