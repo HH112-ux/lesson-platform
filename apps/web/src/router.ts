@@ -79,6 +79,8 @@ export function resolveRoute(pathname: string, search = ''): RouteLocation {
         return route('orders')
       case 'cart':
         return route('cart')
+      case 'checkout':
+        return route('checkout', { courseIds: query.get('courseIds') ?? '' })
       case 'account':
         return route('account')
       case 'purchase':

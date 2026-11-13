@@ -15,6 +15,7 @@ export interface OrderView {
   discountAmountFen: number
   payAmountFen: number
   courseId: number
+  items?: OrderItemView[]
   payExpireAt?: string | null
   paidAt?: string | null
 }
@@ -156,6 +157,30 @@ export function createOrder(
   if (typeof couponId === 'number') {
     body.couponId = couponId
   }
+  return apiRequest<OrderView>('/api/v1/orders', {
+    method: 'POST',
+    headers: { 'Idempotency-Key': idempotencyKey },
+    body: JSON.stringify(body),
+  })
+}
+
+/**
+ * Creates one order that contains several courses as separate lines.
+ *
+ * <p>The server prices every line and returns the only authoritative total, so the caller must
+ * never add the course prices up on its own.</p>
+ *
+ * @param courseIds courses to buy in one order, at most twenty and without duplicates
+ * @param idempotencyKey key generated once per purchase intent and reused on retries
+ * @returns the created order with one line per course
+ * @author Caspian
+ * @since 0.22.0
+ */
+export function createCombinedOrder(
+  courseIds: number[],
+  idempotencyKey: string,
+): Promise<OrderView> {
+  const body: Record<string, unknown> = { courseIds }
   return apiRequest<OrderView>('/api/v1/orders', {
     method: 'POST',
     headers: { 'Idempotency-Key': idempotencyKey },

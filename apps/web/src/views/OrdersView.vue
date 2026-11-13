@@ -239,10 +239,15 @@ void load()
                 {{ order.orderNo }}
               </td>
               <td>
-                <a
-                  v-if="order.items.length"
-                  :href="`/courses/${order.items[0].courseId}`"
-                >{{ order.items[0].title }}</a>
+                <template v-if="order.items.length">
+                  <template
+                    v-for="(item, index) in order.items"
+                    :key="item.courseId"
+                  >
+                    <a :href="`/courses/${item.courseId}`">{{ item.title }}</a>
+                    <span v-if="index < order.items.length - 1">、</span>
+                  </template>
+                </template>
                 <span
                   v-else
                   class="lp-subtle"
