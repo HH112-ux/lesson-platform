@@ -207,7 +207,10 @@ void load()
             {{ payLabel }}
           </button>
 
-          <p class="lp-muted lp-small foot">
+          <p
+            v-if="!paymentUnavailable"
+            class="lp-muted lp-small foot"
+          >
             微信内不支持支付宝支付，请在浏览器中打开本页完成购买。
           </p>
         </section>
