@@ -1,7 +1,5 @@
 package com.lp.trade.idempotency;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lp.common.exception.BizException;
 import com.lp.common.exception.ErrorCode;
 import com.lp.common.result.Result;
@@ -17,6 +15,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Runs a write action at most once per user, endpoint and idempotency key.
@@ -282,7 +282,7 @@ public class IdempotencyService {
     private <T> String serialize(T value, String traceId) {
         try {
             return objectMapper.writeValueAsString(Result.ok(value, traceId));
-        } catch (JsonProcessingException exception) {
+        } catch (JacksonException exception) {
             throw new IllegalStateException("idempotent response cannot be serialized", exception);
         }
     }

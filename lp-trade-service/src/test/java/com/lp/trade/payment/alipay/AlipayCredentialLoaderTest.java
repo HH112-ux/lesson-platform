@@ -3,7 +3,6 @@ package com.lp.trade.payment.alipay;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lp.trade.config.AlipayPayProperties;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -11,6 +10,7 @@ import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.mock.env.MockEnvironment;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Verifies that the credential loader fails fast instead of booting an unsigned channel.

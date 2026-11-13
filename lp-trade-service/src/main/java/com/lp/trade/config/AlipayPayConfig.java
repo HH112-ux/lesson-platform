@@ -1,6 +1,5 @@
 package com.lp.trade.config;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lp.trade.payment.SignatureVerifier;
 import com.lp.trade.payment.alipay.AlipayCredentialLoader;
 import com.lp.trade.payment.alipay.AlipayCredentials;
@@ -11,6 +10,7 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Wires the Alipay channel when {@code lp.pay.alipay.enabled} is set.

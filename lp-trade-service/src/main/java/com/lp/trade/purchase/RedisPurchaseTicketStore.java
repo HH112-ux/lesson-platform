@@ -1,7 +1,5 @@
 package com.lp.trade.purchase;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lp.common.exception.BizException;
 import com.lp.common.exception.ErrorCode;
 import java.nio.charset.StandardCharsets;
@@ -14,6 +12,8 @@ import java.util.HexFormat;
 import java.util.Optional;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Redis backed purchase ticket store.
@@ -91,7 +91,7 @@ public class RedisPurchaseTicketStore implements PurchaseTicketStore {
                     .opsForValue()
                     .set(TICKET_KEY + hash, objectMapper.writeValueAsString(payload), TICKET_TTL);
             redisTemplate.opsForValue().set(ISSUED_KEY + hash, "1", MARKER_TTL);
-        } catch (JsonProcessingException | RuntimeException exception) {
+        } catch (RuntimeException exception) {
             throw new BizException(ErrorCode.INTERNAL_ERROR, "purchase ticket store unavailable");
         }
         return ticket;
@@ -192,7 +192,7 @@ public class RedisPurchaseTicketStore implements PurchaseTicketStore {
                 return Optional.empty();
             }
             return Optional.of(payload);
-        } catch (JsonProcessingException exception) {
+        } catch (JacksonException exception) {
             return Optional.empty();
         }
     }
