@@ -22,6 +22,7 @@ import com.lp.trade.entity.RefundRequest;
 import com.lp.trade.entity.TradeOrder;
 import com.lp.trade.entity.TradeOrderItem;
 import com.lp.trade.entity.UserCoupon;
+import com.lp.trade.idempotency.IdempotencyDigests;
 import com.lp.trade.mapper.CouponMapper;
 import com.lp.trade.mapper.PaymentMapper;
 import com.lp.trade.mapper.RefundRequestMapper;
@@ -375,7 +376,10 @@ public class OrderServiceImpl implements OrderService {
     /**
      * Returns the stored order when the idempotency key is replayed with the same payload.
      *
-     * <p>The stored course set is deduplicated and sorted, so request order is irrelevant.
+     * <p>The stored course set is deduplicated and sorted, so request order is irrelevant. A
+     * combined order additionally binds the server computed total: replaying after a price change
+     * is a different request and is rejected with {@code 40901}. Legacy single course requests keep
+     * the previous behavior and do not compare amounts.
      *
      * @param order stored order owning the key
      * @param selection normalized current request
@@ -393,6 +397,26 @@ public class OrderServiceImpl implements OrderService {
                 || !Objects.equals(order.getCouponId(), couponId)) {
             throw new BizException(
                     ErrorCode.STATE_CONFLICT, "idempotency key reused with a different request");
+        }
+        if (!selection.legacy()) {
+            BigDecimal currentTotal =
+                    selection.courseIds().stream()
+                            .map(courseInternalClient::course)
+                            .map(course -> BigDecimal.valueOf(course.getPrice(), 2))
+                            .reduce(ZERO, BigDecimal::add);
+            String requestedDigest =
+                    IdempotencyDigests.order(
+                            selection.courseIds(), couponId, Money.toFen(currentTotal));
+            String storedDigest =
+                    IdempotencyDigests.order(
+                            storedCourseIds,
+                            order.getCouponId(),
+                            Money.toFen(order.getTotalAmount()));
+            if (!requestedDigest.equals(storedDigest)) {
+                throw new BizException(
+                        ErrorCode.STATE_CONFLICT,
+                        "idempotency key reused after the order amount changed");
+            }
         }
         return buildView(order, items.stream().map(this::toItemView).toList());
     }
@@ -467,13 +491,13 @@ public class OrderServiceImpl implements OrderService {
         List<TradeOrder> rows =
                 tradeOrderMapper.selectPageByUser(
                         userId, filter, (long) (safePage - 1) * safeSize, safeSize);
-        Map<Long, TradeOrderItem> firstItems = new HashMap<>();
+        Map<Long, List<TradeOrderItem>> itemsByOrder = new HashMap<>();
         if (!rows.isEmpty()) {
             // One query for every line on the page instead of one query per row.
             for (TradeOrderItem item :
                     tradeOrderMapper.selectItemsByOrderIds(
                             rows.stream().map(TradeOrder::getId).toList())) {
-                firstItems.putIfAbsent(item.getOrderId(), item);
+                itemsByOrder.computeIfAbsent(item.getOrderId(), key -> new ArrayList<>()).add(item);
             }
         }
         Map<Long, RefundRequest> latestRefunds = new HashMap<>();
@@ -495,7 +519,11 @@ public class OrderServiceImpl implements OrderService {
                                                 order.getChannel(),
                                                 Money.toFen(order.getPayAmount()),
                                                 order.getCreatedAt(),
-                                                List.of(toItemView(firstItems.get(order.getId()))),
+                                                itemsByOrder
+                                                        .getOrDefault(order.getId(), List.of())
+                                                        .stream()
+                                                        .map(this::toItemView)
+                                                        .toList(),
                                                 refundSummary(latestRefunds.get(order.getId()))))
                         .toList();
         return new OrderPageView(records, total, safePage, safeSize);
