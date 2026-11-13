@@ -1,6 +1,5 @@
 package com.lp.common.internal;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lp.common.result.Result;
 import com.lp.common.web.TraceIds;
 import jakarta.servlet.FilterChain;
@@ -13,6 +12,7 @@ import java.security.MessageDigest;
 import java.util.Objects;
 import org.springframework.http.MediaType;
 import org.springframework.web.filter.OncePerRequestFilter;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Rejects service-to-service calls that do not carry the shared internal token.

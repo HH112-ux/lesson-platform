@@ -1,6 +1,5 @@
 package com.lp.common.identity;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Value;
@@ -8,6 +7,7 @@ import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.Ordered;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Registers {@link TrustedIdentityFilter} in every servlet business service.
