@@ -9,7 +9,7 @@ import { ref } from 'vue'
 import { loadProfile, login } from '../api/auth'
 import { clearSession, storeTokens, storeUser } from '../api/client'
 import { currentUser, defaultRouteFor, navigate } from '../router'
-import { describeError } from '../utils/errors'
+import { describeSignInError } from '../utils/errors'
 
 const account = ref('')
 const password = ref('')
@@ -27,8 +27,10 @@ async function submit(): Promise<void> {
   }
   submitting.value = true
   notice.value = ''
+  let credentialsAccepted = false
   try {
     const result = await login(account.value.trim(), password.value)
+    credentialsAccepted = true
     storeTokens(result.accessToken, result.refreshToken)
     const profile = await loadProfile()
     if (!hasConsoleAccess(profile.roles)) {
@@ -41,7 +43,7 @@ async function submit(): Promise<void> {
     navigate(defaultRouteFor(profile.roles), true)
   } catch (error) {
     clearSession()
-    notice.value = describeError(error, '登录失败，请检查账号和密码')
+    notice.value = describeSignInError(error, credentialsAccepted)
   } finally {
     submitting.value = false
   }

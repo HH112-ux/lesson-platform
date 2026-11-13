@@ -212,10 +212,12 @@ async function send<T>(
     throw new ApiError(response.status, '服务暂时不可用，请稍后重试')
   }
   if (envelope.code !== 0) {
-    if (envelope.code === 40102 && authenticated && !retried) {
-      const renewed = await refreshSession()
-      if (renewed) {
-        return send<T>(path, init, authenticated, true)
+    if (authenticated && (envelope.code === 40101 || envelope.code === 40102)) {
+      if (envelope.code === 40102 && !retried) {
+        const renewed = await refreshSession()
+        if (renewed) {
+          return send<T>(path, init, authenticated, true)
+        }
       }
       clearSession()
     }
