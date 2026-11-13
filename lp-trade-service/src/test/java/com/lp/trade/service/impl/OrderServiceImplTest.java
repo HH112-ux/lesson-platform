@@ -174,6 +174,32 @@ class OrderServiceImplTest {
     }
 
     /**
+     * A combined total above the storable limit is rejected instead of failing in the database.
+     *
+     * @author Caspian
+     * @since 0.22.0
+     */
+    @Test
+    void rejectsCombinedTotalOverflow() {
+        when(courseInternalClient.course(7L)).thenReturn(courseWithId(7L, 9_999_999_999L, 2));
+        when(courseInternalClient.course(9L)).thenReturn(courseWithId(9L, 9_999_999_999L, 2));
+        when(tradeOrderMapper.countOwned(USER_ID, 7L)).thenReturn(0L);
+        when(tradeOrderMapper.countOwned(USER_ID, 9L)).thenReturn(0L);
+
+        BizException exception =
+                assertThrows(
+                        BizException.class,
+                        () ->
+                                orderService.create(
+                                        USER_ID,
+                                        "web",
+                                        combinedRequest("key-28", List.of(7L, 9L))));
+
+        assertEquals(62003, exception.getCode());
+        verify(tradeOrderMapper, never()).insertOrder(any(TradeOrder.class));
+    }
+
+    /**
      * Sending both course fields is ambiguous and rejected before any course is read.
      *
      * @author Caspian
@@ -236,6 +262,103 @@ class OrderServiceImplTest {
         assertEquals(40001, exception.getCode());
         assertEquals("coupon is not supported for combined orders", exception.getMessage());
         verifyNoInteractions(courseInternalClient);
+        verify(tradeOrderMapper, never()).insertOrder(any(TradeOrder.class));
+    }
+
+    /**
+     * A free combined order completes immediately and grants every course it contains.
+     *
+     * @author Caspian
+     * @since 0.22.0
+     */
+    @Test
+    void grantsEveryCourseOfAFreeCombinedOrder() {
+        when(courseInternalClient.course(7L)).thenReturn(courseWithId(7L, 0L, 2));
+        when(courseInternalClient.course(9L)).thenReturn(courseWithId(9L, 0L, 2));
+        when(tradeOrderMapper.countOwned(USER_ID, 7L)).thenReturn(0L);
+        when(tradeOrderMapper.countOwned(USER_ID, 9L)).thenReturn(0L);
+        stubInsertedOrder(42L);
+
+        OrderView view =
+                orderService.create(USER_ID, "web", combinedRequest("key-21", List.of(7L, 9L)));
+
+        assertEquals(OrderStatus.PAID, view.getStatus());
+        verify(entitlementService).grant(eq(USER_ID), eq(7L), anyLong(), anyString());
+        verify(entitlementService).grant(eq(USER_ID), eq(9L), anyLong(), anyString());
+    }
+
+    /**
+     * A repeated course id is sold once, matching the deduplicated idempotency digest.
+     *
+     * @author Caspian
+     * @since 0.22.0
+     */
+    @Test
+    void deduplicatesRepeatedCourseIds() {
+        when(courseInternalClient.course(7L)).thenReturn(courseWithId(7L, 9900L, 2));
+        when(tradeOrderMapper.countOwned(USER_ID, 7L)).thenReturn(0L);
+        stubInsertedOrder(42L);
+
+        OrderView view =
+                orderService.create(USER_ID, "web", combinedRequest("key-22", List.of(7L, 7L)));
+
+        assertEquals(9900L, view.getPayAmountFen());
+        assertEquals(1, view.getItems().size());
+        verify(tradeOrderMapper).insertItem(any(TradeOrderItem.class));
+    }
+
+    /**
+     * Replaying a combined order does not depend on the order of the requested course ids.
+     *
+     * @author Caspian
+     * @since 0.22.0
+     */
+    @Test
+    void replaysCombinedOrderRegardlessOfRequestOrder() {
+        TradeOrder existing = order(42L, "LP-COMBINED", OrderStatus.PENDING);
+        existing.setTotalAmount(new BigDecimal("198.00"));
+        existing.setPayAmount(new BigDecimal("198.00"));
+        when(tradeOrderMapper.selectByUserAndIdempotencyKey(USER_ID, "key-26"))
+                .thenReturn(existing);
+        when(tradeOrderMapper.selectItems(42L)).thenReturn(List.of(item(7L), item(9L)));
+        when(courseInternalClient.course(7L)).thenReturn(courseWithId(7L, 9900L, 2));
+        when(courseInternalClient.course(9L)).thenReturn(courseWithId(9L, 9900L, 2));
+
+        OrderView view =
+                orderService.create(USER_ID, "web", combinedRequest("key-26", List.of(9L, 7L)));
+
+        assertEquals("LP-COMBINED", view.getOrderNo());
+        assertEquals(2, view.getItems().size());
+        verify(tradeOrderMapper, never()).insertOrder(any(TradeOrder.class));
+    }
+
+    /**
+     * A combined replay after a course price change is rejected instead of returning the old
+     * amount.
+     *
+     * @author Caspian
+     * @since 0.22.0
+     */
+    @Test
+    void rejectsCombinedReplayAfterPriceChange() {
+        TradeOrder existing = order(42L, "LP-COMBINED", OrderStatus.PENDING);
+        existing.setTotalAmount(new BigDecimal("198.00"));
+        when(tradeOrderMapper.selectByUserAndIdempotencyKey(USER_ID, "key-27"))
+                .thenReturn(existing);
+        when(tradeOrderMapper.selectItems(42L)).thenReturn(List.of(item(7L), item(9L)));
+        when(courseInternalClient.course(7L)).thenReturn(courseWithId(7L, 9900L, 2));
+        when(courseInternalClient.course(9L)).thenReturn(courseWithId(9L, 29900L, 2));
+
+        BizException exception =
+                assertThrows(
+                        BizException.class,
+                        () ->
+                                orderService.create(
+                                        USER_ID,
+                                        "web",
+                                        combinedRequest("key-27", List.of(7L, 9L))));
+
+        assertEquals(40901, exception.getCode());
         verify(tradeOrderMapper, never()).insertOrder(any(TradeOrder.class));
     }
 
@@ -546,6 +669,26 @@ class OrderServiceImplTest {
         assertEquals(100, page.getPageSize());
         assertEquals(1, page.getRecords().size());
         assertEquals("LP1", page.getRecords().get(0).getOrderNo());
+    }
+
+    /**
+     * The order list returns every line of a combined order, not only the first one.
+     *
+     * @author Caspian
+     * @since 0.22.0
+     */
+    @Test
+    void listsEveryLineOfACombinedOrder() {
+        when(tradeOrderMapper.countByUser(USER_ID, null)).thenReturn(1L);
+        when(tradeOrderMapper.selectPageByUser(USER_ID, null, 0L, 20L))
+                .thenReturn(List.of(order(42L, "LP1", OrderStatus.PENDING)));
+        when(tradeOrderMapper.selectItemsByOrderIds(List.of(42L)))
+                .thenReturn(List.of(item(7L), item(9L)));
+
+        OrderPageView page = orderService.list(USER_ID, null, 1, 20);
+
+        assertEquals(1, page.getRecords().size());
+        assertEquals(2, page.getRecords().get(0).getItems().size());
     }
 
     /**

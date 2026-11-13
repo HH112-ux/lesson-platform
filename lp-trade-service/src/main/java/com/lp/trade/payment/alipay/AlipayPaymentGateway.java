@@ -37,6 +37,7 @@ import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -475,9 +476,15 @@ public class AlipayPaymentGateway implements PaymentGateway {
     }
 
     private String subject(TradeOrder order) {
-        TradeOrderItem item = tradeOrderMapper.selectFirstItem(order.getId());
-        String title = item == null ? null : item.getCourseTitle();
-        String subject = StringUtils.hasText(title) ? "课程：" + title : "课程订单";
+        List<TradeOrderItem> items = tradeOrderMapper.selectItems(order.getId());
+        String subject;
+        if (items.size() > 1) {
+            // A combined order has no single course title, so the line count identifies it.
+            subject = "课程订单（" + items.size() + "门课程）";
+        } else {
+            String title = items.isEmpty() ? null : items.get(0).getCourseTitle();
+            subject = StringUtils.hasText(title) ? "课程：" + title : "课程订单";
+        }
         return subject.length() <= SUBJECT_MAX_LENGTH
                 ? subject
                 : subject.substring(0, SUBJECT_MAX_LENGTH);
