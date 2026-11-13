@@ -193,6 +193,17 @@ done
 pass "ownedMatches=$OWNED"
 [ "$OWNED" = "1" ] || die "course $COURSE_ID is missing from my-courses"
 
+# The catalog only calls learn-service when a token is present, so anonymous browsing never
+# touches the owned lookup that broke after the Boot 4 upgrade. Assert the signed-in list by
+# business code and by the owned flag, not by HTTP status alone.
+LIST_KEY="${COURSE_TITLE##* }"
+req GET "/api/v1/courses?keyword=$LIST_KEY&page=1&size=20" "$STUDENT_TOKEN"
+require_code "signed-in course list"
+LIST_OWNED="$(jq -r --argjson cid "$COURSE_ID" \
+  '[.data.items[] | select(.courseId == $cid and .owned == true)] | length' <<<"$BODY")"
+[ "$LIST_OWNED" = "1" ] || die "course $COURSE_ID is not owned in the signed-in catalog"
+pass "signedInListOwned=$LIST_OWNED"
+
 step 12 "student resolves a signed playback URL"
 req GET "/api/v1/courses/$COURSE_ID/chapters"
 require_code "public chapters"
