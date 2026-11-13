@@ -28,6 +28,7 @@ describe('resolveRoute', () => {
   it('maps the learning and account pages', () => {
     expect(resolveRoute('/learning/my-courses').name).toBe('my-courses')
     expect(resolveRoute('/orders').name).toBe('orders')
+    expect(resolveRoute('/cart').name).toBe('cart')
     expect(resolveRoute('/purchase').name).toBe('purchase')
     expect(resolveRoute('/register').name).toBe('register')
     expect(resolveRoute('/health').name).toBe('health')
