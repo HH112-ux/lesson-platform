@@ -1167,7 +1167,7 @@ spec:
 | GET | `/api/v1/coupons/available` | 可用券 | query:`amount` | `[{id,name,type,threshold,value}]` | — |
 | POST | `/api/v1/coupons/{couponId}/receive` | 领券 | `{}` | `{received:true}` | 40901(重复领),62003 |
 | GET | `/api/v1/coupons/mine` | 我的券 | query:`status` | `[{id,couponId,name,status,expireAt}]` | 40101 |
-| POST | `/api/v1/orders` | 创建订单（幂等） | `{courseId,couponId?}` + `Idempotency-Key` 头（≤ 64 字符，必填；过渡期兼容 body `idempotencyKey`）；`channel` 由服务端按 `X-User-Source` 固定（web→alipay；miniapp 已下线，直接返回 62011），不接受前端传参 | `{orderNo,status,channel,totalAmount,discountAmount,payAmount,courseId,payExpireAt,paidAt}` | 40001,40401,40901,40902,61002,62003,62011 |
+| POST | `/api/v1/orders` | 创建订单（幂等；单课程或购物车合并） | `{courseId,couponId?}` 或 `{courseIds}`（两者互斥；`courseIds` 去重后 1–20 门，多课程合并为一笔订单，本期不接受 `couponId`） + `Idempotency-Key` 头（≤ 64 字符，必填；过渡期兼容 body `idempotencyKey`）；`channel` 由服务端按 `X-User-Source` 固定（web→alipay；miniapp 已下线，直接返回 62011），不接受前端传参 | `{orderNo,status,channel,totalAmount,discountAmount,payAmount,courseId,items:[{courseId,title,priceFen}],payExpireAt,paidAt}` | 40001,40401,40901,40902,61002,62003,62011 |
 | GET | `/api/v1/orders` | 我的订单 | query:`status,pageNum,pageSize` | 分页 `{records:[{orderId,orderNo,payAmount,channel,status,createdAt,items[]}]}` | 40101 |
 | GET | `/api/v1/orders/{orderId}` | 订单详情 | — | `{orderId,orderNo,totalAmount,discountAmount,payAmount,channel,status,payExpireAt,items:[{courseId,title,price}]}` | 40301,40401 |
 | POST | `/api/v1/orders/{orderId}/cancel` | 取消（同时关闭进行中的支付单） | `{reason?}` | `{status:2}` | 40301,62001 |
@@ -1196,7 +1196,7 @@ spec:
 
 > **购物车规则**：课程类商品数量固定为 1，`cart_item` 不设数量字段；同用户同课程唯一（`uk_user_course`），重复加购与并发加购都幂等；已购课程加购返回 `61002`，已下架课程返回 `62003`，课程不存在返回 `40401`；删除不存在的条目同样返回成功。
 
-> **下单规则**：首版一次下单仅一门课程；同一用户同一 `idempotencyKey` 且 `courseId` 与 `couponId` 摘要一致时重放返回原订单，摘要不一致视为幂等键被误用并返回 `40901`（不返回首单、不建新单），`uk_idempotency` 兜底并发；已购返回 `61002`，课程不存在 `40401`，已下架或券不可用 `62003`；优惠券在订单金额上一次性核销（`user_coupon` 条件更新 `status=0`），核销失败回滚整单；`pay_amount=0` 时订单创建即完成并发放权益，不进入支付渠道。
+> **下单规则**：支持单课程（`courseId`）与购物车合并（`courseIds`）两种互斥写法（2026-11-13 负责人决定）。单课程路径的契约与语义不变；合并订单每门课程落一条 `trade_order_item`，金额由服务端按分汇总，本期不接受优惠券（携带 `couponId` 返回 `40001`）。同一用户同一 `idempotencyKey` 且「课程集合（顺序无关）+ 券 + 金额」摘要一致时重放返回原订单，摘要不一致视为幂等键被误用并返回 `40901`（不返回首单、不建新单），`uk_idempotency` 兜底并发；已购返回 `61002`，课程不存在 `40401`，已下架或券不可用 `62003`；优惠券在订单金额上一次性核销（`user_coupon` 条件更新 `status=0`），核销失败回滚整单；`pay_amount=0` 时订单创建即完成并发放权益，不进入支付渠道。
 
 > **小程序网页购买 ticket（方案 C）**：小程序不提供支付。用户在课程详情点「去网页购买」→ 小程序调用 `POST /api/v1/orders/purchase-ticket`（登录态）→ 服务端校验课程 `status=2` 后签发 ticket，返回深链与二维码内容 → 用户扫码/复制到浏览器打开 `https://<web-host>/purchase?ticket=<ticket>` → 浏览器调用 `POST /api/v1/orders/purchase-ticket/redeem` 换取 token 对 → 浏览器以该会话调用 `POST /api/v1/orders` 下单并走支付宝。时序：`小程序签发 → 浏览器打开 → 兑换 → 下单 → 支付宝 → 回跳`。
 >
