@@ -124,6 +124,26 @@ else
   printf '  WARN MinIO bucket bootstrap failed; playback URLs will point at missing objects\n' >&2
 fi
 
+log "publishing demo covers and avatars"
+# cover_url and teacher avatar_url are stored as plain same-origin paths, not presigned
+# URLs, so these two prefixes must be readable anonymously from the bucket.
+if "${COMPOSE[@]}" cp db/seed/media media >/dev/null 2>&1; then
+  if "${COMPOSE[@]}" exec -T minio sh -c '
+    mc alias set local http://127.0.0.1:9000 "$1" "$2" >/dev/null || exit 1
+    mc mb -p local/lp-media >/dev/null 2>&1 || true
+    mc cp --recursive /media/covers/ local/lp-media/covers/ >/dev/null || exit 1
+    mc cp --recursive /media/avatars/ local/lp-media/avatars/ >/dev/null || exit 1
+    mc anonymous set download local/lp-media/covers >/dev/null 2>&1 || true
+    mc anonymous set download local/lp-media/avatars >/dev/null 2>&1 || true
+  ' sh "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"; then
+    printf '  -> covers and avatars published under /lp-media/\n'
+  else
+    printf '  WARN cover upload failed; cards will render without images\n' >&2
+  fi
+else
+  printf '  WARN db/seed/media is missing; cards will render without images\n' >&2
+fi
+
 log "stack is up"
 cat <<INFO
 
