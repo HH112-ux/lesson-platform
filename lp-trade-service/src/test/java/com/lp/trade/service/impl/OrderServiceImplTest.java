@@ -19,6 +19,7 @@ import static org.mockito.Mockito.when;
 
 import com.lp.common.exception.BizException;
 import com.lp.common.exception.ErrorCode;
+import com.lp.common.money.Money;
 import com.lp.trade.client.CourseInternalClient;
 import com.lp.trade.domain.OrderStatus;
 import com.lp.trade.domain.PaymentChannel;
@@ -45,6 +46,7 @@ import java.util.stream.LongStream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -171,6 +173,72 @@ class OrderServiceImplTest {
         assertEquals(9L, view.getItems().get(1).getCourseId());
         verify(tradeOrderMapper, times(2)).insertItem(any(TradeOrderItem.class));
         verify(entitlementService, never()).grant(anyLong(), anyLong(), anyLong(), anyString());
+    }
+
+    /**
+     * Combined lines carry their own price and sum exactly to the order amounts.
+     *
+     * @author Caspian
+     * @since 0.22.0
+     */
+    @Test
+    void keepsCombinedLinesEqualToTheOrderAmounts() {
+        when(courseInternalClient.course(7L)).thenReturn(courseWithId(7L, 9900L, 2));
+        when(courseInternalClient.course(9L)).thenReturn(courseWithId(9L, 19900L, 2));
+        when(tradeOrderMapper.countOwned(USER_ID, 7L)).thenReturn(0L);
+        when(tradeOrderMapper.countOwned(USER_ID, 9L)).thenReturn(0L);
+        stubInsertedOrder(42L);
+
+        OrderView view =
+                orderService.create(USER_ID, "web", combinedRequest("key-29", List.of(7L, 9L)));
+
+        ArgumentCaptor<TradeOrder> orderCaptor = ArgumentCaptor.forClass(TradeOrder.class);
+        verify(tradeOrderMapper).insertOrder(orderCaptor.capture());
+        ArgumentCaptor<TradeOrderItem> itemCaptor = ArgumentCaptor.forClass(TradeOrderItem.class);
+        verify(tradeOrderMapper, times(2)).insertItem(itemCaptor.capture());
+
+        assertEquals(
+                0, new BigDecimal("0.00").compareTo(orderCaptor.getValue().getDiscountAmount()));
+        assertEquals(29800L, view.getPayAmountFen());
+        List<TradeOrderItem> items = itemCaptor.getAllValues();
+        assertEquals(29800L, items.stream().mapToLong(item -> fen(item.getPrice())).sum());
+        assertEquals(0L, items.stream().mapToLong(item -> fen(item.getDiscountAmount())).sum());
+        assertEquals(29800L, items.stream().mapToLong(item -> fen(item.getActualAmount())).sum());
+        verifyNoInteractions(couponMapper);
+    }
+
+    /**
+     * A coupon order stores the same discount and payable amount on the order and its only line.
+     *
+     * @author Caspian
+     * @since 0.22.0
+     */
+    @Test
+    void keepsCouponDiscountOnTheOrderAndItsOnlyLine() {
+        when(courseInternalClient.course(COURSE_ID)).thenReturn(course(9900L, 2));
+        when(tradeOrderMapper.countOwned(USER_ID, COURSE_ID)).thenReturn(0L);
+        when(couponMapper.selectUserCoupon(USER_ID, 55L)).thenReturn(userCoupon(55L));
+        when(couponMapper.selectCoupon(55L)).thenReturn(coupon());
+        when(couponMapper.markUsed(eq(55L), anyLong(), any(LocalDateTime.class))).thenReturn(1);
+        stubInsertedOrder(42L);
+
+        OrderView view = orderService.create(USER_ID, "web", request("key-30", 55L));
+
+        ArgumentCaptor<TradeOrder> orderCaptor = ArgumentCaptor.forClass(TradeOrder.class);
+        verify(tradeOrderMapper).insertOrder(orderCaptor.capture());
+        ArgumentCaptor<TradeOrderItem> itemCaptor = ArgumentCaptor.forClass(TradeOrderItem.class);
+        verify(tradeOrderMapper).insertItem(itemCaptor.capture());
+
+        TradeOrder order = orderCaptor.getValue();
+        TradeOrderItem item = itemCaptor.getValue();
+        assertEquals(0, new BigDecimal("99.00").compareTo(order.getTotalAmount()));
+        assertEquals(0, new BigDecimal("10.00").compareTo(order.getDiscountAmount()));
+        assertEquals(0, new BigDecimal("89.00").compareTo(order.getPayAmount()));
+        assertEquals(0, order.getTotalAmount().compareTo(item.getPrice()));
+        assertEquals(0, order.getDiscountAmount().compareTo(item.getDiscountAmount()));
+        assertEquals(0, order.getPayAmount().compareTo(item.getActualAmount()));
+        assertEquals(1000L, view.getDiscountAmountFen());
+        assertEquals(8900L, view.getPayAmountFen());
     }
 
     /**
@@ -854,6 +922,10 @@ class OrderServiceImplTest {
         item.setCourseTitle("Course " + courseId);
         item.setPrice(new BigDecimal("99.00"));
         return item;
+    }
+
+    private long fen(BigDecimal amount) {
+        return Money.toFen(amount);
     }
 
     private UserCoupon userCoupon(long userCouponId) {
