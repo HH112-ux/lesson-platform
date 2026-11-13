@@ -10,6 +10,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.boot.env.YamlPropertySourceLoader;
+import org.springframework.boot.webflux.autoconfigure.WebFluxProperties;
 import org.springframework.cloud.gateway.config.GatewayProperties;
 import org.springframework.cloud.gateway.handler.predicate.PathRoutePredicateFactory;
 import org.springframework.cloud.gateway.route.RouteDefinition;
@@ -65,7 +66,7 @@ class GatewayRouteConfigurationTest {
         }
         properties =
                 Binder.get(context.getEnvironment())
-                        .bind("spring.cloud.gateway", GatewayProperties.class)
+                        .bind("spring.cloud.gateway.server.webflux", GatewayProperties.class)
                         .orElseThrow(
                                 () ->
                                         new IllegalStateException(
@@ -172,7 +173,7 @@ class GatewayRouteConfigurationTest {
      * @since 0.1.0
      */
     private static Predicate<ServerWebExchange> pathPredicate(RouteDefinition route) {
-        PathRoutePredicateFactory factory = new PathRoutePredicateFactory();
+        PathRoutePredicateFactory factory = new PathRoutePredicateFactory(new WebFluxProperties());
         PathRoutePredicateFactory.Config config = new PathRoutePredicateFactory.Config();
         config.setPatterns(pathPatterns(route));
         return factory.apply(config);

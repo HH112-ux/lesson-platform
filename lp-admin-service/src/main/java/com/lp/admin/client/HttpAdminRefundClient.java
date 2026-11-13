@@ -11,9 +11,12 @@ import java.time.Duration;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
+import org.springframework.http.converter.json.JacksonJsonHttpMessageConverter;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
+import tools.jackson.databind.DeserializationFeature;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * HTTP implementation of {@link AdminRefundClient}.
@@ -58,11 +61,22 @@ public class HttpAdminRefundClient implements AdminRefundClient {
         }
         JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory();
         factory.setReadTimeout(Duration.ofMillis(readTimeoutMs));
+        // Jackson 3 rejects null -> primitive, while trade-service omits the admin only fields
+        // (userId, amount) that AdminRefundView declares. Jackson 2 mapped those to 0 before the
+        // Boot 4 upgrade, so the lenient mapper keeps the console working unchanged.
+        JsonMapper mapper =
+                JsonMapper.builder()
+                        .disable(DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES)
+                        .build();
         this.restClient =
                 RestClient.builder()
                         .baseUrl(baseUrl)
                         .defaultHeader(InternalHeaders.INTERNAL_TOKEN, internalToken)
                         .requestFactory(factory)
+                        .configureMessageConverters(
+                                converters ->
+                                        converters.withJsonConverter(
+                                                new JacksonJsonHttpMessageConverter(mapper)))
                         .build();
     }
 
