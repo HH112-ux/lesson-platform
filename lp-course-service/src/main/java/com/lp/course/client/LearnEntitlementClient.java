@@ -1,6 +1,5 @@
 package com.lp.course.client;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.lp.common.identity.IdentityHeaders;
 import com.lp.common.internal.InternalHeaders;
 import java.util.HashSet;
@@ -13,6 +12,7 @@ import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
+import tools.jackson.databind.JsonNode;
 
 /**
  * Reads the current user's owned course ids from the learn-service internal API.
