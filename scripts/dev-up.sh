@@ -99,18 +99,29 @@ log "loading demo seed data"
 "${COMPOSE[@]}" exec -T mysql \
   mysql -uroot -p"${LP_MYSQL_ROOT_PASSWORD:-lp_root_dev}" < db/seed/demo-seed.sql
 
-log "preparing MinIO bucket and video placeholder"
+log "preparing MinIO bucket and demo media"
 # minio/mc is no longer published, but the server image ships the same client, so the
 # bucket is created from inside the running container. backup-drill.sh does the same.
-if "${COMPOSE[@]}" exec -T minio sh -c '
-  mc alias set local http://127.0.0.1:9000 "$1" "$2" >/dev/null &&
-  mc mb -p local/lp-media >/dev/null &&
-  printf "placeholder video for local playback\n" > /tmp/lesson.mp4 &&
-  mc cp /tmp/lesson.mp4 local/lp-media/demo/course-1.mp4 >/dev/null
-' sh "${LP_MINIO_ROOT_USER:-lpminio}" "${LP_MINIO_ROOT_PASSWORD:-lp_minio_dev}"; then
-  printf '  -> bucket lp-media ready\n'
+# The placeholder must be copied to every key referenced by course_lesson.video_url:
+# a single demo/course-1.mp4 object leaves every seeded lesson pointing at a missing key.
+MINIO_ROOT_USER="${LP_MINIO_ROOT_USER:-lpminio}"
+MINIO_ROOT_PASSWORD="${LP_MINIO_ROOT_PASSWORD:-lp_minio_dev}"
+LESSON_KEYS="$("${COMPOSE[@]}" exec -T mysql \
+  mysql -uroot -p"${LP_MYSQL_ROOT_PASSWORD:-lp_root_dev}" -N -B \
+  -e "SELECT DISTINCT video_url FROM lp_cms.course_lesson WHERE video_url IS NOT NULL AND video_url <> ''" \
+  2>/dev/null || true)"
+if printf '%s\n' "$LESSON_KEYS" | "${COMPOSE[@]}" exec -T minio sh -c '
+  mc alias set local http://127.0.0.1:9000 "$1" "$2" >/dev/null || exit 1
+  mc mb -p local/lp-media >/dev/null 2>&1 || true
+  printf "placeholder video for local playback\n" > /tmp/lesson.mp4 || exit 1
+  while IFS= read -r key; do
+    [ -n "$key" ] || continue
+    mc cp /tmp/lesson.mp4 "local/lp-media/$key" >/dev/null || exit 1
+  done
+' sh "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"; then
+  printf '  -> bucket lp-media ready with %s lesson object(s)\n' "$(printf '%s\n' "$LESSON_KEYS" | grep -c . || true)"
 else
-  printf '  WARN MinIO bucket bootstrap failed; playback URLs will point at a missing object\n' >&2
+  printf '  WARN MinIO bucket bootstrap failed; playback URLs will point at missing objects\n' >&2
 fi
 
 log "stack is up"
