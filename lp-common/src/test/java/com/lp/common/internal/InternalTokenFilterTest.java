@@ -3,11 +3,11 @@ package com.lp.common.internal;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Verifies that {@link InternalTokenFilter} protects the internal API prefix only.

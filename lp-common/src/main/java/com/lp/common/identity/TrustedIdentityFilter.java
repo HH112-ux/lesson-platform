@@ -1,6 +1,5 @@
 package com.lp.common.identity;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lp.common.result.Result;
 import com.lp.common.web.TraceIds;
 import jakarta.servlet.FilterChain;
@@ -13,6 +12,7 @@ import java.util.List;
 import org.springframework.http.MediaType;
 import org.springframework.util.AntPathMatcher;
 import org.springframework.web.filter.OncePerRequestFilter;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Resolves the trusted identity headers into {@link UserContext} for business services.

@@ -1,7 +1,5 @@
 package com.lp.trade.service;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lp.common.exception.BizException;
 import com.lp.common.exception.ErrorCode;
 import com.lp.trade.domain.PaymentChannel;
@@ -26,6 +24,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Imports a channel bill CSV and stores the daily reconciliation aggregate.
@@ -353,7 +353,7 @@ public class ReconcileService {
     private String serializeDiffs(ReconcileResult result) {
         try {
             return objectMapper.writeValueAsString(result.diffs());
-        } catch (JsonProcessingException ex) {
+        } catch (JacksonException ex) {
             throw new BizException(
                     ErrorCode.INTERNAL_ERROR, "failed to serialize reconcile differences");
         }

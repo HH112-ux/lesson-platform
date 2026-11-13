@@ -3,7 +3,6 @@ package com.lp.gateway.filter;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalStateException;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
@@ -11,6 +10,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.mock.http.server.reactive.MockServerHttpRequest;
 import org.springframework.mock.web.server.MockServerWebExchange;
 import reactor.core.publisher.Mono;
+import tools.jackson.databind.ObjectMapper;
 
 /** Verifies the per-instance gateway token bucket and its rejection envelope. */
 class GatewayRateLimitFilterTest {

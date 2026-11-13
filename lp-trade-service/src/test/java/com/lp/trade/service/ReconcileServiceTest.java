@@ -8,7 +8,6 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lp.common.exception.BizException;
 import com.lp.common.exception.ErrorCode;
 import com.lp.trade.entity.PaymentReconcile;
@@ -30,6 +29,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import tools.jackson.databind.ObjectMapper;
 
 /** Unit tests for {@link ReconcileService}. */
 @ExtendWith(MockitoExtension.class)

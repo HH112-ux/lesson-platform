@@ -2,12 +2,12 @@ package com.lp.common.identity;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.FilterChain;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Verifies how {@link TrustedIdentityFilter} resolves, exposes and clears trusted identity.

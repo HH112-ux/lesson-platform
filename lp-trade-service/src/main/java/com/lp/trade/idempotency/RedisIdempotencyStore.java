@@ -1,13 +1,13 @@
 package com.lp.trade.idempotency;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Component;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Redis backed idempotency store.
@@ -69,7 +69,7 @@ public class RedisIdempotencyStore implements IdempotencyStore {
         }
         try {
             return Optional.of(objectMapper.readValue(value, StoredIdempotentResult.class));
-        } catch (JsonProcessingException exception) {
+        } catch (JacksonException exception) {
             throw new IllegalStateException("cached idempotency result is unreadable", exception);
         }
     }
@@ -102,7 +102,7 @@ public class RedisIdempotencyStore implements IdempotencyStore {
                             resultKey(scope, userId, keyHash),
                             objectMapper.writeValueAsString(result),
                             ttl);
-        } catch (JsonProcessingException exception) {
+        } catch (JacksonException exception) {
             throw new IllegalStateException("idempotency result cannot be serialized", exception);
         }
     }

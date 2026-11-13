@@ -4,7 +4,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lp.common.exception.BizException;
 import com.lp.common.exception.ErrorCode;
 import com.lp.common.result.Result;
@@ -22,6 +21,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Verifies the replay, conflict and degradation behaviour of {@link IdempotencyService}.
@@ -37,7 +37,7 @@ class IdempotencyServiceTest {
 
     private final SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
 
-    private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     private IdempotencyService service;
 

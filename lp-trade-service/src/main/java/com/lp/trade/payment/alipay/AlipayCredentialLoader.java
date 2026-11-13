@@ -1,7 +1,5 @@
 package com.lp.trade.payment.alipay;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lp.trade.config.AlipayPayProperties;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -12,6 +10,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.env.Environment;
 import org.springframework.util.StringUtils;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Reads the Alipay credentials from the verified credential file at startup.
@@ -66,7 +67,7 @@ public final class AlipayCredentialLoader {
         JsonNode root;
         try {
             root = objectMapper.readTree(Files.readAllBytes(path));
-        } catch (IOException exception) {
+        } catch (IOException | JacksonException exception) {
             throw new IllegalStateException(
                     "lp.pay.alipay.credentials-file is not readable: " + path, exception);
         }

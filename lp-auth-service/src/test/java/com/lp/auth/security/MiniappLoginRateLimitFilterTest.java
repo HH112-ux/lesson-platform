@@ -2,7 +2,6 @@ package com.lp.auth.security;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -17,6 +16,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
+import tools.jackson.databind.ObjectMapper;
 
 /** Verifies the miniapp login limiter dimensions, fail-open behaviour and response shape. */
 class MiniappLoginRateLimitFilterTest {

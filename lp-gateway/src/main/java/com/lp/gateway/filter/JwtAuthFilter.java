@@ -1,7 +1,5 @@
 package com.lp.gateway.filter;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lp.common.identity.IdentityHeaders;
 import com.lp.common.result.Result;
 import com.lp.gateway.config.IdentityProperties;
@@ -24,6 +22,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.AntPathMatcher;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Verifies the access token and injects trusted identity headers.
@@ -242,7 +242,7 @@ public class JwtAuthFilter implements GlobalFilter, Ordered {
         byte[] payload;
         try {
             payload = objectMapper.writeValueAsBytes(body);
-        } catch (JsonProcessingException ex) {
+        } catch (JacksonException ex) {
             return exchange.getResponse().setComplete();
         }
         exchange.getResponse().setStatusCode(status);
