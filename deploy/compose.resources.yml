@@ -1,0 +1,77 @@
+# 2 vCPU / 8 GiB resource profile for the single-host public beta.
+#
+# Usage:
+#   docker compose --env-file /etc/lp/lp.env \
+#     -f deploy/production-compose.yml -f deploy/compose.resources.yml up -d
+#
+# The base file sets JAVA_TOOL_OPTIONS globally. This override gives every JVM a heap that
+# fits a 2-core box, pins GC to SerialGC (fewer threads than G1), and caps the container
+# RSS so one runaway service cannot take the whole host down.
+#
+# Heap total is ~1.7 GiB; container limits total ~5.7 GiB, leaving ~2 GiB for page cache,
+# dockerd and the host. Do not raise heaps on this box without lowering another service.
+services:
+  mysql:
+    mem_limit: 1536m
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+      - --max-connections=150
+      - --innodb-buffer-pool-size=512M
+      - --performance-schema=OFF
+      - --binlog-expire-logs-seconds=259200
+
+  redis:
+    mem_limit: 128m
+
+  auth-service:
+    mem_limit: 448m
+    environment:
+      JAVA_TOOL_OPTIONS: -Xms64m -Xmx192m -XX:MaxMetaspaceSize=128m -XX:ReservedCodeCacheSize=48m -XX:+UseSerialGC -XX:ActiveProcessorCount=2 -Xss512k
+
+  course-service:
+    mem_limit: 704m
+    environment:
+      JAVA_TOOL_OPTIONS: -Xms64m -Xmx320m -XX:MaxMetaspaceSize=128m -XX:ReservedCodeCacheSize=48m -XX:+UseSerialGC -XX:ActiveProcessorCount=2 -Xss512k
+      # Transcoding on 2 shared vCPUs starves every request path; beta accepts pre-encoded H.264.
+      LP_COURSE_TRANSCODE_ENABLED: "false"
+
+  trade-service:
+    mem_limit: 576m
+    environment:
+      JAVA_TOOL_OPTIONS: -Xms64m -Xmx256m -XX:MaxMetaspaceSize=128m -XX:ReservedCodeCacheSize=48m -XX:+UseSerialGC -XX:ActiveProcessorCount=2 -Xss512k
+
+  learn-service:
+    mem_limit: 448m
+    environment:
+      JAVA_TOOL_OPTIONS: -Xms64m -Xmx192m -XX:MaxMetaspaceSize=128m -XX:ReservedCodeCacheSize=48m -XX:+UseSerialGC -XX:ActiveProcessorCount=2 -Xss512k
+
+  ugc-service:
+    mem_limit: 448m
+    environment:
+      JAVA_TOOL_OPTIONS: -Xms64m -Xmx192m -XX:MaxMetaspaceSize=128m -XX:ReservedCodeCacheSize=48m -XX:+UseSerialGC -XX:ActiveProcessorCount=2 -Xss512k
+
+  admin-service:
+    mem_limit: 448m
+    environment:
+      JAVA_TOOL_OPTIONS: -Xms64m -Xmx192m -XX:MaxMetaspaceSize=128m -XX:ReservedCodeCacheSize=48m -XX:+UseSerialGC -XX:ActiveProcessorCount=2 -Xss512k
+
+  ai-service:
+    mem_limit: 448m
+    environment:
+      JAVA_TOOL_OPTIONS: -Xms64m -Xmx192m -XX:MaxMetaspaceSize=128m -XX:ReservedCodeCacheSize=48m -XX:+UseSerialGC -XX:ActiveProcessorCount=2 -Xss512k
+
+  gateway:
+    mem_limit: 448m
+    environment:
+      JAVA_TOOL_OPTIONS: -Xms64m -Xmx192m -XX:MaxMetaspaceSize=128m -XX:ReservedCodeCacheSize=48m -XX:+UseSerialGC -XX:ActiveProcessorCount=2 -Xss512k
+
+  web:
+    mem_limit: 96m
+
+  admin:
+    mem_limit: 96m
+
+  # Only used when the stack keeps MinIO. With external object storage this service is not started.
+  minio:
+    mem_limit: 768m
