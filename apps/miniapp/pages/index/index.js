@@ -1,5 +1,6 @@
 const { request } = require('../../utils/request')
 const { formatCents, describeError } = require('../../utils/format')
+const { resolveMediaUrl } = require('../../utils/media')
 
 const PAGE_SIZE = 10
 
@@ -50,8 +51,10 @@ Page({
     }
     return request('/api/v1/courses?' + params.join('&'))
       .then((result) => {
+        const apiBaseUrl = getApp().globalData.apiBaseUrl
         const items = (result.items || []).map((course) =>
           Object.assign({}, course, {
+            coverUrl: resolveMediaUrl(course.coverUrl, apiBaseUrl),
             priceText: course.price === 0 ? '免费' : '¥' + formatCents(course.price),
           }),
         )

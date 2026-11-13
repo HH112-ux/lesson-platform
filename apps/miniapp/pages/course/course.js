@@ -1,5 +1,6 @@
 const { request } = require('../../utils/request')
 const { formatCents, formatDuration, describeError } = require('../../utils/format')
+const { resolveMediaUrl } = require('../../utils/media')
 
 Page({
   data: {
@@ -35,7 +36,9 @@ Page({
       request('/api/v1/courses/' + this.data.courseId + '/chapters'),
     ])
       .then((results) => {
-        const course = results[0]
+        const course = Object.assign({}, results[0], {
+          coverUrl: resolveMediaUrl(results[0].coverUrl, getApp().globalData.apiBaseUrl),
+        })
         const outline = results[1]
         const chapters = (outline.chapters || []).map((chapter) =>
           Object.assign({}, chapter, {
