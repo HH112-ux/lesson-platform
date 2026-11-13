@@ -47,6 +47,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -160,7 +161,7 @@ class RefundServiceImplTest {
                 .thenReturn(paidOrder(LocalDateTime.now().minusDays(1)));
         when(refundRequestMapper.selectActiveByOrderId(ORDER_ID)).thenReturn(null);
         when(paymentMapper.selectLatestByOrderId(ORDER_ID)).thenReturn(payment());
-        when(tradeOrderMapper.selectFirstItem(ORDER_ID)).thenReturn(item());
+        when(tradeOrderMapper.selectItems(ORDER_ID)).thenReturn(List.of(item()));
         when(learnProgressClient.progress(USER_ID, COURSE_ID)).thenReturn(progress(20));
         when(refundRequestMapper.countByOrderId(ORDER_ID)).thenReturn(0);
         when(refundRequestMapper.insert(any(RefundRequest.class)))
@@ -194,7 +195,7 @@ class RefundServiceImplTest {
                 .thenReturn(paidOrder(LocalDateTime.now().minusDays(8)));
         when(refundRequestMapper.selectActiveByOrderId(ORDER_ID)).thenReturn(null);
         when(paymentMapper.selectLatestByOrderId(ORDER_ID)).thenReturn(payment());
-        when(tradeOrderMapper.selectFirstItem(ORDER_ID)).thenReturn(item());
+        when(tradeOrderMapper.selectItems(ORDER_ID)).thenReturn(List.of(item()));
 
         BizException exception =
                 assertThrows(
@@ -218,7 +219,7 @@ class RefundServiceImplTest {
                 .thenReturn(paidOrder(LocalDateTime.now().minusDays(1)));
         when(refundRequestMapper.selectActiveByOrderId(ORDER_ID)).thenReturn(null);
         when(paymentMapper.selectLatestByOrderId(ORDER_ID)).thenReturn(payment());
-        when(tradeOrderMapper.selectFirstItem(ORDER_ID)).thenReturn(item());
+        when(tradeOrderMapper.selectItems(ORDER_ID)).thenReturn(List.of(item()));
         when(learnProgressClient.progress(USER_ID, COURSE_ID)).thenReturn(progress(21));
 
         BizException exception =
@@ -228,6 +229,59 @@ class RefundServiceImplTest {
 
         assertEquals(ErrorCode.REFUND_ADMISSION_NOT_MET.getCode(), exception.getCode());
         verify(refundRequestMapper, never()).insert(any(RefundRequest.class));
+    }
+
+    /**
+     * A combined order is only refundable while every course stays under the progress limit.
+     *
+     * @author Caspian
+     * @since 0.22.0
+     */
+    @Test
+    void rejectsApplicationWhenAnyCourseExceedsTheProgressLimit() {
+        when(tradeOrderMapper.selectById(ORDER_ID))
+                .thenReturn(paidOrder(LocalDateTime.now().minusDays(1)));
+        when(refundRequestMapper.selectActiveByOrderId(ORDER_ID)).thenReturn(null);
+        when(paymentMapper.selectLatestByOrderId(ORDER_ID)).thenReturn(payment());
+        when(tradeOrderMapper.selectItems(ORDER_ID)).thenReturn(List.of(item(7L), item(9L)));
+        when(learnProgressClient.progress(USER_ID, 7L)).thenReturn(progress(10));
+        when(learnProgressClient.progress(USER_ID, 9L)).thenReturn(progress(21));
+
+        BizException exception =
+                assertThrows(
+                        BizException.class,
+                        () -> refundService.apply(USER_ID, ORDER_ID, request(null)));
+
+        assertEquals(ErrorCode.REFUND_ADMISSION_NOT_MET.getCode(), exception.getCode());
+        verify(refundRequestMapper, never()).insert(any(RefundRequest.class));
+    }
+
+    /**
+     * A combined order with every course under the limit is accepted once.
+     *
+     * @author Caspian
+     * @since 0.22.0
+     */
+    @Test
+    void acceptsCombinedOrderWhenEveryCourseIsUnderTheLimit() {
+        when(tradeOrderMapper.selectById(ORDER_ID))
+                .thenReturn(paidOrder(LocalDateTime.now().minusDays(1)));
+        when(refundRequestMapper.selectActiveByOrderId(ORDER_ID)).thenReturn(null);
+        when(paymentMapper.selectLatestByOrderId(ORDER_ID)).thenReturn(payment());
+        when(tradeOrderMapper.selectItems(ORDER_ID)).thenReturn(List.of(item(7L), item(9L)));
+        when(learnProgressClient.progress(USER_ID, 7L)).thenReturn(progress(10));
+        when(learnProgressClient.progress(USER_ID, 9L)).thenReturn(progress(20));
+        when(refundRequestMapper.insert(any(RefundRequest.class)))
+                .thenAnswer(
+                        invocation -> {
+                            RefundRequest saved = invocation.getArgument(0);
+                            saved.setId(REFUND_ID);
+                            return 1;
+                        });
+
+        refundService.apply(USER_ID, ORDER_ID, request(null));
+
+        verify(refundRequestMapper, times(1)).insert(any(RefundRequest.class));
     }
 
     /**
@@ -242,7 +296,7 @@ class RefundServiceImplTest {
                 .thenReturn(paidOrder(LocalDateTime.now().minusDays(1)));
         when(refundRequestMapper.selectActiveByOrderId(ORDER_ID)).thenReturn(null);
         when(paymentMapper.selectLatestByOrderId(ORDER_ID)).thenReturn(payment());
-        when(tradeOrderMapper.selectFirstItem(ORDER_ID)).thenReturn(item());
+        when(tradeOrderMapper.selectItems(ORDER_ID)).thenReturn(List.of(item()));
         when(learnProgressClient.progress(USER_ID, COURSE_ID))
                 .thenThrow(new BizException(ErrorCode.CHANNEL_UPSTREAM_ERROR));
 
@@ -291,7 +345,7 @@ class RefundServiceImplTest {
                 .thenReturn(pending, approved, approved, refunded);
         when(tradeOrderMapper.selectById(ORDER_ID)).thenReturn(paidOrder(LocalDateTime.now()));
         when(paymentMapper.selectLatestByOrderId(ORDER_ID)).thenReturn(payment());
-        when(tradeOrderMapper.selectFirstItem(ORDER_ID)).thenReturn(item());
+        when(tradeOrderMapper.selectItems(ORDER_ID)).thenReturn(List.of(item()));
         when(refundRequestMapper.markApproved(eq(REFUND_ID), eq(REVIEWER_ID), any())).thenReturn(1);
         when(tradeOrderMapper.markRefunding(ORDER_ID)).thenReturn(1);
         when(paymentGateway.refund(any(PaymentRecord.class), eq(REFUND_NO), eq(PAY_AMOUNT)))
@@ -368,7 +422,7 @@ class RefundServiceImplTest {
                 .thenAnswer(invocation -> refund((Integer) state.get("refund")));
         when(tradeOrderMapper.selectById(ORDER_ID))
                 .thenAnswer(invocation -> orderWith((Integer) state.get("order")));
-        when(tradeOrderMapper.selectFirstItem(ORDER_ID)).thenReturn(item());
+        when(tradeOrderMapper.selectItems(ORDER_ID)).thenReturn(List.of(item()));
         when(refundRequestMapper.markApproved(eq(REFUND_ID), eq(REVIEWER_ID), any()))
                 .thenAnswer(
                         invocation -> {
@@ -443,7 +497,7 @@ class RefundServiceImplTest {
                         });
         when(tradeOrderMapper.selectById(ORDER_ID))
                 .thenReturn(paidOrder(LocalDateTime.now().minusDays(1)));
-        when(tradeOrderMapper.selectFirstItem(ORDER_ID)).thenReturn(item());
+        when(tradeOrderMapper.selectItems(ORDER_ID)).thenReturn(List.of(item()));
         when(refundRequestMapper.markApproved(eq(REFUND_ID), eq(REVIEWER_ID), any())).thenReturn(1);
         when(tradeOrderMapper.markRefunding(ORDER_ID)).thenReturn(1);
         when(paymentGateway.refund(any(PaymentRecord.class), eq(REFUND_NO), eq(PAY_AMOUNT)))
@@ -572,7 +626,7 @@ class RefundServiceImplTest {
         when(refundRequestMapper.selectById(REFUND_ID)).thenReturn(pending, pending, failed);
         when(tradeOrderMapper.selectById(ORDER_ID)).thenReturn(paidOrder(LocalDateTime.now()));
         when(paymentMapper.selectLatestByOrderId(ORDER_ID)).thenReturn(payment());
-        when(tradeOrderMapper.selectFirstItem(ORDER_ID)).thenReturn(item());
+        when(tradeOrderMapper.selectItems(ORDER_ID)).thenReturn(List.of(item()));
         when(refundRequestMapper.markApproved(eq(REFUND_ID), eq(REVIEWER_ID), any())).thenReturn(1);
         when(tradeOrderMapper.markRefunding(ORDER_ID)).thenReturn(1);
         when(paymentGateway.refund(any(PaymentRecord.class), eq(REFUND_NO), eq(PAY_AMOUNT)))
@@ -606,7 +660,7 @@ class RefundServiceImplTest {
         when(refundRequestMapper.selectById(REFUND_ID)).thenReturn(pending, pending, unknown);
         when(tradeOrderMapper.selectById(ORDER_ID)).thenReturn(paidOrder(LocalDateTime.now()));
         when(paymentMapper.selectLatestByOrderId(ORDER_ID)).thenReturn(payment());
-        when(tradeOrderMapper.selectFirstItem(ORDER_ID)).thenReturn(item());
+        when(tradeOrderMapper.selectItems(ORDER_ID)).thenReturn(List.of(item()));
         when(refundRequestMapper.markApproved(eq(REFUND_ID), eq(REVIEWER_ID), any())).thenReturn(1);
         when(tradeOrderMapper.markRefunding(ORDER_ID)).thenReturn(1);
         when(paymentGateway.refund(any(PaymentRecord.class), eq(REFUND_NO), eq(PAY_AMOUNT)))
@@ -645,7 +699,7 @@ class RefundServiceImplTest {
                         });
         when(tradeOrderMapper.selectById(ORDER_ID)).thenReturn(paidOrder(LocalDateTime.now()));
         when(paymentMapper.selectLatestByOrderId(ORDER_ID)).thenReturn(payment());
-        when(tradeOrderMapper.selectFirstItem(ORDER_ID)).thenReturn(item());
+        when(tradeOrderMapper.selectItems(ORDER_ID)).thenReturn(List.of(item()));
         when(refundRequestMapper.markApproved(eq(REFUND_ID), eq(REVIEWER_ID), any()))
                 .thenAnswer(
                         invocation -> {
@@ -713,7 +767,7 @@ class RefundServiceImplTest {
                 .thenReturn(paidOrder(LocalDateTime.now().minusDays(1)));
         when(refundRequestMapper.selectActiveByOrderId(ORDER_ID)).thenReturn(null, pendingRefund());
         when(paymentMapper.selectLatestByOrderId(ORDER_ID)).thenReturn(payment());
-        when(tradeOrderMapper.selectFirstItem(ORDER_ID)).thenReturn(item());
+        when(tradeOrderMapper.selectItems(ORDER_ID)).thenReturn(List.of(item()));
         when(learnProgressClient.progress(USER_ID, COURSE_ID)).thenReturn(progress(20));
         when(refundRequestMapper.countByOrderId(ORDER_ID)).thenReturn(0);
         when(refundRequestMapper.insert(any(RefundRequest.class)))
@@ -738,7 +792,7 @@ class RefundServiceImplTest {
                 .thenReturn(paidOrder(LocalDateTime.now().minusDays(1)));
         when(refundRequestMapper.selectActiveByOrderId(ORDER_ID)).thenReturn(null);
         when(paymentMapper.selectLatestByOrderId(ORDER_ID)).thenReturn(payment());
-        when(tradeOrderMapper.selectFirstItem(ORDER_ID)).thenReturn(item());
+        when(tradeOrderMapper.selectItems(ORDER_ID)).thenReturn(List.of(item()));
 
         BizException exception =
                 assertThrows(
@@ -949,9 +1003,13 @@ class RefundServiceImplTest {
     }
 
     private TradeOrderItem item() {
+        return item(COURSE_ID);
+    }
+
+    private TradeOrderItem item(long courseId) {
         TradeOrderItem item = new TradeOrderItem();
         item.setOrderId(ORDER_ID);
-        item.setCourseId(COURSE_ID);
+        item.setCourseId(courseId);
         return item;
     }
 

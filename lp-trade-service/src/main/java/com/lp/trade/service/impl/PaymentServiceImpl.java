@@ -24,6 +24,7 @@ import com.lp.trade.service.PaymentService;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ThreadLocalRandom;
@@ -290,12 +291,17 @@ public class PaymentServiceImpl implements PaymentService {
         if (orderUpdated == 0) {
             throw new BizException(ErrorCode.TRADE_BIZ_ERROR, "order is not payable");
         }
-        TradeOrderItem item = tradeOrderMapper.selectFirstItem(order.getId());
-        if (item == null) {
+        List<TradeOrderItem> items = tradeOrderMapper.selectItems(order.getId());
+        if (items.isEmpty()) {
             throw new BizException(ErrorCode.TRADE_BIZ_ERROR, "order has no item");
         }
-        entitlementService.grant(
-                order.getUserId(), item.getCourseId(), order.getId(), order.getOrderNo());
+        for (TradeOrderItem item : items) {
+            if (item.getCourseId() == null) {
+                throw new BizException(ErrorCode.TRADE_BIZ_ERROR, "order item has no course");
+            }
+            entitlementService.grant(
+                    order.getUserId(), item.getCourseId(), order.getId(), order.getOrderNo());
+        }
         return true;
     }
 

@@ -160,13 +160,13 @@ public class RefundServiceImpl implements RefundService {
         if (payment == null || !Objects.equals(payment.getStatus(), PaymentStatus.SUCCESS)) {
             throw new BizException(ErrorCode.ORDER_NOT_REFUNDABLE, "no successful payment found");
         }
-        TradeOrderItem item = tradeOrderMapper.selectFirstItem(orderId);
-        if (item == null || item.getCourseId() == null) {
+        List<TradeOrderItem> items = tradeOrderMapper.selectItems(orderId);
+        if (items.isEmpty()) {
             throw new BizException(ErrorCode.NOT_FOUND, "order has no line");
         }
         String reason = validateReason(request == null ? null : request.getReason());
         BigDecimal amount = resolveAmount(order, request);
-        checkAdmission(order, userId, item.getCourseId());
+        checkAdmission(order, userId, items);
 
         RefundRequest refund;
         try {
@@ -452,11 +452,11 @@ public class RefundServiceImpl implements RefundService {
             return fail(refundId, null, "order not found");
         }
         PaymentRecord payment = paymentMapper.selectLatestByOrderId(order.getId());
-        TradeOrderItem item = tradeOrderMapper.selectFirstItem(order.getId());
+        List<TradeOrderItem> items = tradeOrderMapper.selectItems(order.getId());
         if (!Objects.equals(order.getStatus(), OrderStatus.PAID)
                 || payment == null
                 || !Objects.equals(payment.getStatus(), PaymentStatus.SUCCESS)
-                || item == null) {
+                || items.isEmpty()) {
             return fail(refundId, order, "order is no longer refundable");
         }
         Boolean claimed =
@@ -525,17 +525,23 @@ public class RefundServiceImpl implements RefundService {
         return view(order, refundRequestMapper.selectById(refundId));
     }
 
-    private void checkAdmission(TradeOrder order, long userId, long courseId) {
+    private void checkAdmission(TradeOrder order, long userId, List<TradeOrderItem> items) {
         LocalDateTime paidAt = order.getPaidAt();
         if (paidAt == null || LocalDateTime.now().isAfter(paidAt.plusDays(ADMISSION_DAYS))) {
             throw new BizException(
                     ErrorCode.REFUND_ADMISSION_NOT_MET, "refund must be applied within seven days");
         }
-        CourseProgressSummary progress = learnProgressClient.progress(userId, courseId);
-        if (progress.progressPercent() > MAX_PROGRESS_PERCENT) {
-            throw new BizException(
-                    ErrorCode.REFUND_ADMISSION_NOT_MET,
-                    "refund is not available after twenty percent progress");
+        for (TradeOrderItem item : items) {
+            if (item.getCourseId() == null) {
+                throw new BizException(ErrorCode.NOT_FOUND, "order item has no course");
+            }
+            CourseProgressSummary progress =
+                    learnProgressClient.progress(userId, item.getCourseId());
+            if (progress.progressPercent() > MAX_PROGRESS_PERCENT) {
+                throw new BizException(
+                        ErrorCode.REFUND_ADMISSION_NOT_MET,
+                        "refund is not available after twenty percent progress");
+            }
         }
     }
 
