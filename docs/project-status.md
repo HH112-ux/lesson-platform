@@ -20,7 +20,7 @@
 
 | 分支 / 标签 | commit | 日期 | 说明 |
 |---|---|---|---|
-| `develop` | `08c7509` | 2026-11-10 | PR #135 网关 CORS 白名单；同批合入 #132 可信客户端 IP 解析、#133 小程序登录频控、#134 网关限流、#136 让堆叠 PR 也触发必需检查 |
+| `develop` | `7d10235` | 2026-11-13 | PR #294 支付回调 AC-1/AC-7 拆分；同批 #290–#292 退款渠道状态可视（trade 只读接口 → admin 代理 → 管理端展示）；核对日期 2026-11-13 |
 | `main` | `7364af7` | 2026-11-09 | PR #97，与开发线尚未对齐，下次发布合并时同步 |
 | `v0.1.0` | 2026-11-06 | — | 首个可演示版本标签，指向退款闭环完成后的提交 |
 
@@ -30,10 +30,10 @@
 |---|---|---|---|
 | M0 基建 | 完成 | Compose、Flyway、网关、统一返回、身份头、CI、本地验收脚本均可运行；`infra/observability` 已提供 Prometheus / Alertmanager / Grafana 本地编排与抓取配置 | 2026-11-10 |
 | M1 账号与内容（含教师端） | 部分完成 | 注册登录、RBAC 种子、分类/课程/章节课时、教师课程 API、课程审核与审计、教师入驻审核接口已通（入驻审核为接口级）；教师建课/改价/提交审核/撤回页面、章节课时管理（新增章节、新增/编辑课时）与课时视频上传页（`/lesson-videos`）已可用，2026-11-11 在浏览器里从零建课经章节、课时、上传确认、编辑到提交审核全链路 200，无需 SQL 补课时（证据见 L1-11 行）；全文搜索未做，教师入驻审核页面与独立工作台（数据看板）未做（教师入口寄居运营后台，见 4.2） | 2026-11-11 |
-| M2 交易与学习 | 部分完成 | 购物车 API、下单幂等、0 元课、模拟支付、权益 outbox、学员播放签名（SPEC-LEARN-003 6/6）、进度回写已通；教师预览播放签名 2026-11-10 补齐（#204：只签本人课程、默认 10 分钟；#213 补过期重签）；真实支付宝未接 | 2026-11-10 |
+| M2 交易与学习 | 部分完成 | 购物车 API、下单幂等、0 元课、模拟支付、权益 outbox、学员播放签名（SPEC-LEARN-003 6/6）、进度回写已通；教师预览播放签名 2026-11-10 补齐（#204：只签本人课程、默认 10 分钟；#213 补过期重签）；真实支付宝台阶 1–5 代码已落地，但真实沙箱支付与退款一笔未跑（桩级 + 单测），不等于已验证收款 | 2026-11-13 |
 | M3 互动与后台 | 部分完成 | 运营审核、用户/订单查询、退款审核、看板概览、对账 CSV 导入与差异处置、日结接口已通；UGC、举报处置未做，对账缺自动拉账与运营后台页面 | 2026-11-10 |
 | M4 AI MVP | 未开始 | `lp-ai-service` 仅有启动类与 `package-info` | 2026-11-09 |
-| M5 Web 加固与上线 | 未开始 | 无压测、安全测试、灰度与部署流水线 | 2026-11-09 |
+| M5 Web 加固与上线 | 未开始 | `security-ci`、`supply-chain-ci`、`e2e-ci` 已存在；仍缺压测、staging 实跑、灰度与部署流水线，另有 3 条无修复版本的 Trivy CRITICAL（Spring Framework 6.2.19） | 2026-11-13 |
 | M6 小程序端 | 部分完成 | 4 个页面 + 静默登录 + 购买引导；无评论，未配置 AppID，未提审 | 2026-11-09 |
 | M7 小程序审核与灰度 | 未开始 | 无提审与发布记录 | 2026-11-09 |
 
@@ -41,7 +41,7 @@
 
 当前处于 **M2 后端链路可演示、M3 刚起步** 的阶段。可演示的闭环是：教师通过 API 建课并提交 → 运营在后台审核定价上架 → 学员在 Web 下单 → 模拟支付回调 → 权益发放 → 播放签名 → 进度回写 → 学员发起退款申请 → 运营后台审核通过 → 模拟渠道退款成功并回收权益。
 
-该闭环成立的前提是**本地模拟支付**（`LP_PAY_MOCK_ENABLED=true`），并且教师入驻审核目前只有后端接口、没有界面。真实支付宝、UGC、AI、教师统计看板、小程序评论、部署流水线均未完成；监控栈已有本地编排与抓取配置，告警求值证据见 L1-10，详见第 4 章。
+该闭环成立的前提是**本地模拟支付**（`LP_PAY_MOCK_ENABLED=true`），并且教师入驻审核目前只有后端接口、没有界面。真实支付宝台阶 1–5 代码已落地但真实沙箱一笔未跑，UGC、AI、教师统计看板、小程序评论、部署流水线未完成；监控栈已有本地编排与抓取配置，告警求值证据见 L1-10，详见第 4 章。
 
 ## 2.4 规格条目索引（条目 → 实现状态）
 
@@ -107,7 +107,7 @@
 | L1-2 | 金额边界与勾稽 | SPEC-TRADE-013（5/5）、SPEC-COURSE-011（5/5） | 已完成 | 金额单位与订单/支付/退款三处勾稽已完成；教师端拟定价入口于 2026-11-11 浏览器实跑（建课 88.80 → 提交 → 撤回 → 改价 66.60 → 再提交），AC-1 满足；元/分双轨仍为技术债，见 4.2 | 2026-11-11 |
 | L1-3 | 订单超时关单 | SPEC-TRADE-007（5/5） | 已完成 | L1-3 层级已从 SPEC-TRADE-004 移到实际承载它的 SPEC-TRADE-007；004 剩 2 条 AC 属「支付发起与重付」业务缺口，层级改回 L2-2，见 4.2 | 2026-11-10 |
 | L1-4 | 幂等契约 | SPEC-TRADE-001（7/7） | 已完成 | `Idempotency-Key`、最终响应原文缓存、40901 与 40902 已实现；Redis 降级窗口的同键换体限制见 4.2 | 2026-11-10 |
-| L1-5 | 教师入驻审核 | SPEC-COURSE-009（5/5） | 已完成 | 审核接口、权限码 `admin:teacher:audit` 与重新提交已通；运营与教师端无页面，档案未打 L1-5 层级标记 | 2026-11-10 |
+| L1-5 | 教师入驻审核 | SPEC-COURSE-009（5/5） | 已完成（接口） | 接口完成、管理端页面未做：审核接口、权限码 `admin:teacher:audit` 与重新提交已通，`apps/admin` 无审核页，不能读作可交付；档案未打 L1-5 层级标记 | 2026-11-13 |
 | L1-6 | 登录风控与网关边界 | SPEC-PLAT-011（8/8）、SPEC-PLAT-012（8/8）、SPEC-PLAT-013（7/7） | 已完成 | 小程序登录频控、网关限流与 CORS 白名单三项 AC 全满足 | 2026-11-10 |
 | L1-7 | 统一操作审计 | SPEC-PLAT-010（10/10） | 已完成 | 三类审核的统一审计已完成，结算作废（动作 6 / 对象 3）已纳入同一审计链路（验收见 SPEC-TRADE-014 AC-3）；原同层级的账号注销已按门槛编号移到 L1-8 | 2026-11-10 |
 | L1-8 | 账号注销 | SPEC-PLAT-004（32/33） | 进行中 | 已实现 32 条：AC-1/2/3/4/5/6/7/8/9/10/11/12/13/14/15/16/17/18/19/20/21/23/24/25/26/27/28/29/30/31/32/33，覆盖申请与撤销、7 天冷静期落库、重复申请幂等、阻塞失败关闭、员工账号拒绝、查询与状态门禁、trade 冷静期守卫、执行任务与匿名化、环境变量与指标。2026-11-10 逐条复核结论：AC-6、AC-9、AC-17 的单测断言与 AC 逐条对应（`AccountCancellationServiceImplTest#applyAfterWithdrawalCreatesANewRequestWithANewDeadline`、`OrderTimeoutConcurrencyTest#timedOutOrderNoLongerBlocksAccountDeletion`、`AccountAnonymizationServiceTest#anonymisationRewritesInPlaceAndDeletesNoBusinessRow`，均随 `backend-test` 执行），可判满足；AC-16 由 `lp-trade-service` 的 `NewAccountVisibilityTest`（订单查询按新用户 id 为空、原用户 1 条）与 `lp-learn-service` 的 `NewAccountVisibilityTest`（`hasEntitlement`/`ownedCourseIds` 按新用户 id 为空、原用户有该课程）显式补断言，AC-25 由 `AccountCancellationServiceImplTest#applyAndWithdrawLogTheDeadlineAndSource` 与 `AccountCancellationExecutionJobTest#everyOutcomeIsLoggedWithUserDeadlineAndSource` 覆盖申请/撤销/执行/跳过/失败五处日志（断言 userId、effectiveAt、source），两条闭环；AC-33 已闭环：`LpAuthAccountCancellationCacheInvalidateFailed` 改为 `increase(...[15m]) >= 3` + `for: 5m`（门槛 3 与 5 分钟去抖未动），`scripts/observability-ac33-drill.sh` 改回单批 3 次失败即跑通 pending（采样中 `activeAt` 未后移）→firing→Alertmanager active→inactive，见 `docs/local-dev-guide.md` 4.10；原 `[5m]` 与 `for: 5m` 等长会让单批突发永不触发，已按「不降门槛、改窗口」裁定修正；唯一仍为「部分」的是 AC-22：Web 侧已于 2026-11-10 用真实账号浏览器实跑（申请/倒计时/撤销/67003 常驻提示/67005 下单与支付门禁），小程序真机预览受外部条件阻塞（缺真实 AppID），见 §4.3 外部阻塞 | 2026-11-10 |
