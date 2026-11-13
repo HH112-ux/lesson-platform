@@ -26,19 +26,40 @@ import {
   type TeacherUploadSession,
 } from '../api/teacher'
 import { ApiError } from '../api/client'
+import { navigate } from '../router'
 import { describeError } from '../utils/errors'
 import { checkLocalVideo, formatBytes, isSlowUpload } from '../utils/lessonUpload'
+import {
+  loadChapterCounts,
+  shouldLoadCardChapterCounts,
+} from '../utils/lessonCourses'
 
 const PAGE_SIZE = 50
+
+/** Ceiling of one card chapter count request; a slower call silently renders a placeholder. */
+const CHAPTER_COUNT_TIMEOUT_MS = 4000
 
 const STATUS_TEXT: Record<number, string> = { 0: '草稿', 1: '待审核', 2: '已上架', 3: '已下架' }
 
 const courses = ref<TeacherCourse[]>([])
-const courseId = ref<number | null>(null)
+/** Course whose chapters are open; {@code null} renders the course list. */
+const selectedCourse = shallowRef<TeacherCourse | null>(null)
+const courseId = computed(() => selectedCourse.value?.courseId ?? null)
 const chapters = ref<TeacherChapter[]>([])
-const loading = ref(false)
+const courseListLoading = ref(false)
+const chaptersLoading = ref(false)
+const courseError = ref('')
 const errorText = ref('')
 const notice = ref('')
+
+/** Chapter count shown on the cards; filled once per session and reused on every return. */
+const chapterCounts = ref<Map<number, number | null>>(new Map())
+const chapterCountCache = new Map<number, number | null>()
+
+/** Lessons of the open course; the card value is refreshed only when the list reloads. */
+const chapterLessonTotal = computed(() =>
+  chapters.value.reduce((total, chapter) => total + chapter.lessons.length, 0),
+)
 
 /** Sales state of the selected course; {@code null} means unknown and keeps deletion hidden. */
 const courseSold = ref<boolean | null>(null)
@@ -105,19 +126,76 @@ function transcodeText(lesson: TeacherLesson): string {
   return TRANSCODE_TEXT[state] ?? state
 }
 
+/** Identifies the latest course list request so a stale response cannot repaint the grid. */
+let courseRequest = 0
+
 async function loadCourses(): Promise<void> {
-  loading.value = true
-  errorText.value = ''
+  const request = ++courseRequest
+  courseListLoading.value = true
+  courseError.value = ''
   try {
     const page = await listTeacherCourses(undefined, 1, PAGE_SIZE)
+    if (request !== courseRequest) {
+      return
+    }
     courses.value = page.items
+    void loadCourseChapterCounts(page.items, request)
   } catch (error) {
+    if (request !== courseRequest) {
+      return
+    }
     courses.value = []
-    errorText.value = describeTeacherError(error, '课程列表加载失败')
+    chapterCounts.value = new Map()
+    courseError.value = describeTeacherError(error, '课程列表加载失败')
   } finally {
-    loading.value = false
+    if (request === courseRequest) {
+      courseListLoading.value = false
+    }
   }
 }
+
+/**
+ * Fills the chapter counts of the cards without blocking the list.
+ *
+ * <p>Counts are cached per course for the session and only fetched below the course threshold, so
+ * opening the screen never waits on one request per course. Failures and timeouts stay silent:
+ * the affected card renders a placeholder.</p>
+ */
+async function loadCourseChapterCounts(items: TeacherCourse[], request: number): Promise<void> {
+  const cached = new Map<number, number | null>()
+  for (const item of items) {
+    if (chapterCountCache.has(item.courseId)) {
+      cached.set(item.courseId, chapterCountCache.get(item.courseId) ?? null)
+    }
+  }
+  chapterCounts.value = cached
+  if (!shouldLoadCardChapterCounts(items.length)) {
+    return
+  }
+  const counts = await loadChapterCounts(
+    items.map((item) => item.courseId),
+    listTeacherChapters,
+    { cached, timeoutMs: CHAPTER_COUNT_TIMEOUT_MS },
+  )
+  if (request !== courseRequest) {
+    return
+  }
+  for (const [id, count] of counts) {
+    if (count !== null && !chapterCountCache.has(id)) {
+      chapterCountCache.set(id, count)
+    }
+  }
+  chapterCounts.value = counts
+}
+
+/** Card chapter count; an unknown or skipped lookup renders a placeholder. */
+function chapterCountText(course: TeacherCourse): string {
+  const count = chapterCounts.value.get(course.courseId)
+  return count === undefined || count === null ? '—' : String(count)
+}
+
+/** Identifies the latest chapter request so a response for a course the teacher already left is dropped. */
+let chapterRequest = 0
 
 async function loadChapters(): Promise<void> {
   const id = courseId.value
@@ -125,14 +203,25 @@ async function loadChapters(): Promise<void> {
   if (id === null) {
     return
   }
-  loading.value = true
+  const request = ++chapterRequest
+  chaptersLoading.value = true
   errorText.value = ''
   try {
-    chapters.value = await listTeacherChapters(id)
+    const loaded = await listTeacherChapters(id)
+    if (request !== chapterRequest) {
+      return
+    }
+    chapters.value = loaded
+    chapterCountCache.set(id, loaded.length)
   } catch (error) {
+    if (request !== chapterRequest) {
+      return
+    }
     errorText.value = describeTeacherError(error, '课时列表加载失败')
   } finally {
-    loading.value = false
+    if (request === chapterRequest) {
+      chaptersLoading.value = false
+    }
   }
   void loadCourseSales()
 }
@@ -143,19 +232,44 @@ async function loadCourseSales(): Promise<void> {
   courseSold.value = null
   if (id !== null) {
     try {
-      courseSold.value = (await getTeacherCourse(id)).sold
+      const course = await getTeacherCourse(id)
+      if (courseId.value === id) {
+        courseSold.value = course.sold
+      }
     } catch {
       courseSold.value = null
     }
   }
 }
 
-function selectCourse(): void {
+/** Opens the chapter screen of one course; every later action uses this course as its context. */
+function enterCourse(course: TeacherCourse): void {
+  selectedCourse.value = course
   notice.value = ''
   failure.value = ''
+  errorText.value = ''
   chapterFormOpen.value = false
   lessonFormOpen.value = false
   void loadChapters()
+}
+
+/** Returns to the course list and refreshes the lesson counts on the cards. */
+function backToCourses(): void {
+  selectedCourse.value = null
+  chapterRequest += 1
+  chapters.value = []
+  courseSold.value = null
+  notice.value = ''
+  failure.value = ''
+  errorText.value = ''
+  chapterFormOpen.value = false
+  lessonFormOpen.value = false
+  void loadCourses()
+}
+
+/** Sends a teacher without any course to the screen that creates one. */
+function openCourseManagement(): void {
+  navigate('/teacher-courses')
 }
 
 function openChapterForm(): void {
@@ -553,9 +667,9 @@ onMounted(async () => {
   await loadCourses()
   const raw = new URLSearchParams(window.location.search).get('courseId')
   const requested = raw === null ? Number.NaN : Number(raw)
-  if (Number.isInteger(requested) && courses.value.some((course) => course.courseId === requested)) {
-    courseId.value = requested
-    await loadChapters()
+  const course = courses.value.find((item) => item.courseId === requested)
+  if (course) {
+    enterCourse(course)
   }
 })
 </script>
@@ -563,44 +677,137 @@ onMounted(async () => {
 <template>
   <section>
     <header class="page-head">
-      <h1>课时视频</h1>
-      <div class="search">
-        <select
-          v-model.number="courseId"
-          class="lp-input"
-          :disabled="busy"
-          @change="selectCourse"
-        >
-          <option :value="null">
-            请选择课程
-          </option>
-          <option
-            v-for="course in courses"
-            :key="course.courseId"
-            :value="course.courseId"
-          >
-            {{ course.title }}（{{ STATUS_TEXT[course.status] ?? '未知' }}）
-          </option>
-        </select>
+      <div class="head-title">
         <button
+          v-if="selectedCourse"
           class="lp-btn"
-          :disabled="busy || courseId === null"
+          :disabled="busy || saving"
+          @click="backToCourses"
+        >
+          ← 课程列表
+        </button>
+        <h1>{{ selectedCourse ? selectedCourse.title : '课时视频' }}</h1>
+        <span
+          v-if="selectedCourse"
+          class="lp-tag"
+        >{{ STATUS_TEXT[selectedCourse.status] ?? '未知' }}</span>
+      </div>
+      <div class="search">
+        <button
+          v-if="selectedCourse"
+          class="lp-btn"
+          :disabled="busy"
           @click="loadChapters"
         >
           刷新
         </button>
         <button
+          v-if="selectedCourse"
           class="lp-btn lp-btn--primary"
-          :disabled="busy || saving || courseId === null || chapterFormOpen"
+          :disabled="busy || saving || chapterFormOpen"
           @click="openChapterForm"
         >
           新增章节
         </button>
+        <button
+          v-else
+          class="lp-btn"
+          :disabled="courseListLoading"
+          @click="loadCourses"
+        >
+          刷新
+        </button>
       </div>
     </header>
 
+    <template v-if="!selectedCourse">
+      <p
+        v-if="courseListLoading"
+        class="lp-empty"
+      >
+        加载中…
+      </p>
+      <p
+        v-else-if="courseError"
+        class="lp-empty"
+      >
+        {{ courseError }}
+      </p>
+      <div
+        v-else-if="courses.length === 0"
+        class="lp-card empty-card"
+      >
+        <p class="lp-empty">
+          还没有课程。先到「课程管理」创建课程，再回来维护章节与课时视频。
+        </p>
+        <button
+          class="lp-btn lp-btn--primary"
+          @click="openCourseManagement"
+        >
+          去课程管理创建课程
+        </button>
+      </div>
+      <div
+        v-else
+        class="course-grid"
+      >
+        <article
+          v-for="course in courses"
+          :key="course.courseId"
+          class="lp-card course-card"
+        >
+          <img
+            v-if="course.coverUrl"
+            class="course-cover"
+            :src="course.coverUrl"
+            :alt="`${course.title} 封面`"
+          >
+          <div
+            v-else
+            class="course-cover course-cover--empty"
+          >
+            暂无封面
+          </div>
+          <div class="course-body">
+            <div class="course-title">
+              <h2>{{ course.title }}</h2>
+              <span class="lp-tag">{{ STATUS_TEXT[course.status] ?? '未知' }}</span>
+            </div>
+            <p
+              v-if="course.subtitle"
+              class="lp-muted small"
+            >
+              {{ course.subtitle }}
+            </p>
+            <p
+              v-if="course.reviewRemark"
+              class="lp-muted small"
+            >
+              驳回原因：{{ course.reviewRemark }}
+            </p>
+            <p class="course-stats">
+              {{ chapterCountText(course) }} 个章节 · {{ course.lessonCount }} 个课时
+            </p>
+            <button
+              class="lp-btn lp-btn--primary"
+              @click="enterCourse(course)"
+            >
+              管理章节课时
+            </button>
+          </div>
+        </article>
+      </div>
+    </template>
+
     <p
-      v-if="notice || failure"
+      v-if="selectedCourse && !errorText"
+      class="lp-muted course-context"
+    >
+      {{ chaptersLoading ? '章节课时加载中…' : `${chapters.length} 个章节 · ${chapterLessonTotal} 个课时` }}
+    </p>
+
+    <p
+      v-if="selectedCourse && (notice || failure)"
       :class="failure ? 'lp-error' : 'lp-notice'"
     >
       {{ failure || notice }}
@@ -614,7 +821,7 @@ onMounted(async () => {
     </p>
 
     <div
-      v-if="busy"
+      v-if="selectedCourse && busy"
       class="lp-card progress-card"
     >
       <span>{{ phase }}：{{ target?.lesson.title }}（{{ progress }}%）</span>
@@ -625,7 +832,7 @@ onMounted(async () => {
     </div>
 
     <form
-      v-if="chapterFormOpen"
+      v-if="selectedCourse && chapterFormOpen"
       class="lp-card form-card"
       @submit.prevent="saveChapter"
     >
@@ -659,7 +866,7 @@ onMounted(async () => {
     </form>
 
     <form
-      v-if="lessonFormOpen"
+      v-if="selectedCourse && lessonFormOpen"
       class="lp-card form-card"
       @submit.prevent="saveLesson"
     >
@@ -709,11 +916,14 @@ onMounted(async () => {
     </form>
 
     <!-- eslint-disable-next-line vue/max-attributes-per-line, vue/singleline-html-element-content-newline -->
-    <p v-if="lessonDeletionNote" class="lp-muted">{{ lessonDeletionNote }}</p>
+    <p v-if="selectedCourse && lessonDeletionNote" class="lp-muted">{{ lessonDeletionNote }}</p>
 
-    <div class="lp-card table-card">
+    <div
+      v-if="selectedCourse"
+      class="lp-card table-card"
+    >
       <p
-        v-if="loading"
+        v-if="chaptersLoading"
         class="lp-empty"
       >
         加载中…
@@ -728,7 +938,7 @@ onMounted(async () => {
         v-else-if="chapters.length === 0"
         class="lp-empty"
       >
-        {{ courseId === null ? '请选择课程查看课时' : '该课程还没有章节，先新增章节再添加课时' }}
+        该课程还没有章节，先新增章节再添加课时
       </p>
       <div
         v-for="chapter in chapters"
@@ -856,9 +1066,22 @@ onMounted(async () => {
 
 <style scoped>
 .page-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
-h1 { margin: 0; font-size: 20px; }
+.head-title { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.head-title h1 { margin: 0; font-size: 20px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .search { display: flex; gap: 8px; }
-.search .lp-input { width: 280px; }
+.course-context { margin: 0 0 12px; }
+.empty-card { text-align: center; }
+.empty-card .lp-empty { padding: 24px 0; }
+.course-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
+.course-card { display: flex; flex-direction: column; padding: 0; overflow: hidden; }
+.course-cover { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; background: #eef0f3; }
+.course-cover--empty { display: flex; align-items: center; justify-content: center; color: var(--lp-muted); font-size: 13px; }
+.course-body { display: flex; flex: 1; flex-direction: column; gap: 8px; padding: 16px; }
+.course-title { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.course-title h2 { margin: 0; font-size: 15px; line-height: 1.4; }
+.course-stats { margin: 0; font-size: 13px; color: var(--lp-muted); }
+.course-body .lp-btn { align-self: flex-start; margin-top: auto; }
+.small { font-size: 12px; }
 .table-card { padding: 0 16px 16px; overflow: hidden; }
 .chapter h2 { margin: 16px 0 8px; font-size: 15px; }
 .chapter-head { display: flex; align-items: center; gap: 12px; }
