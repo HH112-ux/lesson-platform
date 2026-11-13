@@ -1,0 +1,9 @@
+# Exposes the operations console on the host loopback only.
+#
+# The public listener stays on host nginx (port 15174) so that rate limiting,
+# noindex headers and robots.txt live in one place and the admin image does not
+# need to be rebuilt. Compose therefore publishes the container on 15175.
+services:
+  admin:
+    ports: !override
+      - "127.0.0.1:15175:80"
