@@ -1,6 +1,5 @@
 package com.lp.course.client;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.lp.common.internal.InternalHeaders;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -9,6 +8,7 @@ import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
+import tools.jackson.databind.JsonNode;
 
 /**
  * Reads whether a course already has a paid order from the trade-service internal API.
