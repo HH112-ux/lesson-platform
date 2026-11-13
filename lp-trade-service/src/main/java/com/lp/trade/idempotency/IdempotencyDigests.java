@@ -4,6 +4,8 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
+import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * Builds the stable request digests an idempotency key is bound to.
@@ -30,6 +32,36 @@ public final class IdempotencyDigests {
      */
     public static String order(long courseId, Long couponId) {
         return sha256("v1|course=" + courseId + "|coupon=" + (couponId == null ? "-" : couponId));
+    }
+
+    /**
+     * Digests a combined order creation request.
+     *
+     * <p>The course set is deduplicated and sorted, so request order never changes the digest. The
+     * server computed total is part of the payload: a replay after a price change is a different
+     * request and must not silently return the old order.
+     *
+     * @param courseIds requested courses, at least one
+     * @param couponId optional coupon
+     * @param totalFen server computed total in fen
+     * @return lowercase hex SHA-256 digest
+     * @author Caspian
+     * @since 0.22.0
+     */
+    public static String order(List<Long> courseIds, Long couponId, long totalFen) {
+        String courses =
+                courseIds.stream()
+                        .distinct()
+                        .sorted()
+                        .map(String::valueOf)
+                        .collect(Collectors.joining(","));
+        return sha256(
+                "v2|courses="
+                        + courses
+                        + "|coupon="
+                        + (couponId == null ? "-" : couponId)
+                        + "|totalFen="
+                        + totalFen);
     }
 
     /**
