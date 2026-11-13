@@ -45,6 +45,34 @@ export function formatPercent(ratio: number): string {
 }
 
 /**
+ * Formats a duration in seconds for learning figures.
+ *
+ * <p>The value is always a lifetime sum, so the text only needs hours, minutes and seconds; days
+ * are kept out of the way to stay readable in a table cell.</p>
+ *
+ * @param seconds non negative seconds, possibly missing
+ * @returns text such as {@code 3 小时 12 分}, {@code 8 分 30 秒} or {@code --}
+ * @author Caspian
+ * @since 0.16.0
+ */
+export function formatDuration(seconds: number | null | undefined): string {
+  if (typeof seconds !== 'number' || !Number.isFinite(seconds) || seconds < 0) {
+    return '--'
+  }
+  const total = Math.floor(seconds)
+  if (total < 60) {
+    return `${total} 秒`
+  }
+  const hours = Math.floor(total / 3600)
+  const minutes = Math.floor((total % 3600) / 60)
+  if (hours > 0) {
+    return `${hours} 小时 ${minutes} 分`
+  }
+  const rest = total % 60
+  return rest === 0 ? `${minutes} 分` : `${minutes} 分 ${rest} 秒`
+}
+
+/**
  * Formats an ISO timestamp for table cells.
  *
  * @param value timestamp returned by the backend
