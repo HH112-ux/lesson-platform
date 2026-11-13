@@ -75,11 +75,13 @@ public class OrderController {
     }
 
     /**
-     * Creates an order for one course; a repeated idempotency key returns the original order.
+     * Creates an order for one or more courses; a repeated idempotency key returns the original
+     * order.
      *
      * <p>The key is read from the {@code Idempotency-Key} header. For one deprecation window the
      * legacy body field is accepted as a fallback, and sending both with different values is
-     * rejected instead of guessed.
+     * rejected instead of guessed. Combined requests skip the response cache because their digest
+     * binds the server computed amount, which is only known inside the service.
      *
      * @param userId gateway injected user id, may be absent without a token
      * @param source gateway injected request source that fixes the payment channel
@@ -92,7 +94,7 @@ public class OrderController {
      * @since 0.1.0
      */
     @PostMapping
-    public ResponseEntity<String> create(
+    public ResponseEntity<?> create(
             @RequestHeader(value = IdentityHeaders.USER_ID, required = false) Long userId,
             @RequestHeader(value = IdentityHeaders.USER_SOURCE, required = false) String source,
             @RequestHeader(value = IdempotencyHeaders.IDEMPOTENCY_KEY, required = false)
@@ -107,6 +109,13 @@ public class OrderController {
         String key = IdempotencyKeys.resolve(idempotencyKey, body.getIdempotencyKey());
         // The resolved key is written back so the service keeps a single key source.
         body.setIdempotencyKey(key);
+        if (body.getCourseIds() != null) {
+            // The combined digest includes the server computed total, so the service and its
+            // database idempotency guard stay the authority instead of a cached response body.
+            Object result =
+                    Result.ok(orderService.create(uid, source, body), TraceIds.resolve(request));
+            return ResponseEntity.ok().contentType(JSON_UTF8).body(result);
+        }
         long courseId = body.getCourseId() == null ? 0L : body.getCourseId();
         IdempotencyOutcome<String> outcome =
                 idempotencyService.execute(

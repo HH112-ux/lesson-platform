@@ -22,7 +22,6 @@ import com.lp.trade.entity.RefundRequest;
 import com.lp.trade.entity.TradeOrder;
 import com.lp.trade.entity.TradeOrderItem;
 import com.lp.trade.entity.UserCoupon;
-import com.lp.trade.idempotency.IdempotencyDigests;
 import com.lp.trade.mapper.CouponMapper;
 import com.lp.trade.mapper.PaymentMapper;
 import com.lp.trade.mapper.RefundRequestMapper;
@@ -33,6 +32,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -71,6 +71,9 @@ public class OrderServiceImpl implements OrderService {
 
     /** Maximum cancel reason length, matching {@code trade_order.cancel_reason}. */
     private static final int MAX_CANCEL_REASON_LENGTH = 200;
+
+    /** Maximum number of distinct courses accepted in one combined order. */
+    private static final int MAX_COMBINED_COURSES = 20;
 
     private static final DateTimeFormatter ORDER_NO_TIME =
             DateTimeFormatter.ofPattern("yyyyMMddHHmmssSSS");
@@ -138,13 +141,13 @@ public class OrderServiceImpl implements OrderService {
     @Override
     public OrderView create(long userId, String source, CreateOrderRequest request) {
         int channel = resolveChannel(source);
-        long courseId = requireCourseId(request);
+        CourseSelection selection = requireCourseSelection(request);
         String idempotencyKey = requireIdempotencyKey(request);
 
         TradeOrder existing =
                 tradeOrderMapper.selectByUserAndIdempotencyKey(userId, idempotencyKey);
         if (existing != null) {
-            return replay(existing, courseId, request.getCouponId());
+            return replay(existing, selection, request.getCouponId());
         }
 
         // Only a new order is gated: replaying one created before the cooling-off period keeps the
@@ -156,25 +159,33 @@ public class OrderServiceImpl implements OrderService {
                     transactionTemplate.execute(
                             status ->
                                     createInTransaction(
-                                            userId, channel, courseId, idempotencyKey, request)));
+                                            userId,
+                                            channel,
+                                            selection.courseIds(),
+                                            idempotencyKey,
+                                            request)));
         } catch (DuplicateKeyException exception) {
             // The conflicting insert waited for the winner to commit before failing, so a read
             // outside the rolled back transaction sees it; the old in-snapshot re-read did not.
             TradeOrder winner =
                     tradeOrderMapper.selectByUserAndIdempotencyKey(userId, idempotencyKey);
             if (winner != null) {
-                return replay(winner, courseId, request.getCouponId());
+                return replay(winner, selection, request.getCouponId());
             }
             throw exception;
         }
     }
 
     /**
-     * Creates the order, its line and the coupon consumption inside one transaction.
+     * Creates the order, its lines and the coupon consumption inside one transaction.
+     *
+     * <p>A combined order is only created without a coupon in this release; coupon support for
+     * combined orders is added separately. Each line stores its own price and, for combined orders,
+     * its own payable amount because no discount is allocated here.
      *
      * @param userId authenticated buyer id
      * @param channel resolved payment channel
-     * @param courseId course primary key
+     * @param courseIds normalized, deduplicated and sorted course ids
      * @param idempotencyKey client supplied key, unique per buyer
      * @param request original request
      * @return created order
@@ -184,23 +195,27 @@ public class OrderServiceImpl implements OrderService {
     private OrderView createInTransaction(
             long userId,
             int channel,
-            long courseId,
+            List<Long> courseIds,
             String idempotencyKey,
             CreateOrderRequest request) {
-        CourseSnapshot course = courseInternalClient.course(courseId);
-        if (course.getStatus() != STATUS_PUBLISHED) {
-            throw new BizException(ErrorCode.TRADE_UNAVAILABLE);
-        }
-        if (!Money.isStorable(course.getPrice())) {
-            // A negative or oversized price would be clamped to a free order or overflow the
-            // column.
-            throw new BizException(ErrorCode.TRADE_UNAVAILABLE, "course price is invalid");
-        }
-        if (tradeOrderMapper.countOwned(userId, courseId) > 0) {
-            throw new BizException(ErrorCode.COURSE_ALREADY_OWNED);
+        boolean combined = courseIds.size() > 1;
+        if (combined && request.getCouponId() != null) {
+            throw new BizException(
+                    ErrorCode.PARAM_INVALID, "coupon is not supported for combined orders");
         }
 
-        BigDecimal total = BigDecimal.valueOf(course.getPrice(), 2);
+        List<CourseSnapshot> courses = new ArrayList<>(courseIds.size());
+        BigDecimal total = ZERO;
+        for (Long courseId : courseIds) {
+            CourseSnapshot course = courseInternalClient.course(courseId);
+            validateCourse(course);
+            if (tradeOrderMapper.countOwned(userId, courseId) > 0) {
+                throw new BizException(ErrorCode.COURSE_ALREADY_OWNED);
+            }
+            courses.add(course);
+            total = total.add(BigDecimal.valueOf(course.getPrice(), 2));
+        }
+
         CouponSelection selection = selectCoupon(userId, request.getCouponId(), total);
         BigDecimal discount = selection == null ? ZERO : selection.discount;
         BigDecimal payAmount = total.subtract(discount).max(ZERO);
@@ -212,7 +227,6 @@ public class OrderServiceImpl implements OrderService {
                         userId,
                         idempotencyKey,
                         channel,
-                        courseId,
                         total,
                         discount,
                         payAmount,
@@ -223,19 +237,39 @@ public class OrderServiceImpl implements OrderService {
         // snapshot.
         tradeOrderMapper.insertOrder(order);
 
-        insertItem(order.getId(), course, total, discount, payAmount);
+        for (CourseSnapshot course : courses) {
+            if (combined) {
+                BigDecimal lineAmount = BigDecimal.valueOf(course.getPrice(), 2);
+                insertItem(order.getId(), course, lineAmount, ZERO, lineAmount);
+            } else {
+                insertItem(order.getId(), course, total, discount, payAmount);
+            }
+        }
         consumeCoupon(selection, order.getId(), now);
         if (completed) {
-            entitlementService.grant(userId, courseId, order.getId(), order.getOrderNo());
+            for (CourseSnapshot course : courses) {
+                entitlementService.grant(
+                        userId, course.getCourseId(), order.getId(), order.getOrderNo());
+            }
         }
-        return buildView(order, courseId);
+        return buildView(order, courses.stream().map(this::toItemView).toList());
+    }
+
+    private void validateCourse(CourseSnapshot course) {
+        if (course.getStatus() != STATUS_PUBLISHED) {
+            throw new BizException(ErrorCode.TRADE_UNAVAILABLE);
+        }
+        if (!Money.isStorable(course.getPrice())) {
+            // A negative or oversized price would be clamped to a free order or overflow the
+            // column.
+            throw new BizException(ErrorCode.TRADE_UNAVAILABLE, "course price is invalid");
+        }
     }
 
     private TradeOrder buildOrder(
             long userId,
             String idempotencyKey,
             int channel,
-            long courseId,
             BigDecimal total,
             BigDecimal discount,
             BigDecimal payAmount,
@@ -341,40 +375,73 @@ public class OrderServiceImpl implements OrderService {
     /**
      * Returns the stored order when the idempotency key is replayed with the same payload.
      *
-     * <p>A key is bound to the course and coupon of the first request. Reusing it for a different
-     * payload is rejected instead of returning the first order, so a stale or copied key cannot
-     * silently buy another course in the buyer's name.
+     * <p>The stored course set is deduplicated and sorted, so request order is irrelevant.
      *
      * @param order stored order owning the key
-     * @param courseId course id from the current request
+     * @param selection normalized current request
      * @param couponId coupon id from the current request, may be {@code null}
      * @return stored order view
      * @throws BizException with {@code 40901} when the request payload differs
      * @author Caspian
      * @since 0.3.0
      */
-    private OrderView replay(TradeOrder order, long courseId, Long couponId) {
-        TradeOrderItem item = tradeOrderMapper.selectFirstItem(order.getId());
-        long storedCourseId = item == null ? 0L : item.getCourseId();
-        if (!requestDigest(storedCourseId, order.getCouponId())
-                .equals(requestDigest(courseId, couponId))) {
+    private OrderView replay(TradeOrder order, CourseSelection selection, Long couponId) {
+        List<TradeOrderItem> items = tradeOrderMapper.selectItems(order.getId());
+        List<Long> storedCourseIds =
+                items.stream().map(TradeOrderItem::getCourseId).distinct().sorted().toList();
+        if (!storedCourseIds.equals(selection.courseIds())
+                || !Objects.equals(order.getCouponId(), couponId)) {
             throw new BizException(
                     ErrorCode.STATE_CONFLICT, "idempotency key reused with a different request");
         }
-        return buildView(order, storedCourseId);
+        return buildView(order, items.stream().map(this::toItemView).toList());
     }
 
     /**
-     * Builds the stable payload digest an idempotency key is bound to.
+     * Resolves and normalizes the courses of a request.
      *
-     * @param courseId course id
-     * @param couponId coupon id, may be {@code null}
-     * @return lowercase hex SHA-256 digest
+     * <p>The legacy {@code courseId} and the combined {@code courseIds} are mutually exclusive: a
+     * request carrying both is rejected instead of guessing which one the caller meant. Combined
+     * ids are validated, deduplicated and sorted so the idempotency digest is order independent.
+     *
+     * @param request order creation request
+     * @return normalized course selection
+     * @throws BizException with {@code 40001} when the selection is missing, invalid or too large
      * @author Caspian
-     * @since 0.3.0
+     * @since 0.22.0
      */
-    private String requestDigest(long courseId, Long couponId) {
-        return IdempotencyDigests.order(courseId, couponId);
+    private CourseSelection requireCourseSelection(CreateOrderRequest request) {
+        if (request == null) {
+            throw new BizException(ErrorCode.PARAM_INVALID, "request body is required");
+        }
+        Long legacyCourseId = request.getCourseId();
+        List<Long> requestedCourseIds = request.getCourseIds();
+        if (legacyCourseId != null && requestedCourseIds != null) {
+            throw new BizException(
+                    ErrorCode.PARAM_INVALID, "courseId and courseIds must not be sent together");
+        }
+        if (legacyCourseId != null) {
+            if (legacyCourseId <= 0) {
+                throw new BizException(ErrorCode.PARAM_INVALID, "courseId is required");
+            }
+            return new CourseSelection(List.of(legacyCourseId), true);
+        }
+        if (requestedCourseIds == null || requestedCourseIds.isEmpty()) {
+            throw new BizException(ErrorCode.PARAM_INVALID, "courseId or courseIds is required");
+        }
+        for (Long courseId : requestedCourseIds) {
+            if (courseId == null || courseId <= 0) {
+                throw new BizException(
+                        ErrorCode.PARAM_INVALID, "courseIds contains an invalid course id");
+            }
+        }
+        List<Long> normalized = requestedCourseIds.stream().distinct().sorted().toList();
+        if (normalized.size() > MAX_COMBINED_COURSES) {
+            throw new BizException(
+                    ErrorCode.PARAM_INVALID,
+                    "courseIds must contain at most " + MAX_COMBINED_COURSES + " distinct courses");
+        }
+        return new CourseSelection(normalized, false);
     }
 
     /**
@@ -559,6 +626,10 @@ public class OrderServiceImpl implements OrderService {
                 item.getCourseId(), item.getCourseTitle(), Money.toFen(item.getPrice()));
     }
 
+    private OrderItemView toItemView(CourseSnapshot course) {
+        return new OrderItemView(course.getCourseId(), course.getTitle(), course.getPrice());
+    }
+
     private RefundSummaryView refundSummary(RefundRequest refund) {
         if (refund == null) {
             return null;
@@ -574,7 +645,17 @@ public class OrderServiceImpl implements OrderService {
                 refund.getRefundedAt());
     }
 
-    private OrderView buildView(TradeOrder order, long courseId) {
+    /**
+     * Builds the order projection, keeping the first course id for single course clients.
+     *
+     * @param order persisted order
+     * @param items every line of the order
+     * @return order view
+     * @author Caspian
+     * @since 0.1.0
+     */
+    private OrderView buildView(TradeOrder order, List<OrderItemView> items) {
+        long firstCourseId = items.isEmpty() ? 0L : items.get(0).getCourseId();
         return new OrderView(
                 order.getOrderNo(),
                 order.getStatus(),
@@ -582,7 +663,8 @@ public class OrderServiceImpl implements OrderService {
                 Money.toFen(order.getTotalAmount()),
                 Money.toFen(order.getDiscountAmount()),
                 Money.toFen(order.getPayAmount()),
-                courseId,
+                firstCourseId,
+                items,
                 order.getPayExpireAt(),
                 order.getPaidAt());
     }
@@ -597,13 +679,6 @@ public class OrderServiceImpl implements OrderService {
                     "miniapp payments are no longer supported; purchase on the web");
         }
         throw new BizException(ErrorCode.PARAM_INVALID, "request source must be web or miniapp");
-    }
-
-    private long requireCourseId(CreateOrderRequest request) {
-        if (request == null || request.getCourseId() == null || request.getCourseId() <= 0) {
-            throw new BizException(ErrorCode.PARAM_INVALID, "courseId is required");
-        }
-        return request.getCourseId();
     }
 
     private String requireIdempotencyKey(CreateOrderRequest request) {
@@ -634,4 +709,14 @@ public class OrderServiceImpl implements OrderService {
             this.discount = discount;
         }
     }
+
+    /**
+     * Normalized course selection of one order creation request.
+     *
+     * @param courseIds deduplicated and sorted course ids
+     * @param legacy whether the request used the legacy single {@code courseId} field
+     * @author Caspian
+     * @since 0.22.0
+     */
+    private record CourseSelection(List<Long> courseIds, boolean legacy) {}
 }
