@@ -30,12 +30,13 @@ const addedIds = ref<number[]>([])
 const addingId = ref<number | null>(null)
 const noticeById = ref<Record<number, string>>({})
 
-const loginHref = computed(() => {
+/** Builds the sign-in URL with the current catalog address as the return target. */
+function loginHref(): string {
   const next = typeof window === 'undefined'
     ? '/'
     : `${window.location.pathname}${window.location.search}`
   return `/login?next=${encodeURIComponent(next)}`
-})
+}
 
 const pageCount = computed(() => (
   total.value > 0 ? Math.ceil(total.value / PAGE_SIZE) : 0
@@ -133,7 +134,7 @@ function setNotice(courseId: number, text: string): void {
 
 /** Leaves for the sign-in page and returns to the current catalog URL afterwards. */
 function goLogin(): void {
-  navigate(loginHref.value)
+  navigate(loginHref())
 }
 
 /** Opens the course detail, where the purchase action lives; anonymous visitors sign in first. */
