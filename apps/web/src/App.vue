@@ -11,6 +11,7 @@ import HealthView from './views/HealthView.vue'
 import LoginView from './views/LoginView.vue'
 import MyCoursesView from './views/MyCoursesView.vue'
 import OrdersView from './views/OrdersView.vue'
+import CartView from './views/CartView.vue'
 import PlayerView from './views/PlayerView.vue'
 import PurchaseView from './views/PurchaseView.vue'
 import AccountView from './views/AccountView.vue'
@@ -51,6 +52,7 @@ onUnmounted(() => {
   <OrderResultView v-else-if="currentRoute.name === 'order-result'" />
   <MyCoursesView v-else-if="currentRoute.name === 'my-courses'" />
   <OrdersView v-else-if="currentRoute.name === 'orders'" />
+  <CartView v-else-if="currentRoute.name === 'cart'" />
   <AccountView v-else-if="currentRoute.name === 'account'" />
   <PlayerView v-else-if="currentRoute.name === 'player'" />
   <main
