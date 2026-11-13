@@ -203,6 +203,26 @@ public interface TeacherCourseMapper {
     int withdraw(@Param("courseId") long courseId);
 
     /**
+     * Lists every course owned by one teacher for the learning dashboard.
+     *
+     * <p>{@code lessonCount} counts visible lessons only, because completion rates are normalised
+     * against the lessons a student can actually watch. The statement is read-only and always
+     * filtered by {@code owner_teacher_id}; there is no administrator variant.
+     *
+     * @param teacherId {@code teacher_profile.id}
+     * @return courses ordered by most recently updated
+     * @author Caspian
+     * @since 0.16.0
+     */
+    @Select(
+            "SELECT id, title, status, "
+                    + "(SELECT COUNT(*) FROM course_lesson l WHERE l.course_id = course.id "
+                    + "AND l.deleted = 0 AND l.status = 1) AS lessonCount "
+                    + "FROM course WHERE deleted = 0 AND owner_teacher_id = #{teacherId} "
+                    + "ORDER BY updated_at DESC, id DESC")
+    List<Course> selectAnalyticsCoursesByOwner(@Param("teacherId") long teacherId);
+
+    /**
      * Counts the lessons that make a course submittable.
      *
      * <p>A lesson needs a playable object key and a positive duration; rows failing either test
