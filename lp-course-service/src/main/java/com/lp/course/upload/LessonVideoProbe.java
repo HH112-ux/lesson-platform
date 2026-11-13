@@ -1,7 +1,5 @@
 package com.lp.course.upload;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lp.common.exception.BizException;
 import com.lp.common.exception.ErrorCode;
 import java.io.IOException;
@@ -15,6 +13,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Reads lesson video metadata with a locked down {@code ffprobe} call: no transcoding or copying,
@@ -163,7 +163,7 @@ public class LessonVideoProbe {
         }
     }
 
-    private static LessonVideoMetadata parse(String brand, String json) throws IOException {
+    private static LessonVideoMetadata parse(String brand, String json) {
         JsonNode root = JSON.readTree(json);
         String videoCodec = null;
         String audioCodec = null;
