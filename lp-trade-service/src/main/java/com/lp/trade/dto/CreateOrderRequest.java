@@ -1,5 +1,7 @@
 package com.lp.trade.dto;
 
+import java.util.List;
+
 /**
  * Request body of {@code POST /api/v1/orders}.
  *
@@ -12,6 +14,8 @@ package com.lp.trade.dto;
 public class CreateOrderRequest {
 
     private Long courseId;
+
+    private List<Long> courseIds;
 
     private String idempotencyKey;
 
@@ -37,6 +41,31 @@ public class CreateOrderRequest {
      */
     public void setCourseId(Long courseId) {
         this.courseId = courseId;
+    }
+
+    /**
+     * Returns the course ids of a combined order.
+     *
+     * <p>Exactly one of {@code courseId} and {@code courseIds} must be supplied. The list is
+     * deduplicated and sorted by the service, so its order is irrelevant to idempotency.
+     *
+     * @return course ids, {@code null} for the legacy single course request
+     * @author Caspian
+     * @since 0.22.0
+     */
+    public List<Long> getCourseIds() {
+        return courseIds;
+    }
+
+    /**
+     * Sets the course ids of a combined order.
+     *
+     * @param courseIds course ids, at most 20 distinct values
+     * @author Caspian
+     * @since 0.22.0
+     */
+    public void setCourseIds(List<Long> courseIds) {
+        this.courseIds = courseIds;
     }
 
     /**
