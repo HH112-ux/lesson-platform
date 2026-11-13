@@ -41,6 +41,7 @@ privateConfig.appid = appid
 privateConfig.projectname = privateConfig.projectname ?? 'lp-miniapp'
 writeFileSync(privatePath, `${JSON.stringify(privateConfig, null, 2)}\n`)
 
-console.log(`OK wrote AppID ${appid} to project.private.config.json (git-ignored)`)
+// Print only non-recoverable hints; the raw value must not leak into terminal logs.
+console.log(`OK wrote AppID (length ${appid.length}, prefix ${appid.slice(0, 3)}) to project.private.config.json (git-ignored)`)
 console.log('NEXT open apps/miniapp in WeChat DevTools and verify 详情 -> 基本信息 shows this AppID')
 console.log('NOTE LP_MINIPROGRAM_APPID and the private config override the default AppID in project.config.json')
