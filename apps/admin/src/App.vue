@@ -22,6 +22,7 @@ import LoginView from './views/LoginView.vue'
 import OrdersView from './views/OrdersView.vue'
 import RefundQueueView from './views/RefundQueueView.vue'
 import ReviewQueueView from './views/ReviewQueueView.vue'
+import TeacherAnalyticsView from './views/TeacherAnalyticsView.vue'
 import TeacherCoursesView from './views/TeacherCoursesView.vue'
 import UsersView from './views/UsersView.vue'
 
@@ -102,6 +103,7 @@ onMounted(() => {
         <RefundQueueView v-else-if="currentRoute.name === 'refunds'" />
         <TeacherCoursesView v-else-if="currentRoute.name === 'teacher-courses'" />
         <LessonVideoView v-else-if="currentRoute.name === 'lesson-video'" />
+        <TeacherAnalyticsView v-else-if="currentRoute.name === 'teacher-analytics'" />
         <p
           v-else
           class="lp-empty"

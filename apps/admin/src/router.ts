@@ -23,6 +23,7 @@ export type RouteName =
   | 'orders'
   | 'teacher-courses'
   | 'lesson-video'
+  | 'teacher-analytics'
   | 'login'
   | 'not-found'
 
@@ -63,6 +64,12 @@ export const CONSOLE_MENU: readonly ConsoleMenu[] = [
   { path: '/refunds', label: '退款审核', name: 'refunds', roles: OPERATOR_ROLES },
   { path: '/teacher-courses', label: '课程管理', name: 'teacher-courses', roles: ['TEACHER'] },
   { path: '/lesson-videos', label: '课时视频', name: 'lesson-video', roles: ['TEACHER'] },
+  {
+    path: '/teacher-analytics',
+    label: '学习数据',
+    name: 'teacher-analytics',
+    roles: ['TEACHER'],
+  },
 ]
 
 /**
@@ -98,6 +105,9 @@ export function resolveRoute(pathname: string): Route {
   }
   if (segments.length === 1 && segments[0] === 'lesson-videos') {
     return { name: 'lesson-video', params: {}, roles: LESSON_VIDEO_ROLES }
+  }
+  if (segments.length === 1 && segments[0] === 'teacher-analytics') {
+    return { name: 'teacher-analytics', params: {}, roles: LESSON_VIDEO_ROLES }
   }
   return { name: 'not-found', params: {}, roles: [] }
 }

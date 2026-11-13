@@ -16,6 +16,7 @@ const GUARD_MATRIX: [string, ConsoleRole[]][] = [
   ['/refunds', ['ADMIN', 'OPS']],
   ['/teacher-courses', ['ADMIN', 'TEACHER']],
   ['/lesson-videos', ['ADMIN', 'TEACHER']],
+  ['/teacher-analytics', ['ADMIN', 'TEACHER']],
 ]
 
 describe('resolveRoute', () => {
@@ -38,6 +39,7 @@ describe('canAccess', () => {
     const teacher = ['TEACHER'] as const
     expect(canAccess(resolveRoute('/teacher-courses'), teacher)).toBe(true)
     expect(canAccess(resolveRoute('/lesson-videos'), teacher)).toBe(true)
+    expect(canAccess(resolveRoute('/teacher-analytics'), teacher)).toBe(true)
     expect(canAccess(resolveRoute('/orders'), teacher)).toBe(false)
     expect(canAccess(resolveRoute('/'), teacher)).toBe(false)
   })
@@ -45,12 +47,14 @@ describe('canAccess', () => {
   it('admits administrators to the teacher screens by URL', () => {
     expect(canAccess(resolveRoute('/teacher-courses'), ['ADMIN'])).toBe(true)
     expect(canAccess(resolveRoute('/lesson-videos'), ['ADMIN'])).toBe(true)
+    expect(canAccess(resolveRoute('/teacher-analytics'), ['ADMIN'])).toBe(true)
     expect(canAccess(resolveRoute('/orders'), ['ADMIN'])).toBe(true)
   })
 
   it('keeps operators out of the teacher screens', () => {
     expect(canAccess(resolveRoute('/teacher-courses'), ['OPS'])).toBe(false)
     expect(canAccess(resolveRoute('/lesson-videos'), ['OPS'])).toBe(false)
+    expect(canAccess(resolveRoute('/teacher-analytics'), ['OPS'])).toBe(false)
   })
 
   it('rejects users without a console role', () => {
@@ -85,10 +89,11 @@ describe('defaultRouteFor', () => {
 })
 
 describe('visibleMenu', () => {
-  it('shows teachers only the two teacher entries', () => {
+  it('shows teachers the three teacher entries', () => {
     expect(visibleMenu(['TEACHER']).map((item) => item.path)).toEqual([
       '/teacher-courses',
       '/lesson-videos',
+      '/teacher-analytics',
     ])
   })
 
@@ -109,6 +114,7 @@ describe('visibleMenu', () => {
     expect(paths).toContain('/')
     expect(paths).toContain('/teacher-courses')
     expect(paths).toContain('/lesson-videos')
+    expect(paths).toContain('/teacher-analytics')
   })
 
   it('shows nothing to users without a console role', () => {
