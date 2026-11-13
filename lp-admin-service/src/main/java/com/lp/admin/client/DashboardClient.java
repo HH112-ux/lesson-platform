@@ -1,5 +1,6 @@
 package com.lp.admin.client;
 
+import com.lp.admin.dto.AdminDashboardMetricsView;
 import com.lp.admin.dto.AdminDashboardView;
 import com.lp.admin.dto.AdminMetricsOverviewView;
 
@@ -28,4 +29,14 @@ public interface DashboardClient {
      * @since 0.2.0
      */
     AdminMetricsOverviewView overview();
+
+    /**
+     * Aggregates the graphical dashboard figures of the trailing calendar window.
+     *
+     * @param days window length in days
+     * @return revenue, orders, users, courses, refunds, daily trend and course ranking
+     * @author Caspian
+     * @since 0.21.0
+     */
+    AdminDashboardMetricsView dashboard(int days);
 }

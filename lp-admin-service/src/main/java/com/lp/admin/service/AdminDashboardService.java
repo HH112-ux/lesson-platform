@@ -1,6 +1,7 @@
 package com.lp.admin.service;
 
 import com.lp.admin.client.DashboardClient;
+import com.lp.admin.dto.AdminDashboardMetricsView;
 import com.lp.admin.dto.AdminDashboardView;
 import com.lp.admin.dto.AdminMetricsOverviewView;
 import org.springframework.stereotype.Service;
@@ -47,5 +48,17 @@ public class AdminDashboardService {
      */
     public AdminMetricsOverviewView overview() {
         return dashboardClient.overview();
+    }
+
+    /**
+     * Loads the graphical dashboard figures of the trailing calendar window.
+     *
+     * @param days window length in days
+     * @return revenue, orders, users, courses, refunds, daily trend and course ranking
+     * @author Caspian
+     * @since 0.21.0
+     */
+    public AdminDashboardMetricsView dashboard(int days) {
+        return dashboardClient.dashboard(days);
     }
 }

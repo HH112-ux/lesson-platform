@@ -1,6 +1,7 @@
 package com.lp.auth.controller;
 
 import com.lp.auth.dto.AdminUserPageView;
+import com.lp.auth.dto.UserMetricsView;
 import com.lp.auth.dto.UserStatsView;
 import com.lp.auth.service.UserAdminQueryService;
 import com.lp.auth.service.UserStatsService;
@@ -54,6 +55,22 @@ public class InternalUserController {
     @GetMapping("/stats")
     public Result<UserStatsView> stats(HttpServletRequest request) {
         return Result.ok(userStatsService.stats(), TraceIds.resolve(request));
+    }
+
+    /**
+     * Returns account totals of the dashboard window.
+     *
+     * @param days window length in days, defaults to 30 and is capped at 90
+     * @param request current request, used to resolve the trace id
+     * @return live account total and accounts registered inside the window
+     * @author Caspian
+     * @since 0.21.0
+     */
+    @GetMapping("/metrics")
+    public Result<UserMetricsView> metrics(
+            @RequestParam(value = "days", defaultValue = "30") int days,
+            HttpServletRequest request) {
+        return Result.ok(userStatsService.metrics(days), TraceIds.resolve(request));
     }
 
     /**
