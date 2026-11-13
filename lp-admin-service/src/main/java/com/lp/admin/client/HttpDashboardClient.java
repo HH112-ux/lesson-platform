@@ -1,10 +1,13 @@
 package com.lp.admin.client;
 
 import com.lp.admin.dto.AdminCourseStats;
+import com.lp.admin.dto.AdminDashboardMetricsView;
 import com.lp.admin.dto.AdminDashboardView;
 import com.lp.admin.dto.AdminMetricsOverviewView;
+import com.lp.admin.dto.AdminOrderDashboard;
 import com.lp.admin.dto.AdminOrderMetrics;
 import com.lp.admin.dto.AdminOrderStats;
+import com.lp.admin.dto.AdminUserMetrics;
 import com.lp.admin.dto.AdminUserStats;
 import com.lp.common.exception.BizException;
 import com.lp.common.exception.ErrorCode;
@@ -43,8 +46,17 @@ public class HttpDashboardClient implements DashboardClient {
     private static final ParameterizedTypeReference<Result<AdminOrderMetrics>> METRICS_TYPE =
             new ParameterizedTypeReference<>() {};
 
+    private static final ParameterizedTypeReference<Result<AdminOrderDashboard>> DASHBOARD_TYPE =
+            new ParameterizedTypeReference<>() {};
+
+    private static final ParameterizedTypeReference<Result<AdminUserMetrics>> USER_METRICS_TYPE =
+            new ParameterizedTypeReference<>() {};
+
     /** Dashboard window in days; the console currently has no date picker. */
     private static final int OVERVIEW_DAYS = 7;
+
+    /** Largest window the dashboard accepts. */
+    private static final int MAX_METRIC_DAYS = 90;
 
     private final RestClient courseClient;
     private final RestClient tradeClient;
@@ -131,6 +143,54 @@ public class HttpDashboardClient implements DashboardClient {
                     courses.total(),
                     courses.pendingReview(),
                     users.totalUsers());
+        } catch (RestClientException exception) {
+            throw new BizException(ErrorCode.CHANNEL_UPSTREAM_ERROR);
+        }
+    }
+
+    /**
+     * Aggregates the graphical dashboard figures of the trailing calendar window.
+     *
+     * @param days window length in days, clamped to {@code 1..90}
+     * @return revenue, orders, users, courses, refunds, daily trend and course ranking
+     * @throws BizException when an upstream call fails
+     * @author Caspian
+     * @since 0.21.0
+     */
+    @Override
+    public AdminDashboardMetricsView dashboard(int days) {
+        int safeDays = Math.min(Math.max(days, 1), MAX_METRIC_DAYS);
+        try {
+            AdminCourseStats courses = get(courseClient, "/internal/v1/courses/stats", COURSE_TYPE);
+            AdminOrderDashboard orders =
+                    get(
+                            tradeClient,
+                            "/internal/v1/orders/dashboard?days=" + safeDays,
+                            DASHBOARD_TYPE);
+            AdminUserMetrics users =
+                    get(
+                            authClient,
+                            "/internal/v1/users/metrics?days=" + safeDays,
+                            USER_METRICS_TYPE);
+            return new AdminDashboardMetricsView(
+                    orders.days(),
+                    orders.gmvFen(),
+                    orders.netRevenueFen(),
+                    orders.orderCount(),
+                    orders.paidOrderCount(),
+                    orders.paidRate(),
+                    users.totalStudents(),
+                    users.newStudents(),
+                    courses.total(),
+                    courses.published(),
+                    courses.pendingReview(),
+                    orders.refundAppliedCount(),
+                    orders.refundedCount(),
+                    orders.refundAmountFen(),
+                    orders.refundPendingCount(),
+                    orders.refundProcessingCount(),
+                    orders.dailyTrend(),
+                    orders.courseSales());
         } catch (RestClientException exception) {
             throw new BizException(ErrorCode.CHANNEL_UPSTREAM_ERROR);
         }

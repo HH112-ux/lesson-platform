@@ -3,9 +3,11 @@ package com.lp.trade.controller;
 import com.lp.common.result.Result;
 import com.lp.common.web.TraceIds;
 import com.lp.trade.dto.AdminOrderPageView;
+import com.lp.trade.dto.OrderDashboardView;
 import com.lp.trade.dto.OrderMetricsView;
 import com.lp.trade.dto.OrderStatsView;
 import com.lp.trade.service.OrderAdminQueryService;
+import com.lp.trade.service.OrderDashboardService;
 import com.lp.trade.service.OrderStatsService;
 import jakarta.servlet.http.HttpServletRequest;
 import java.time.LocalDate;
@@ -32,18 +34,24 @@ public class InternalOrderStatsController {
 
     private final OrderAdminQueryService orderAdminQueryService;
 
+    private final OrderDashboardService orderDashboardService;
+
     /**
      * Creates the controller with its service dependencies.
      *
      * @param orderStatsService order aggregates
      * @param orderAdminQueryService console order list and dashboard metrics
+     * @param orderDashboardService dashboard trend, refunds and ranking
      * @author Caspian
      * @since 0.1.0
      */
     public InternalOrderStatsController(
-            OrderStatsService orderStatsService, OrderAdminQueryService orderAdminQueryService) {
+            OrderStatsService orderStatsService,
+            OrderAdminQueryService orderAdminQueryService,
+            OrderDashboardService orderDashboardService) {
         this.orderStatsService = orderStatsService;
         this.orderAdminQueryService = orderAdminQueryService;
+        this.orderDashboardService = orderDashboardService;
     }
 
     /**
@@ -125,5 +133,21 @@ public class InternalOrderStatsController {
             @RequestParam(value = "days", defaultValue = "7") int days,
             HttpServletRequest request) {
         return Result.ok(orderAdminQueryService.metrics(days), TraceIds.resolve(request));
+    }
+
+    /**
+     * Returns the dashboard figures of the trailing calendar window.
+     *
+     * @param days window length in days, defaults to 30 and is capped at 90
+     * @param request current request, used to resolve the trace id
+     * @return revenue, orders, refunds, daily trend and the course ranking
+     * @author Caspian
+     * @since 0.21.0
+     */
+    @GetMapping("/dashboard")
+    public Result<OrderDashboardView> dashboard(
+            @RequestParam(value = "days", defaultValue = "30") int days,
+            HttpServletRequest request) {
+        return Result.ok(orderDashboardService.dashboard(days), TraceIds.resolve(request));
     }
 }

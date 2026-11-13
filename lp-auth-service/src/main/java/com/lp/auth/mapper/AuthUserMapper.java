@@ -214,6 +214,38 @@ public interface AuthUserMapper {
     long countCreatedSince(@Param("since") LocalDateTime since);
 
     /**
+     * Counts live accounts holding the {@code STUDENT} role.
+     *
+     * @return number of learner accounts
+     * @author Caspian
+     * @since 0.21.0
+     */
+    @Select(
+            "SELECT COUNT(DISTINCT u.id) FROM sys_user u "
+                    + "INNER JOIN sys_user_role ur ON ur.user_id = u.id AND ur.deleted = 0 "
+                    + "INNER JOIN sys_role r ON r.id = ur.role_id "
+                    + "AND r.deleted = 0 AND r.status = 1 "
+                    + "WHERE u.deleted = 0 AND r.code = 'STUDENT'")
+    long countStudents();
+
+    /**
+     * Counts learner accounts registered at or after the given instant.
+     *
+     * @param since inclusive lower bound
+     * @return number of learner accounts registered inside the window
+     * @author Caspian
+     * @since 0.21.0
+     */
+    @Select(
+            "SELECT COUNT(DISTINCT u.id) FROM sys_user u "
+                    + "INNER JOIN sys_user_role ur ON ur.user_id = u.id AND ur.deleted = 0 "
+                    + "INNER JOIN sys_role r ON r.id = ur.role_id "
+                    + "AND r.deleted = 0 AND r.status = 1 "
+                    + "WHERE u.deleted = 0 AND r.code = 'STUDENT' "
+                    + "AND u.created_at >= #{since}")
+    long countStudentsCreatedSince(@Param("since") LocalDateTime since);
+
+    /**
      * Counts live accounts matching the console filters.
      *
      * @param keyword matches username, nickname or phone; {@code null} or blank matches all
