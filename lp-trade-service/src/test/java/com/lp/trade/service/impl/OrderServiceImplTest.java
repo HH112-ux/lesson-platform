@@ -12,6 +12,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -40,6 +41,7 @@ import com.lp.trade.service.AccountDeletionGuard;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.stream.LongStream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -144,6 +146,100 @@ class OrderServiceImplTest {
     }
 
     /**
+     * Two courses are aggregated into one order with one line per course and a summed total.
+     *
+     * @author Caspian
+     * @since 0.22.0
+     */
+    @Test
+    void createsOneOrderWithOneLinePerCourse() {
+        when(courseInternalClient.course(7L)).thenReturn(courseWithId(7L, 9900L, 2));
+        when(courseInternalClient.course(9L)).thenReturn(courseWithId(9L, 19900L, 2));
+        when(tradeOrderMapper.countOwned(USER_ID, 7L)).thenReturn(0L);
+        when(tradeOrderMapper.countOwned(USER_ID, 9L)).thenReturn(0L);
+        stubInsertedOrder(42L);
+
+        OrderView view =
+                orderService.create(USER_ID, "web", combinedRequest("key-20", List.of(9L, 7L)));
+
+        assertEquals(OrderStatus.PENDING, view.getStatus());
+        assertEquals(29800L, view.getTotalAmountFen());
+        assertEquals(29800L, view.getPayAmountFen());
+        assertEquals(7L, view.getCourseId());
+        assertEquals(2, view.getItems().size());
+        assertEquals(7L, view.getItems().get(0).getCourseId());
+        assertEquals(9L, view.getItems().get(1).getCourseId());
+        verify(tradeOrderMapper, times(2)).insertItem(any(TradeOrderItem.class));
+        verify(entitlementService, never()).grant(anyLong(), anyLong(), anyLong(), anyString());
+    }
+
+    /**
+     * Sending both course fields is ambiguous and rejected before any course is read.
+     *
+     * @author Caspian
+     * @since 0.22.0
+     */
+    @Test
+    void rejectsCourseIdAndCourseIdsTogether() {
+        CreateOrderRequest request = combinedRequest("key-23", List.of(7L, 9L));
+        request.setCourseId(COURSE_ID);
+
+        BizException exception =
+                assertThrows(
+                        BizException.class, () -> orderService.create(USER_ID, "web", request));
+
+        assertEquals(40001, exception.getCode());
+        assertEquals("courseId and courseIds must not be sent together", exception.getMessage());
+        verifyNoInteractions(courseInternalClient);
+        verify(tradeOrderMapper, never()).insertOrder(any(TradeOrder.class));
+    }
+
+    /**
+     * More than twenty distinct courses exceed the combined order limit.
+     *
+     * @author Caspian
+     * @since 0.22.0
+     */
+    @Test
+    void rejectsMoreThanTwentyCourses() {
+        List<Long> courseIds = LongStream.rangeClosed(1, 21).boxed().toList();
+
+        BizException exception =
+                assertThrows(
+                        BizException.class,
+                        () ->
+                                orderService.create(
+                                        USER_ID, "web", combinedRequest("key-24", courseIds)));
+
+        assertEquals(40001, exception.getCode());
+        verifyNoInteractions(courseInternalClient);
+        verify(tradeOrderMapper, never()).insertOrder(any(TradeOrder.class));
+    }
+
+    /**
+     * A coupon is not accepted on a combined order in this release.
+     *
+     * @author Caspian
+     * @since 0.22.0
+     */
+    @Test
+    void rejectsCouponOnCombinedOrder() {
+        BizException exception =
+                assertThrows(
+                        BizException.class,
+                        () ->
+                                orderService.create(
+                                        USER_ID,
+                                        "web",
+                                        combinedRequest("key-25", List.of(7L, 9L), 55L)));
+
+        assertEquals(40001, exception.getCode());
+        assertEquals("coupon is not supported for combined orders", exception.getMessage());
+        verifyNoInteractions(courseInternalClient);
+        verify(tradeOrderMapper, never()).insertOrder(any(TradeOrder.class));
+    }
+
+    /**
      * Replaying the same idempotency key returns the original order without creating a new one.
      *
      * @author Caspian
@@ -153,7 +249,7 @@ class OrderServiceImplTest {
     void replaysExistingOrder() {
         TradeOrder existing = order(42L, "LP20260101000000001", OrderStatus.PENDING);
         when(tradeOrderMapper.selectByUserAndIdempotencyKey(USER_ID, "key-1")).thenReturn(existing);
-        when(tradeOrderMapper.selectFirstItem(42L)).thenReturn(item());
+        when(tradeOrderMapper.selectItems(42L)).thenReturn(List.of(item()));
 
         OrderView view = orderService.create(USER_ID, "web", request("key-1", null));
 
@@ -197,7 +293,7 @@ class OrderServiceImplTest {
         TradeOrder existing = order(42L, "LP20260101000000001", OrderStatus.PENDING);
         when(tradeOrderMapper.selectByUserAndIdempotencyKey(USER_ID, "key-11"))
                 .thenReturn(existing);
-        when(tradeOrderMapper.selectFirstItem(42L)).thenReturn(item());
+        when(tradeOrderMapper.selectItems(42L)).thenReturn(List.of(item()));
 
         OrderView view = orderService.create(USER_ID, "web", request("key-11", null));
 
@@ -216,7 +312,7 @@ class OrderServiceImplTest {
     void rejectsReplayedKeyForAnotherCourse() {
         TradeOrder existing = order(42L, "LP20260101000000001", OrderStatus.PENDING);
         when(tradeOrderMapper.selectByUserAndIdempotencyKey(USER_ID, "key-6")).thenReturn(existing);
-        when(tradeOrderMapper.selectFirstItem(42L)).thenReturn(item());
+        when(tradeOrderMapper.selectItems(42L)).thenReturn(List.of(item()));
         CreateOrderRequest request = request("key-6", null);
         request.setCourseId(COURSE_ID + 1);
 
@@ -241,7 +337,7 @@ class OrderServiceImplTest {
     void rejectsReplayedKeyWithAnotherCoupon() {
         TradeOrder existing = order(42L, "LP20260101000000001", OrderStatus.PENDING);
         when(tradeOrderMapper.selectByUserAndIdempotencyKey(USER_ID, "key-7")).thenReturn(existing);
-        when(tradeOrderMapper.selectFirstItem(42L)).thenReturn(item());
+        when(tradeOrderMapper.selectItems(42L)).thenReturn(List.of(item()));
 
         BizException exception =
                 assertThrows(
@@ -361,7 +457,7 @@ class OrderServiceImplTest {
         when(tradeOrderMapper.countOwned(USER_ID, COURSE_ID)).thenReturn(0L);
         when(tradeOrderMapper.insertOrder(any(TradeOrder.class)))
                 .thenThrow(new DuplicateKeyException("duplicate idempotency key"));
-        when(tradeOrderMapper.selectFirstItem(42L)).thenReturn(item());
+        when(tradeOrderMapper.selectItems(42L)).thenReturn(List.of(item()));
 
         OrderView view = orderService.create(USER_ID, "web", request("key-5", null));
 
@@ -552,11 +648,38 @@ class OrderServiceImplTest {
         return request;
     }
 
+    private CreateOrderRequest combinedRequest(String idempotencyKey, List<Long> courseIds) {
+        return combinedRequest(idempotencyKey, courseIds, null);
+    }
+
+    private CreateOrderRequest combinedRequest(
+            String idempotencyKey, List<Long> courseIds, Long couponId) {
+        CreateOrderRequest request = new CreateOrderRequest();
+        request.setCourseIds(courseIds);
+        request.setIdempotencyKey(idempotencyKey);
+        request.setCouponId(couponId);
+        return request;
+    }
+
+    private void stubInsertedOrder(long orderId) {
+        when(tradeOrderMapper.insertOrder(any(TradeOrder.class)))
+                .thenAnswer(
+                        invocation -> {
+                            TradeOrder order = invocation.getArgument(0);
+                            order.setId(orderId);
+                            return 1;
+                        });
+    }
+
     private CourseSnapshot course(long priceFen, int status) {
+        return courseWithId(COURSE_ID, priceFen, status);
+    }
+
+    private CourseSnapshot courseWithId(long courseId, long priceFen, int status) {
         CourseSnapshot snapshot = new CourseSnapshot();
-        snapshot.setCourseId(COURSE_ID);
-        snapshot.setTitle("Course " + COURSE_ID);
-        snapshot.setCoverUrl("cover-" + COURSE_ID);
+        snapshot.setCourseId(courseId);
+        snapshot.setTitle("Course " + courseId);
+        snapshot.setCoverUrl("cover-" + courseId);
         snapshot.setPrice(priceFen);
         snapshot.setStatus(status);
         snapshot.setTeacherId(3L);
@@ -578,9 +701,15 @@ class OrderServiceImplTest {
     }
 
     private TradeOrderItem item() {
+        return item(COURSE_ID);
+    }
+
+    private TradeOrderItem item(long courseId) {
         TradeOrderItem item = new TradeOrderItem();
         item.setOrderId(42L);
-        item.setCourseId(COURSE_ID);
+        item.setCourseId(courseId);
+        item.setCourseTitle("Course " + courseId);
+        item.setPrice(new BigDecimal("99.00"));
         return item;
     }
 
