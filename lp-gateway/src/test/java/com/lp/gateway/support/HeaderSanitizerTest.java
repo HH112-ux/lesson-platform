@@ -55,8 +55,8 @@ class HeaderSanitizerTest {
 
         HttpHeaders sanitized = HeaderSanitizer.sanitize(inbound);
 
-        assertThat(sanitized.containsKey("X-User-Phone")).isFalse();
-        assertThat(sanitized.containsKey("X-User-Email")).isFalse();
+        assertThat(sanitized.containsHeader("X-User-Phone")).isFalse();
+        assertThat(sanitized.containsHeader("X-User-Email")).isFalse();
         assertThat(sanitized.getFirst("Accept")).isEqualTo("application/json");
     }
 

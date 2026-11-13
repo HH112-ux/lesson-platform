@@ -17,9 +17,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 /**
  * Proves the order row lock keeps concurrent payment initiation down to one pending attempt.
@@ -48,7 +48,7 @@ class PaymentInitiateIdempotencyTest {
 
     @Autowired private JdbcTemplate jdbcTemplate;
 
-    @MockBean private AccountDeletionGuard accountDeletionGuard;
+    @MockitoBean private AccountDeletionGuard accountDeletionGuard;
 
     /**
      * Recreates the two tables and one payable order before each test.

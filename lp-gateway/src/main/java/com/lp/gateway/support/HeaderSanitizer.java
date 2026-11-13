@@ -11,27 +11,26 @@ import org.springframework.http.HttpHeaders;
 /**
  * Removes inbound identity headers, including case variants and duplicates.
  *
- * <p>The class is a pure function so that header stripping can be unit tested without a
- * WebFlux runtime. Only the gateway may add trusted identity headers afterwards.</p>
+ * <p>The class is a pure function so that header stripping can be unit tested without a WebFlux
+ * runtime. Only the gateway may add trusted identity headers afterwards.
  *
  * @author Caspian
  * @since 0.1.0
  */
 public final class HeaderSanitizer {
 
-    private static final Set<String> BANNED = IdentityHeaders.SANITIZE_HEADERS.stream()
-            .map(name -> name.toLowerCase(Locale.ROOT))
-            .collect(Collectors.toUnmodifiableSet());
+    private static final Set<String> BANNED =
+            IdentityHeaders.SANITIZE_HEADERS.stream()
+                    .map(name -> name.toLowerCase(Locale.ROOT))
+                    .collect(Collectors.toUnmodifiableSet());
 
-    private HeaderSanitizer() {
-    }
+    private HeaderSanitizer() {}
 
     /**
      * Returns a copy of the given headers without any banned identity header.
      *
-     * <p>The input map is not modified. All values of a banned header are dropped at once,
-     * and the comparison is case insensitive, so {@code x-user-id} is dropped just like
-     * {@code X-User-Id}.</p>
+     * <p>The input map is not modified. All values of a banned header are dropped at once, and the
+     * comparison is case insensitive, so {@code x-user-id} is dropped just like {@code X-User-Id}.
      *
      * @param inbound original request headers
      * @return sanitized headers safe to forward
@@ -40,7 +39,7 @@ public final class HeaderSanitizer {
      */
     public static HttpHeaders sanitize(HttpHeaders inbound) {
         HttpHeaders sanitized = new HttpHeaders();
-        for (Map.Entry<String, List<String>> entry : inbound.entrySet()) {
+        for (Map.Entry<String, List<String>> entry : inbound.headerSet()) {
             if (isBanned(entry.getKey())) {
                 continue;
             }
